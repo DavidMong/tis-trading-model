@@ -187,7 +187,7 @@ body {
 .container {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 32px 24px 96px;
+  padding: 32px 24px 64px;
   display: flex;
   flex-direction: column;
   gap: 32px;
@@ -197,13 +197,12 @@ body {
 .report-header {
   background: var(--ink);
   color: var(--white);
-  padding: 28px 0; /* horizontal gutter handled by header-inner */
-  width: 100%;
+  border-top: 3px solid var(--red);
 }
 .header-inner {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 0 24px; /* matches container's 24px gutter */
+  padding: 24px 32px 20px;
   display: grid;
   grid-template-columns: auto 1fr auto;
   gap: 24px 40px;
@@ -219,20 +218,34 @@ body {
 .header-trade { min-width: 0; }
 .trade-name {
   font-family: var(--f-display);
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 600;
   color: var(--white);
   line-height: 1.3;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
-.trade-meta {
+.trade-id {
   font-family: var(--f-body);
-  font-size: 12px;
-  color: rgba(255,255,255,.55);
-  letter-spacing: .01em;
-  margin-bottom: 2px;
+  font-size: 11px;
+  color: rgba(255,255,255,.40);
+  letter-spacing: .02em;
 }
-.trade-meta b { color: rgba(255,255,255,.80); font-weight: 500; }
+/* Slim metadata strip below main header row */
+.header-meta-strip {
+  background: rgba(0,0,0,.18);
+  border-top: 1px solid rgba(255,255,255,.07);
+  padding: 7px 0;
+}
+.header-meta-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 32px;
+  font-family: var(--f-body);
+  font-size: 11px;
+  color: rgba(255,255,255,.38);
+  letter-spacing: .01em;
+}
+.header-meta-inner b { color: rgba(255,255,255,.60); font-weight: 500; }
 .header-kpis {
   display: flex;
   gap: 12px;
@@ -247,8 +260,8 @@ body {
   text-align: right;
 }
 .kpi-chip.kpi-accent {
-  background: var(--white);
-  border-color: var(--white);
+  background: #15803d;
+  border-color: #14532d;
 }
 .kpi-label {
   display: block;
@@ -260,9 +273,9 @@ body {
   color: rgba(255,255,255,.55);
   margin-bottom: 6px;
 }
-.kpi-accent .kpi-label { color: var(--slate); }
-.kpi-accent .kpi-value { color: var(--ink); }
-.kpi-accent .kpi-sub  { color: var(--ink-60); }
+.kpi-accent .kpi-label { color: rgba(255,255,255,.70); }
+.kpi-accent .kpi-value { color: var(--white); }
+.kpi-accent .kpi-sub  { color: rgba(255,255,255,.60); }
 .kpi-value {
   display: block;
   font-family: var(--f-display);
@@ -471,8 +484,8 @@ tbody td.muted { color: var(--slate); }
 .wf-box.wf-standalone { background: var(--ink); border-color: var(--ink); }
 .wf-box.wf-deduct     { background: #fff5f5;  border-color: #fca5a5; }
 .wf-box.wf-adjusted   { background: #fffbeb;  border-color: #fcd34d; }
-.wf-box.wf-share      { background: #eff6ff;  border-color: #93c5fd; }
-.wf-box.wf-net        { background: var(--ink); border-color: rgba(255,255,255,.20); }
+.wf-box.wf-share      { background: #fff5f5;  border-color: #fca5a5; }
+.wf-box.wf-net        { background: #15803d;  border-color: #14532d; }
 .wf-box-label {
   font-family: var(--f-display);
   font-size: 10px;
@@ -574,9 +587,9 @@ tbody td.muted { color: var(--slate); }
   font-size: 11px; font-weight: 700;
 }
 .hedge-off .dot { background: var(--slate-bg); color: var(--slate); }
-.hedge-on  .dot { background: #15803d; color: #fff; }
+.hedge-on  .dot { background: var(--red); color: #fff; }
 .hedge-off { color: var(--slate); }
-.hedge-on  { border-color: #15803d; color: #15803d; }
+.hedge-on  { border-color: var(--red); color: var(--red); }
 
 /* ── Pricing ladder ────────────────────────────────────────────────── */
 .ladder-current {
@@ -639,7 +652,7 @@ tbody td.muted { color: var(--slate); }
   align-items: center;
   height: 26px;
 }
-.tn-half { flex: 1; display: flex; height: 100%; }
+.tn-half { flex: 1; display: flex; height: 100%; align-items: center; gap: 4px; }
 .tn-left  { justify-content: flex-end; }
 .tn-right { justify-content: flex-start; }
 .tn-spine {
@@ -655,10 +668,11 @@ tbody td.muted { color: var(--slate); }
   border-radius: 3px;
   min-width: 4px;
   overflow: hidden;
+  flex-shrink: 0;
 }
 .tn-neg { background: #fee2e2; border-radius: 3px 0 0 3px; justify-content: flex-end;   padding: 0 6px; }
 .tn-pos { background: #d1fae5; border-radius: 0 3px 3px 0; justify-content: flex-start; padding: 0 6px; }
-.tn-val {
+.tn-val, .tn-val-out {
   font-family: var(--f-body);
   font-size: 10px;
   font-weight: 600;
@@ -667,6 +681,8 @@ tbody td.muted { color: var(--slate); }
 }
 .tn-neg .tn-val { color: #991b1b; }
 .tn-pos .tn-val { color: #065f46; }
+.tn-neg-val { color: #991b1b; }
+.tn-pos-val { color: #065f46; }
 .tn-baseline-label {
   font-family: var(--f-body);
   font-size: 11px;
@@ -722,7 +738,7 @@ tbody td.muted { color: var(--slate); }
   color: rgba(255,255,255,.4);
   font-size: 11px;
   font-family: var(--f-body);
-  padding: 24px 24px 40px;
+  padding: 18px 32px;
   text-align: center;
   letter-spacing: .02em;
 }
@@ -766,6 +782,22 @@ function headerSection(logo, trade, res) {
   const marginPct    = (exShipPrice && exShipLanded) ? (exShipPrice - exShipLanded) / exShipPrice : null;
 
   const parties = res.meta.parties || {};
+
+  // Short title: strip "(REGRESSION FIXTURE, dummy data)" or similar parenthetical caveats
+  const shortTitle = esc(res.meta.tradeName.replace(/\s*\([^)]*(?:REGRESSION|FIXTURE|dummy|test|sample)[^)]*\)/gi, '').trim());
+  const isFixture = /REGRESSION|FIXTURE|dummy/i.test(res.meta.tradeName);
+  const fixtureBadge = isFixture
+    ? `<span style="display:inline-block;margin-left:10px;padding:2px 7px;font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;background:rgba(212,29,29,.20);color:#fca5a5;border:1px solid rgba(212,29,29,.35);border-radius:3px;vertical-align:middle">Fixture</span>`
+    : '';
+
+  const metaParts = [
+    `Flow: <b>${esc(res.meta.flow)}</b>`,
+    parties.partner   ? `Partner: <b>${esc(parties.partner)}</b>`   : null,
+    parties.supplier  ? `Supplier: ${esc(parties.supplier)}`         : null,
+    parties.inspector ? `Inspector: ${esc(parties.inspector)}`       : null,
+    `Delivered: <b>${fmt.mt(res.meta.deliveredQty)}</b>`,
+  ].filter(Boolean).join(' &nbsp;&middot;&nbsp; ');
+
   return `
 <header class="report-header" role="banner">
   <div class="header-inner">
@@ -773,17 +805,8 @@ function headerSection(logo, trade, res) {
       ${logo}
     </div>
     <div class="header-trade">
-      <h1 class="trade-name">${esc(res.meta.tradeName)}</h1>
-      <p class="trade-meta">
-        <b>${esc(res.meta.tradeId)}</b> &middot; Flow: ${esc(res.meta.flow)}
-        &middot; ${esc(res.meta.entity)}
-      </p>
-      <p class="trade-meta">
-        Partner: <b>${esc(parties.partner || '—')}</b>
-        &middot; Supplier: ${esc(parties.supplier || '—')}
-        &middot; Inspector: ${esc(parties.inspector || '—')}
-      </p>
-      <p class="trade-meta">Delivered: <b>${fmt.mt(res.meta.deliveredQty)}</b></p>
+      <h1 class="trade-name">${shortTitle}${fixtureBadge}</h1>
+      <p class="trade-id">${esc(res.meta.tradeId)}</p>
     </div>
     <div class="header-kpis" role="region" aria-label="Key metrics">
       <div class="kpi-chip kpi-accent">
@@ -793,15 +816,18 @@ function headerSection(logo, trade, res) {
       </div>
       <div class="kpi-chip">
         <span class="kpi-label">Annualised Return</span>
-        <span class="kpi-value">${annRet != null ? fmt.pct(annRet) : '—'}</span>
-        <span class="kpi-sub">on cargo value · ${res.financing.capitalLockupDays}d lockup</span>
+        <span class="kpi-value">${annRet != null ? fmt.pct(annRet) : '&mdash;'}</span>
+        <span class="kpi-sub">on cargo value &middot; ${res.financing.capitalLockupDays}d lockup</span>
       </div>
       <div class="kpi-chip">
         <span class="kpi-label">Ex-Ship Margin</span>
-        <span class="kpi-value">${marginPct != null ? fmt.pct(marginPct) : '—'}</span>
+        <span class="kpi-value">${marginPct != null ? fmt.pct(marginPct) : '&mdash;'}</span>
         <span class="kpi-sub">${fmt.usd(exShipPrice)}/MT sell</span>
       </div>
     </div>
+  </div>
+  <div class="header-meta-strip">
+    <div class="header-meta-inner">${metaParts}</div>
   </div>
 </header>`;
 }
@@ -1220,21 +1246,28 @@ function tornadoChart(sens) {
   rows.sort((a, b) => b.impact - a.impact);
 
   const BAR_PCT = 46;
-  const rowHtml = rows.map(row => {
-    const negPct = row.neg ? (Math.abs(row.neg.deltaVsBase) / maxAbs * BAR_PCT).toFixed(1) : 0;
-    const posPct = row.pos ? (Math.abs(row.pos.deltaVsBase) / maxAbs * BAR_PCT).toFixed(1) : 0;
+  const INSIDE_THRESHOLD = 13; // bar must be >= 13% wide to fit label inside
+  const rowHtml = rows.filter(row => row.impact > 1).map(row => {
+    const negPct = row.neg ? +(Math.abs(row.neg.deltaVsBase) / maxAbs * BAR_PCT).toFixed(1) : 0;
+    const posPct = row.pos ? +(Math.abs(row.pos.deltaVsBase) / maxAbs * BAR_PCT).toFixed(1) : 0;
     const negVal = row.neg ? fmt.usd(row.neg.deltaVsBase) : '';
     const posVal = row.pos ? (row.pos.deltaVsBase >= 0 ? '+' : '') + fmt.usd(row.pos.deltaVsBase) : '';
+    const negInside = negPct >= INSIDE_THRESHOLD;
+    const posInside = posPct >= INSIDE_THRESHOLD;
+    const negBar = row.neg ? `<div class="tn-bar tn-neg" style="width:${negPct}%">${negInside ? `<span class="tn-val">${esc(negVal)}</span>` : ''}</div>` : '';
+    const posBar = row.pos ? `<div class="tn-bar tn-pos" style="width:${posPct}%">${posInside ? `<span class="tn-val">${esc(posVal)}</span>` : ''}</div>` : '';
     return `
     <div class="tn-row">
       <div class="tn-label">${esc(row.label)}</div>
       <div class="tn-bars">
         <div class="tn-half tn-left">
-          ${row.neg ? `<div class="tn-bar tn-neg" style="width:${negPct}%"><span class="tn-val">${esc(negVal)}</span></div>` : ''}
+          ${!negInside && row.neg ? `<span class="tn-val-out tn-neg-val">${esc(negVal)}</span>` : ''}
+          ${negBar}
         </div>
         <div class="tn-spine" aria-hidden="true"></div>
         <div class="tn-half tn-right">
-          ${row.pos ? `<div class="tn-bar tn-pos" style="width:${posPct}%"><span class="tn-val">${esc(posVal)}</span></div>` : ''}
+          ${posBar}
+          ${!posInside && row.pos ? `<span class="tn-val-out tn-pos-val">${esc(posVal)}</span>` : ''}
         </div>
       </div>
     </div>`;
