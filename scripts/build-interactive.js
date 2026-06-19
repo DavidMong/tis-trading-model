@@ -8,7 +8,7 @@ const ROOT = path.resolve(__dirname, '..');
 const OUT  = path.join(ROOT, 'out');
 fs.mkdirSync(OUT, { recursive: true });
 
-// ── 1. (Re-)bundle the engine ────────────────────────────────────────────────
+// ── 1. Bundle engine ─────────────────────────────────────────────────────────
 execSync(
   'npx esbuild scripts/engine-browser-entry.js --bundle --format=iife --global-name=TISEngine --minify --outfile=out/engine.bundle.js',
   { cwd: ROOT, stdio: 'inherit' }
@@ -19,121 +19,227 @@ const engineBundle = fs.readFileSync(path.join(OUT, 'engine.bundle.js'), 'utf8')
 const initialTrade = JSON.parse(fs.readFileSync(path.join(ROOT, 'trades', 'sample-equity-partner.json'), 'utf8'));
 
 // ── 3. Read logo SVG ─────────────────────────────────────────────────────────
-const logoSvg = fs.readFileSync(path.join(ROOT, 'assets', 'tis-logo-2.svg'), 'utf8');
-// Invert Global Trading text for dark header
-const logo = logoSvg.replace(/fill:#242331/g, 'fill:#f0f1f2');
+const logoSvgRaw = fs.readFileSync(path.join(ROOT, 'assets', 'tis-logo-2.svg'), 'utf8');
+const logo = logoSvgRaw.replace(/fill:#242331/g, 'fill:#f0f1f2');
 
-// ── 4. Static report CSS (verbatim from build-report.js) + interactive extras ─
+// ── 4. CSS ───────────────────────────────────────────────────────────────────
 function css() {
-  const {reportCss} = require('./build-report');
+  const { reportCss } = require('./build-report');
   return reportCss + `
-/* ── Interactive additions ──────────────────────────────────────────────── */
-.ctrl-panel {
-  background: var(--white);
-  border-bottom: 2px solid var(--border);
-  padding: 0;
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  box-shadow: 0 2px 8px rgba(0,0,0,.08);
-}
-.ctrl-inner {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 16px 32px;
-}
-.ctrl-header {
-  display: flex;
+/* ════ INTERACTIVE: full-viewport sidebar layout ══════════════════════════ */
+html, body { height: 100%; overflow: hidden; }
+body { display: flex; flex-direction: column; }
+
+/* Drawer toggle — hidden on wide screens */
+.drawer-btn {
+  display: none;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-.ctrl-title {
+  gap: 8px;
+  width: 100%;
+  padding: 9px 16px;
+  background: var(--white);
+  border: none;
+  border-bottom: 1.5px solid var(--border);
+  cursor: pointer;
   font-family: var(--f-display);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: .08em;
   text-transform: uppercase;
   color: var(--slate);
+  flex-shrink: 0;
 }
-.ctrl-toggle-panel {
-  font-family: var(--f-body);
-  font-size: 11px;
+.drawer-btn:hover { color: var(--ink); background: var(--bg); }
+.drawer-arrow { margin-left: auto; font-size: 12px; }
+
+/* App body: sidebar left, results right */
+.app-body { flex: 1; display: flex; overflow: hidden; }
+
+/* ── Sidebar ───────────────────────────────────────────────────── */
+.sidebar {
+  width: 290px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--white);
+  border-right: 1.5px solid var(--border);
+  overflow: hidden;
+}
+
+/* Tabs */
+.sb-tabs {
+  display: flex;
+  flex-shrink: 0;
+  border-bottom: 1.5px solid var(--border);
+  background: var(--white);
+}
+.tab-btn {
+  flex: 1;
+  padding: 11px 0;
+  background: none;
+  border: none;
+  border-bottom: 2.5px solid transparent;
+  margin-bottom: -1.5px;
+  font-family: var(--f-display);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
   color: var(--slate);
   cursor: pointer;
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 3px 10px;
+  transition: color .15s, border-color .15s;
 }
-.ctrl-toggle-panel:hover { background: var(--bg); }
-.ctrl-grid {
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 8px 16px;
-}
-.ctrl-grid[hidden] { display: none; }
-.ctrl-group {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 10px 12px;
-}
-.ctrl-group-title {
+.tab-btn:hover { color: var(--ink); }
+.tab-btn.active { color: var(--red); border-bottom-color: var(--red); }
+
+/* Scrollable content */
+.sb-scroll { flex: 1; overflow-y: auto; overscroll-behavior: contain; }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+/* Section groups */
+.sb-sec { padding: 11px 13px; border-bottom: 1px solid var(--border); }
+.sb-sec-title {
   font-family: var(--f-display);
   font-size: 9px;
   font-weight: 700;
   letter-spacing: .10em;
   text-transform: uppercase;
   color: var(--slate);
-  margin-bottom: 8px;
-  padding-bottom: 5px;
+  margin-bottom: 9px;
+}
+
+/* Tier divider */
+.tier-div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 13px;
+  background: var(--bg);
   border-bottom: 1px solid var(--border);
 }
-.ctrl-row {
+.tier-div-lbl {
+  font-family: var(--f-display);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: .10em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+.tier-div-line { flex: 1; height: 1px; background: var(--border); }
+
+/* Disclosure / assumptions */
+.disc-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 13px;
+  background: var(--bg);
+  border: none;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  font-family: var(--f-display);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  transition: color .12s;
+}
+.disc-btn:hover { color: var(--slate); background: #eef0f3; }
+.disc-body { display: none; }
+.disc-body.open { display: block; }
+
+/* ── Input rows ────────────────────────────────────────────────── */
+.ir {
   display: flex;
   flex-direction: column;
-  margin-bottom: 6px;
+  margin-bottom: 7px;
 }
-.ctrl-row:last-child { margin-bottom: 0; }
-.ctrl-label {
+.ir:last-child { margin-bottom: 0; }
+.ir-lbl {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   font-family: var(--f-body);
   font-size: 10px;
   color: var(--slate);
-  margin-bottom: 2px;
+  margin-bottom: 3px;
+  line-height: 1.2;
 }
-.ctrl-input {
+/* Status pip */
+.pip {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  cursor: help;
+}
+.pip-ok   { background: #10b981; }
+.pip-conf { background: #f59e0b; }
+.pip-ind  { background: #94a3b8; }
+.pip-ph   { background: #f97316; }
+.pip-none { width: 0; }
+
+/* Inputs */
+.si {
   font-family: var(--f-body);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--ink);
   background: var(--white);
   border: 1px solid var(--border);
   border-radius: 4px;
-  padding: 3px 6px;
+  padding: 4px 7px;
   width: 100%;
   box-sizing: border-box;
   font-variant-numeric: tabular-nums lining-nums;
+  transition: border-color .12s, box-shadow .12s;
+  appearance: textfield;
 }
-.ctrl-input:focus {
+.si:focus {
   outline: none;
   border-color: var(--red);
   box-shadow: 0 0 0 2px rgba(212,29,29,.10);
 }
-.ctrl-select {
+.si:hover:not(:focus) { border-color: #9ca3af; background: #fafafa; }
+.si.ph { border-color: #fdba74; background: #fffbf0; color: #9a3412; }
+
+.ss {
   font-family: var(--f-body);
   font-size: 12px;
   color: var(--ink);
   background: var(--white);
   border: 1px solid var(--border);
   border-radius: 4px;
-  padding: 4px 6px;
+  padding: 5px 7px;
+  width: 100%;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+.ss:focus { outline: none; border-color: var(--red); }
+.sr {
+  font-family: var(--f-body);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--slate);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 7px;
   width: 100%;
   box-sizing: border-box;
 }
-.ctrl-select:focus { outline: none; border-color: var(--red); }
-.ctrl-toggles { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
-/* ── Toggle switch ───────────────────────────────────────────────────────── */
+
+/* Primary tier: larger */
+.ir.pri .si { font-size: 13px; padding: 6px 8px; font-weight: 600; }
+.ir.pri .ir-lbl { font-size: 10.5px; font-weight: 600; color: var(--ink-60); }
+
+/* ── Toggle switches ────────────────────────────────────────────── */
 .tgl-wrap {
   display: flex;
   align-items: center;
@@ -141,33 +247,29 @@ function css() {
   cursor: pointer;
   user-select: none;
   outline: none;
+  padding: 1px 0;
 }
-.tgl-wrap:focus-visible .tgl-track {
-  box-shadow: 0 0 0 2px rgba(212,29,29,.30);
-}
+.tgl-wrap:focus-visible .tgl-track { box-shadow: 0 0 0 2px rgba(212,29,29,.30); }
 .tgl-track {
   flex-shrink: 0;
-  width: 34px;
-  height: 18px;
+  width: 34px; height: 18px;
   background: #c9cdd4;
   border-radius: 9px;
   position: relative;
-  transition: background .18s ease;
+  transition: background .18s;
 }
 .tgl-track.on { background: var(--red); }
 .tgl-knob {
   position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 14px;
-  height: 14px;
+  top: 2px; left: 2px;
+  width: 14px; height: 14px;
   background: #fff;
   border-radius: 50%;
   box-shadow: 0 1px 3px rgba(0,0,0,.22);
-  transition: transform .18s ease;
+  transition: transform .18s;
 }
 .tgl-track.on .tgl-knob { transform: translateX(16px); }
-.tgl-label {
+.tgl-lbl {
   font-family: var(--f-body);
   font-size: 11px;
   font-weight: 500;
@@ -175,44 +277,80 @@ function css() {
   transition: color .18s;
   line-height: 1;
 }
-.tgl-wrap[data-on="true"] .tgl-label { color: var(--ink); font-weight: 600; }
-/* ── Input affordances ───────────────────────────────────────────────────── */
-.ctrl-input {
-  transition: border-color .12s, box-shadow .12s;
-  appearance: textfield;
+.tgl-wrap[data-on="true"] .tgl-lbl { color: var(--ink); font-weight: 600; }
+.tgl-set { display: flex; flex-direction: column; gap: 9px; }
+
+/* Hedge tab: greyed disabled state */
+.hedge-off { opacity: .38; pointer-events: none; }
+.hedge-warn-note {
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  border-radius: 5px;
+  color: #9a3412;
+  font-family: var(--f-body);
+  font-size: 11px;
+  padding: 7px 10px;
+  margin-bottom: 10px;
+  line-height: 1.4;
 }
-.ctrl-input:hover:not(:focus) {
-  border-color: #9ca3af;
-  background: #fafafa;
+.hedge-off-note {
+  font-family: var(--f-body);
+  font-size: 11px;
+  color: #94a3b8;
+  margin-bottom: 10px;
+  line-height: 1.4;
 }
-.ctrl-select:hover:not(:focus) { border-color: #9ca3af; }
-/* ── Flash animation on live recompute ───────────────────────────────────── */
-@keyframes val-flash {
-  0%   { background-color: rgba(212,29,29,.07); }
-  100% { background-color: transparent; }
+
+/* ── Sidebar footer ─────────────────────────────────────────────── */
+.sb-footer {
+  flex-shrink: 0;
+  padding: 9px 13px;
+  border-top: 1.5px solid var(--border);
+  background: var(--white);
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
-.val-flash { animation: val-flash .5s ease-out; }
-/* ── Compact controls ────────────────────────────────────────────────────── */
-.ctrl-group { padding: 9px 11px; }
-.ctrl-row { margin-bottom: 5px; }
-.ctrl-input { padding: 3px 5px; font-size: 12px; }
-/* ── Hedge improvements ──────────────────────────────────────────────────── */
-.hedge-block { padding: 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; }
-.hedge-title { font-family: var(--f-display); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--slate); margin-bottom: 10px; }
-.hedge-status-pill {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 4px 10px; border-radius: 20px; margin-bottom: 12px;
-  font-family: var(--f-body); font-size: 11px; font-weight: 600; letter-spacing: .04em;
-  background: #f3f4f6; color: var(--slate); border: 1px solid var(--border);
-  transition: all .18s;
+.btn-reset {
+  flex: 1;
+  padding: 6px 10px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: var(--f-body);
+  font-size: 11px;
+  color: var(--slate);
+  cursor: pointer;
+  transition: background .12s, color .12s;
 }
-.hedge-status-pill.on { background: rgba(212,29,29,.07); color: var(--red); border-color: rgba(212,29,29,.35); }
-.hedge-status-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.hedge-compare { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
-/* ── Section spacing ─────────────────────────────────────────────────────── */
-.two-col-card { padding: 20px 24px; background: var(--white); border: 1px solid var(--border); border-radius: 8px; }
-.two-col-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-.error-banner {
+.btn-reset:hover { background: var(--bg); color: var(--ink); }
+.mod-badge {
+  font-family: var(--f-display);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  background: rgba(212,29,29,.08);
+  color: var(--red);
+  border: 1px solid rgba(212,29,29,.20);
+  border-radius: 3px;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+
+/* ── Results area ───────────────────────────────────────────────── */
+.results {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 28px 64px;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Error banner */
+.err-banner {
   background: #fff5f5;
   border: 1.5px solid #fca5a5;
   border-radius: 6px;
@@ -220,9 +358,104 @@ function css() {
   font-family: var(--f-body);
   font-size: 12px;
   padding: 10px 16px;
-  margin-bottom: 16px;
 }
-.error-banner[hidden] { display: none; }
+.err-banner[hidden] { display: none; }
+
+/* ── Waterfall row ──────────────────────────────────────────────── */
+.wf-row {
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+  padding: 20px 20px 4px;
+  gap: 0;
+}
+.wf-arrow {
+  display: flex;
+  align-items: center;
+  color: var(--slate);
+  font-size: 20px;
+  padding: 0 5px;
+  flex-shrink: 0;
+}
+
+/* ── Hedge cards (structural overflow fix) ──────────────────────── */
+.hedge-cards { display: flex; flex-direction: column; gap: 12px; }
+.h-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.h-card.on { border-color: rgba(212,29,29,.30); }
+.h-card-hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 18px;
+  background: var(--bg);
+}
+.h-card-title {
+  font-family: var(--f-display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--slate);
+}
+.h-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-family: var(--f-body);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  background: #f3f4f6;
+  color: var(--slate);
+  border: 1px solid var(--border);
+  transition: all .18s;
+}
+.h-pill.on { background: rgba(212,29,29,.07); color: var(--red); border-color: rgba(212,29,29,.35); }
+.h-pill-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+/* Detail expands on ON state */
+.h-detail {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height .3s ease;
+}
+.h-card.on .h-detail { max-height: 700px; }
+.h-detail-inner { padding: 14px 18px; border-bottom: 1px solid var(--border); }
+.h-lock-warn {
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  border-radius: 5px;
+  color: #9a3412;
+  font-family: var(--f-body);
+  font-size: 11px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  line-height: 1.4;
+}
+/* Comparison: always visible */
+.h-cmp {
+  padding: 12px 18px;
+  background: var(--white);
+}
+.h-cmp-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-family: var(--f-body);
+  font-size: 12px;
+  padding: 2px 0;
+}
+.h-cmp-lbl { color: var(--slate); }
+.h-cmp-val { font-weight: 600; font-variant-numeric: tabular-nums; }
+.h-cmp-delta { font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* ── Live badge ─────────────────────────────────────────────────── */
 .live-badge {
   display: inline-block;
   background: #d1fae5;
@@ -237,112 +470,355 @@ function css() {
   margin-left: 8px;
   vertical-align: middle;
 }
-@media (max-width: 1100px) {
-  .ctrl-grid { grid-template-columns: repeat(3, 1fr); }
+
+/* ── Ladder price-scale bar ─────────────────────────────────────── */
+.ladder-scale-wrap { padding: 8px 20px 20px; position: relative; }
+.ladder-scale-bar {
+  height: 24px;
+  border-radius: 4px;
+  background: linear-gradient(to right, #fee2e2 0%, #fef3c7 42%, #d1fae5 76%, #bbf7d0 100%);
+  position: relative;
+}
+.ladder-scale-tick {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 2px;
+  background: var(--ink);
+  transform: translateX(-50%);
+  border-radius: 1px;
+}
+.ladder-scale-tick::after {
+  content: attr(data-label);
+  position: absolute;
+  bottom: calc(100% + 5px);
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-family: var(--f-body);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 6px;
+}
+.ladder-tier-pip {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-family: var(--f-display);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: rgba(0,0,0,.38);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* ── Tax net-after highlight ────────────────────────────────────── */
+.tax-net-box {
+  background: #f0fdf4;
+  border: 1.5px solid #86efac;
+  border-radius: 8px;
+  padding: 12px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 14px;
+}
+.tax-net-box .lbl { font-family: var(--f-body); font-size: 12px; color: #166534; }
+.tax-net-box .val { font-family: var(--f-display); font-size: 20px; font-weight: 700; color: #15803d; font-variant-numeric: tabular-nums lining-nums; }
+
+/* ── Sens heat-map cell classes ─────────────────────────────────── */
+.sh-pos  { background: var(--heat-pos); }
+.sh-pos-s{ background: var(--heat-pos-strong); }
+.sh-neg  { background: var(--heat-neg); }
+.sh-neg-s{ background: var(--heat-neg-strong); }
+
+/* ── Val-flash (preserved) ──────────────────────────────────────── */
+@keyframes val-flash {
+  0%   { background-color: rgba(212,29,29,.07); }
+  100% { background-color: transparent; }
+}
+.val-flash { animation: val-flash .5s ease-out; }
+
+/* KPI chip flash */
+@keyframes kpi-flash {
+  0%   { opacity: .5; }
+  100% { opacity: 1; }
+}
+.kpi-flash { animation: kpi-flash .3s ease-out; }
+
+/* ── Two-col cards inside results ───────────────────────────────── */
+.two-col-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.two-col-card { background: var(--white); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; }
+
+/* ── Responsive: drawer at < 1000px ────────────────────────────── */
+@media (max-width: 1000px) {
+  .app-body { flex-direction: column; }
+  .sidebar {
+    width: 100%;
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height .35s ease;
+    border-right: none;
+    border-bottom: 1.5px solid var(--border);
+    flex-shrink: 0;
+  }
+  .sidebar.open { max-height: 560px; overflow-y: auto; }
+  .drawer-btn { display: flex !important; }
+  .results { padding: 16px 14px 48px; }
+  .two-col-grid { grid-template-columns: 1fr; }
 }
 `;
 }
 
-// ── 5. Generate the HTML ──────────────────────────────────────────────────────
+// ── 5. Build helpers ─────────────────────────────────────────────────────────
 function esc(s) {
   return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 const t = initialTrade;
-const shortTitle = esc(t.meta.tradeName.replace(/\s*\([^)]*(?:REGRESSION|FIXTURE|dummy|test|sample)[^)]*\)/gi, '').trim());
-const fixtureBadge = `<span style="display:inline-block;margin-left:10px;padding:2px 7px;font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;background:rgba(212,29,29,.20);color:#fca5a5;border:1px solid rgba(212,29,29,.35);border-radius:3px;vertical-align:middle">Fixture</span>`;
+const f = t.financing;
+const p = t.partner;
+const cl = t.costLines;
+const hg = t.hedge;
+const fxhg = t.fxHedge || {};
+const sur = t.tax.surcharge || {};
 
-// Controls panel HTML
-function ctrlGroup(title, rows) {
-  return `<div class="ctrl-group">
-  <div class="ctrl-group-title">${title}</div>
-  ${rows}
-</div>`;
+// Round to N decimal places for display
+function dp(v, n) { return parseFloat((+v).toFixed(n)); }
+// Percent: 0.075 → 7.5 (shown in input)
+function pct2(v) { return dp(v * 100, 2); }
+function pct4(v) { return dp(v * 100, 4); }
+
+// Input component builders
+function ni(id, val, step, min, cls) {
+  const minAttr = min != null ? ` min="${min}"` : '';
+  const clsStr  = cls ? ` ${cls}` : '';
+  return `<input type="number" id="${id}" class="si${clsStr}" value="${val !== '' && val != null ? val : ''}" step="${step ?? 'any'}"${minAttr}>`;
 }
-function ctrlRow(label, inputHtml) {
-  return `<div class="ctrl-row"><label class="ctrl-label">${label}</label>${inputHtml}</div>`;
+function si(id, opts, sel) {
+  const o = opts.map(([v, l]) => `<option value="${v}"${v === sel ? ' selected' : ''}>${esc(l)}</option>`).join('');
+  return `<select id="${id}" class="ss">${o}</select>`;
 }
-function numInput(id, val, step, min) {
-  return `<input type="number" id="${id}" class="ctrl-input" value="${val}" step="${step ?? 'any'}" min="${min ?? 0}">`;
+function ro(id, val) {
+  return `<div id="${id}" class="sr">${esc(String(val ?? ''))}</div>`;
 }
-function selInput(id, options, selected) {
-  const opts = options.map(([v,l]) => `<option value="${v}"${v===selected?' selected':''}>${l}</option>`).join('');
-  return `<select id="${id}" class="ctrl-select">${opts}</select>`;
-}
-function togSwitch(id, label, active) {
-  return `<div id="${id}" class="tgl-wrap" data-on="${active}" tabindex="0" role="switch" aria-checked="${active}" aria-label="${label}">
-    <div class="tgl-track${active?' on':''}"><div class="tgl-knob"></div></div>
-    <span class="tgl-label">${label}</span>
+function tog(id, label, active) {
+  return `<div id="${id}" class="tgl-wrap" data-on="${active}" tabindex="0" role="switch" aria-checked="${active}" aria-label="${esc(label)}">
+    <div class="tgl-track${active ? ' on' : ''}"><div class="tgl-knob"></div></div>
+    <span class="tgl-lbl">${esc(label)}</span>
   </div>`;
 }
 
-const f = t.financing;
-const p = t.partner;
-const lcPct = +(f.lcPctOfCargo * 100).toFixed(2);
-const bondPct = +(p.bondPct * 100).toFixed(2);
-const equityPct = +(p.equityPct * 100).toFixed(2);
-
-const controlsHtml = `
-<div class="ctrl-panel">
-  <div class="ctrl-inner">
-    <div class="ctrl-header">
-      <span class="ctrl-title">Trade Inputs <span class="live-badge">Live</span></span>
-      <button class="ctrl-toggle-panel" onclick="togglePanel(this)">&#x25B2; Collapse</button>
-    </div>
-    <div id="ctrl-grid" class="ctrl-grid">
-      ${ctrlGroup('Market', [
-        ctrlRow('ICE LSGO ($/MT)', numInput('inp-ice', t.market.ice.value, 0.01, 0)),
-        ctrlRow('FOB Premium ($/MT)', numInput('inp-fob', t.market.fobPremium.value, 0.01)),
-        ctrlRow('FX Parallel (₦/USD)', numInput('inp-fx-parallel', t.fx.parallel.value, 1, 1)),
-        ctrlRow('FX NAFEM (₦/USD)', numInput('inp-fx-nafem', t.fx.nafem.value, 1, 1)),
-      ].join(''))}
-      ${ctrlGroup('Cargo &amp; Price', [
-        ctrlRow('Delivered MT', numInput('inp-delivered', t.cargo.deliveredQtyMT, 1, 1)),
-        ctrlRow('Ex-Ship Price ($/MT)', numInput('inp-exship-price', t.sell.exShipPricePerMT.value, 0.01, 0)),
-        ctrlRow('Ex-ship Channel %', numInput('inp-exship-pct', 100, 1, 0)),
-        ctrlRow('Depot Price (₦/L)', `<div id="depot-price-row" hidden>${numInput('inp-depot-price', 1400, 1, 0)}</div><span id="depot-price-na" class="ctrl-label" style="color:var(--border);padding-top:4px">N/A (no depot)</span>`),
-      ].join(''))}
-      ${ctrlGroup('Freight', [
-        ctrlRow('TC Rate ($/day)', numInput('inp-tc-rate', t.freight.tcRatePerDay, 500, 0)),
-        ctrlRow('Charter Days', numInput('inp-charter', t.freight.charterDays, 1, 0)),
-        ctrlRow('Demurrage Days', numInput('inp-demurrage', t.freight.demurrageDays, 0.5, 0)),
-      ].join(''))}
-      ${ctrlGroup('Financing', [
-        ctrlRow('Credit Rate (%/yr)', numInput('inp-credit-rate', +(f.creditRate*100).toFixed(2), 0.1, 0)),
-        ctrlRow('LC Fee (%)', numInput('inp-lc-fee', +(f.lcFeePct*100).toFixed(3), 0.01, 0)),
-        ctrlRow('Financing Days', numInput('inp-fin-days', f.financingDays, 1, 1)),
-        ctrlRow('Capital Lockup Days', numInput('inp-lockup', f.capitalLockupDays, 1, 1)),
-      ].join(''))}
-      ${ctrlGroup('Partner &amp; Equity', [
-        ctrlRow('Bond % (of cargo)', numInput('inp-bond', bondPct, 0.5, 0)),
-        ctrlRow('Equity % (of cargo)', numInput('inp-equity', equityPct, 0.5, 0)),
-        ctrlRow('LC % (auto)', `<div id="lc-pct-display" class="ctrl-input" style="background:var(--bg);color:var(--slate);cursor:default">${lcPct.toFixed(2)}%</div>`),
-        ctrlRow('Profit Split (partner %)', numInput('inp-profit-split', +(p.profitSharePct*100).toFixed(1), 1, 0)),
-      ].join(''))}
-      ${ctrlGroup('Currency &amp; Toggles', [
-        ctrlRow('Currency Mode', selInput('inp-currency-mode', [['USD','USD (fully USD)'],['NGN','NGN (fully naira)'],['split','Split (USD + NGN)']], 'USD')),
-        ctrlRow('Taxable Supply Prop.', numInput('inp-taxable-prop', t.tax.taxableSupplyProportion, 0.05, 0)),
-        `<div class="ctrl-row"><label class="ctrl-label">Toggles</label>
-          <div class="ctrl-toggles">
-            ${togSwitch('tog-ice-hedge', 'ICE Hedge', false)}
-            ${togSwitch('tog-fx-hedge', 'FX Hedge', false)}
-            ${togSwitch('tog-surcharge', 'Surcharge', false)}
-          </div>
-        </div>`,
-      ].join(''))}
-    </div>
-  </div>
-</div>`;
-
-// ── CSS
-let sharedCss;
-try { sharedCss = css(); }
-catch(e) {
-  // If build-report doesn't export reportCss yet, use a placeholder reference
-  sharedCss = fs.readFileSync(path.join(__dirname, '_report-css.css'), 'utf8').catch?.() || '';
-  if (!sharedCss) throw e;
+function pip(status) {
+  const s = (status || '').toUpperCase();
+  let cls = 'pip-none';
+  if (!status || s === 'OK')           cls = 'pip-ok';
+  else if (s.includes('CONFIRM'))      cls = 'pip-conf';
+  else if (s.includes('INDICATIVE'))   cls = 'pip-ind';
+  else if (s.includes('PLACEHOLDER'))  cls = 'pip-ph';
+  else if (s.includes('EXAMPLE') || s.includes('DUMMY')) cls = 'pip-ind';
+  else cls = 'pip-ok';
+  return `<span class="pip ${cls}" title="${esc(status || 'OK')}"></span>`;
 }
 
+function ir(id, label, inputHtml, status, primary) {
+  const pr = primary ? ' pri' : '';
+  return `<div class="ir${pr}">
+  <label class="ir-lbl" for="${id}">${pip(status)}${esc(label)}</label>
+  ${inputHtml}
+</div>`;
+}
+function sec(title, rows) {
+  // title is always a hardcoded string from this file — never user input — so no esc() needed
+  return `<div class="sb-sec"><div class="sb-sec-title">${title}</div>${rows}</div>`;
+}
+function tdiv(label) {
+  return `<div class="tier-div"><span class="tier-div-lbl">${esc(label)}</span><span class="tier-div-line"></span></div>`;
+}
+
+// ── 6. Sidebar HTML ──────────────────────────────────────────────────────────
+const lcPctInit = dp(1 - p.bondPct - p.equityPct, 2) * 100;
+const exShipPctInit = t.channels ? dp(t.channels.exShipPct * 100, 1) : 100;
+const depotPctInit  = t.channels ? dp(t.channels.depotPct  * 100, 1) : 0;
+const depotActive   = depotPctInit > 0;
+const surEnabled    = !!(sur.enabled);
+const iceOn         = !!(hg.iceHedged);
+const fxOn          = !!(fxhg.fxHedged);
+
+// ── Tab: Deal ────────────────────────────────────────────────────────────────
+const tabDeal = `
+${sec('Pricing <span class="live-badge">Live</span>', [
+  ir('inp-ice',       'ICE LSGO $/MT',      ni('inp-ice',       t.market.ice.value,           0.01, 0),     t.market.ice.status, true),
+  ir('inp-fob',       'FOB Premium $/MT',    ni('inp-fob',       t.market.fobPremium.value,    0.01),        '', true),
+  ir('inp-fxpar',     'FX Parallel ₦/USD',   ni('inp-fxpar',     t.fx.parallel.value,          1, 1),        t.fx.parallel.status, true),
+  ir('inp-delivered', 'Delivered MT',        ni('inp-delivered', t.cargo.deliveredQtyMT,        1, 1),        '', true),
+].join(''))}
+${sec('Sale', [
+  ir('inp-exship-price', 'Ex-Ship Price $/MT', ni('inp-exship-price', t.sell.exShipPricePerMT.value, 0.01, 0), t.sell.exShipPricePerMT.status, true),
+  ir('inp-exship-pct',   'Ex-ship Channel %',  ni('inp-exship-pct',   exShipPctInit, 1, 0), '', true),
+  `<div class="ir pri" id="depot-price-row"${!depotActive ? ' hidden' : ''}>
+    <label class="ir-lbl" for="inp-depot-price">${pip('INDICATIVE')}Depot Price ₦/L</label>
+    ${ni('inp-depot-price', t.sell.depotPriceNgnPerL ? t.sell.depotPriceNgnPerL.value : 1400, 1, 0)}
+  </div>`,
+  ir('inp-profit-split', 'Partner Profit Split %', ni('inp-profit-split', pct2(p.profitSharePct), 1, 0), '', true),
+].join(''))}
+${sec('Toggles', `<div class="tgl-set">
+  ${tog('tog-ice-hedge', 'ICE Gasoil Hedge', iceOn)}
+  ${tog('tog-fx-hedge',  'FX Hedge (Naira)', fxOn)}
+  ${tog('tog-surcharge', 'Fossil-fuel Surcharge', surEnabled)}
+</div>`)}
+
+${tdiv('Deal Terms')}
+
+${sec('FX & Currency', [
+  ir('inp-fxnafem',       'FX NAFEM ₦/USD',   ni('inp-fxnafem', t.fx.nafem.value, 1, 1), t.fx.nafem.status),
+  ir('inp-currency-mode', 'Currency Mode',     si('inp-currency-mode', [['USD','USD (fully USD)'],['NGN','NGN (fully naira)'],['split','Split (USD+NGN)']], t.sell.currencyMode || 'USD'), ''),
+  `<div class="ir" id="split-usd-row"${(t.sell.currencyMode || 'USD') !== 'split' ? ' hidden' : ''}>
+    <label class="ir-lbl" for="inp-split-usd">${pip('')}Split USD %</label>
+    ${ni('inp-split-usd', pct2(t.sell.splitUsdPct || 1), 1, 0)}
+  </div>`,
+  ir('inp-taxable-prop', 'Taxable Supply Prop.', ni('inp-taxable-prop', t.tax.taxableSupplyProportion, 0.05, 0), 'INDICATIVE'),
+].join(''))}
+${sec('Freight', [
+  ir('inp-tc-rate',   'TC Rate $/day',    ni('inp-tc-rate',   t.freight.tcRatePerDay,   500,  0), t.freight.status || 'INDICATIVE'),
+  ir('inp-charter',   'Charter Days',     ni('inp-charter',   t.freight.charterDays,    1,    0), t.freight.status || 'INDICATIVE'),
+  ir('inp-demurrage', 'Demurrage Days',   ni('inp-demurrage', t.freight.demurrageDays,  0.5,  0), t.freight.status || 'INDICATIVE'),
+].join(''))}
+${sec('Financing', [
+  ir('inp-credit-rate', 'Credit Rate %/yr',    ni('inp-credit-rate', pct2(f.creditRate), 0.1, 0), f.status || 'INDICATIVE'),
+  ir('inp-lc-fee',      'LC Fee %',            ni('inp-lc-fee', pct2(f.lcFeePct), 0.01, 0),       f.status || 'INDICATIVE'),
+  ir('inp-fin-days',    'Financing Days',      ni('inp-fin-days', f.financingDays, 1, 1),          ''),
+  ir('inp-lockup',      'Capital Lockup Days', ni('inp-lockup', f.capitalLockupDays, 1, 1),        ''),
+  ir('inp-wc-sublimit', 'WC Sublimit $',       ni('inp-wc-sublimit', f.wcSublimit, 10000, 0),      'INDICATIVE'),
+].join(''))}
+${sec('Partner & Equity', [
+  ir('sel-equity-provider', 'Equity Provider',    si('sel-equity-provider', [['partner','Partner (equity split)'],['TIS','TIS (self-funded)']], p.equityProvider || 'partner'), ''),
+  ir('inp-bond',    'Bond % of cargo',  ni('inp-bond',    pct2(p.bondPct),  0.5, 0), ''),
+  ir('inp-equity',  'Equity % of cargo',ni('inp-equity',  pct2(p.equityPct),0.5, 0), ''),
+  `<div class="ir">
+    <label class="ir-lbl" for="lc-display">${pip('')}LC % (auto-derived)</label>
+    <div id="lc-display" class="sr">${lcPctInit.toFixed(2)}%</div>
+  </div>`,
+  ir('inp-product-alloc', 'Product Allocation %', ni('inp-product-alloc', pct2(p.productAllocationPct ?? 1), 5, 0), ''),
+].join(''))}
+${sec('Surcharge', [
+  `<div id="sur-inc-row"${!surEnabled ? ' hidden' : ''}>
+    ${ir('sel-surcharge-inc', 'Surcharge incidence', si('sel-surcharge-inc', [['cost','Cost (TIS bears)'],['pass_through','Pass-through (buyer)']], (sur.incidence) || 'cost'), 'PENDING')}
+  </div>`,
+  `<div id="sur-off-note" class="ir-lbl" style="color:#94a3b8"${surEnabled ? ' hidden' : ''}>Enable toggle to configure incidence</div>`,
+].join(''))}
+<button class="disc-btn" onclick="toggleDisc(this)">Assumptions &amp; Tax Rates <span>▼</span></button>
+<div class="disc-body">
+${sec('Tax Rates', [
+  ir('inp-vat-rate', 'VAT Rate %',        ni('inp-vat-rate', pct2(t.tax.vatRate),             0.1, 0), 'OK'),
+  ir('inp-wht-rate', 'WHT on freight %',  ni('inp-wht-rate', pct2(t.tax.whtFreightRate || 0.05), 0.1, 0), 'CONFIRM'),
+].join(''))}
+</div>
+`;
+
+// ── Tab: Costs ───────────────────────────────────────────────────────────────
+const tabCosts = `
+${sec('Port & Cargo Dues', [
+  ir('inp-npa-per-mt', 'NPA cargo dues $/MT', ni('inp-npa-per-mt', cl.npaCargoDuesPerMT, 0.1, 0), 'OK'),
+  ir('inp-port-das',   'Port DAs $',          ni('inp-port-das',   cl.portDAs, 1000, 0),           'OK'),
+  ir('inp-ncs-docs',   'NCS documentation $', ni('inp-ncs-docs',   cl.ncsDocs, 100, 0),            'OK'),
+].join(''))}
+${sec('Maritime Levies', [
+  ir('inp-nimasa-cab',     'NIMASA cabotage %',     ni('inp-nimasa-cab',     pct2(cl.nimasaCabotagePct),     0.1, 0), 'CONFIRM'),
+  ir('inp-nimasa-freight', 'NIMASA freight levy %', ni('inp-nimasa-freight', pct2(cl.nimasaFreightLevyPct), 0.1, 0), 'CONFIRM'),
+  ir('inp-spomo',          'SPOMO / CVFF %',        ni('inp-spomo',          pct2(cl.spomoCvffPct),         0.1, 0), 'CONFIRM'),
+].join(''))}
+${sec('Cargo & Services', [
+  ir('inp-marine-icc',    'Marine ICC(A) %',      ni('inp-marine-icc',    pct4(cl.marineIccPct),    0.001, 0), 'INDICATIVE'),
+  ir('inp-sgs',           'SGS inspection $',     ni('inp-sgs',           cl.sgsInspection,         500,   0), 'OK'),
+  ir('inp-port-agency',   'Port agency $',        ni('inp-port-agency',   cl.portAgency,            500,   0), 'OK'),
+  ir('inp-alloc-security','Allocated security %', ni('inp-alloc-security',pct4(cl.allocSecurityPct),0.001, 0), 'INDICATIVE'),
+].join(''))}
+${sec('Banking & Admin', [
+  ir('inp-bank-charges',  'Bank charges $',      ni('inp-bank-charges',  cl.bankCharges,      100,  0), 'OK'),
+  ir('inp-overhead',      'Overhead $',          ni('inp-overhead',      cl.overhead,          100,  0), 'OK'),
+  ir('inp-contingency',   'Contingency $',       ni('inp-contingency',   cl.contingency,       1000, 0), 'OK'),
+  ir('inp-collateral-mgr','Collateral manager $',ni('inp-collateral-mgr',cl.collateralManager, 100,  0), 'OK'),
+].join(''))}
+<div id="storage-sec"${!depotActive ? ' hidden' : ''}>
+${sec('Storage (depot active)', [
+  ir('inp-throughput',     'Throughput ₦/MT',       ni('inp-throughput',     cl.throughputNgnPerMT || cl.throughput    || 0,  100,   0), 'OK'),
+  ir('inp-storage-rental', 'Storage rental ₦ total',ni('inp-storage-rental', cl.storageRentalNgn   || cl.storageRental || 0,  10000, 0), 'OK'),
+  ir('inp-evaporation',    'Evaporation %',          ni('inp-evaporation',    pct4(cl.evaporationPct),     0.01, 0), 'INDICATIVE'),
+  ir('inp-tank-insurance', 'Tank insurance %',       ni('inp-tank-insurance', pct4(cl.tankInsurancePct),   0.001,0), 'INDICATIVE'),
+  ir('inp-litres-per-mt',  'Litres per MT (density)',ni('inp-litres-per-mt',  t.pricing.conversion.litresPerMT, 1, 100), 'INDICATIVE'),
+].join(''))}
+</div>
+<div id="storage-off-note" class="sb-sec" style="color:#94a3b8;font-family:var(--f-body);font-size:11px"${depotActive ? ' hidden' : ''}>Storage inputs activate when a depot channel is enabled (Ex-ship Channel &lt; 100% in Deal tab).</div>
+`;
+
+// ── Tab: Hedge ───────────────────────────────────────────────────────────────
+const tabHedge = `
+<div class="sb-sec">
+  <div class="sb-sec-title">ICE Gasoil Swap</div>
+  <div id="ice-on-warn" class="hedge-warn-note"${!iceOn ? ' hidden' : ''}>Hedge ON — verify all PLACEHOLDER values before live trading.</div>
+  <div id="ice-off-note" class="hedge-off-note"${iceOn ? ' hidden' : ''}>Enable ICE Hedge in Deal tab to activate.</div>
+  <div id="ice-params" class="${iceOn ? '' : 'hedge-off'}">
+    ${ir('sel-ice-route', 'Route', si('sel-ice-route', [['bank_book','Bank book (in-house)'],['third_party','Third party (margin financing)']], hg.route || 'bank_book'), '')}
+    ${ir('inp-ice-fixed',  'Fixed price $/MT',  ni('inp-ice-fixed',  hg.fixedPrice != null ? hg.fixedPrice : '', 0.01, 0, 'ph'), 'PLACEHOLDER')}
+    ${ir('inp-ice-fee',    'Swap fee $/MT',      ni('inp-ice-fee',    hg.feePerMT || 1.5, 0.01, 0, 'ph'),   'PLACEHOLDER')}
+    <div id="ice-spread-row"${hg.route === 'third_party' ? ' hidden' : ''}>
+      ${ir('inp-ice-spread', 'Bank spread $/MT', ni('inp-ice-spread', hg.bankSpreadPerMT || 0.5, 0.01, 0), 'INDICATIVE')}
+    </div>
+    <div id="ice-margin-row"${hg.route !== 'third_party' ? ' hidden' : ''}>
+      ${ir('inp-ice-margin', 'Initial margin %', ni('inp-ice-margin', pct2(hg.initialMarginPct || 0.10), 1, 0, 'ph'), 'PLACEHOLDER')}
+    </div>
+    ${ir('inp-ice-hedged-vol', 'Hedged volume MT', ni('inp-ice-hedged-vol', hg.hedgedVolumeMT != null ? hg.hedgedVolumeMT : '', 100, 0), 'INDICATIVE')}
+  </div>
+</div>
+<div class="sb-sec">
+  <div class="sb-sec-title">FX Hedge (Naira Exposure)</div>
+  <div id="fx-on-warn" class="hedge-warn-note"${!fxOn ? ' hidden' : ''}>FX Hedge ON — verify all PLACEHOLDER values before live trading.</div>
+  <div id="fx-off-note" class="hedge-off-note"${fxOn ? ' hidden' : ''}>Enable FX Hedge in Deal tab to activate.</div>
+  <div id="fx-params" class="${fxOn ? '' : 'hedge-off'}">
+    ${ir('sel-fx-route',   'Route',             si('sel-fx-route', [['bank_book','Bank book'],['third_party','Third party']], fxhg.route || 'bank_book'), '')}
+    ${ir('inp-fx-forward', 'Forward rate ₦/USD',ni('inp-fx-forward', fxhg.forwardRate != null ? fxhg.forwardRate : '', 1, 1, 'ph'), 'PLACEHOLDER')}
+    ${ir('inp-fx-ratio',   'Hedge ratio %',     ni('inp-fx-ratio',  pct2(fxhg.hedgeRatio != null ? fxhg.hedgeRatio : 1), 5, 0), 'INDICATIVE')}
+    ${ir('inp-fx-fee',     'Fee per USD',       ni('inp-fx-fee',    fxhg.feePerUsd || 0.004, 0.001, 0, 'ph'), 'PLACEHOLDER')}
+    ${ir('inp-fx-spread',  'Spread per USD',    ni('inp-fx-spread', fxhg.spreadPerUsd || 0.002, 0.001, 0, 'ph'), 'PLACEHOLDER')}
+  </div>
+</div>
+`;
+
+// ── 7. Sidebar assembly ──────────────────────────────────────────────────────
+const sidebarHtml = `<aside class="sidebar" id="sidebar">
+  <div class="sb-tabs">
+    <button class="tab-btn active" data-tab="deal">Deal</button>
+    <button class="tab-btn" data-tab="costs">Costs</button>
+    <button class="tab-btn" data-tab="hedge">Hedge</button>
+  </div>
+  <div class="sb-scroll">
+    <div class="tab-panel active" id="tab-deal">${tabDeal}</div>
+    <div class="tab-panel" id="tab-costs">${tabCosts}</div>
+    <div class="tab-panel" id="tab-hedge">${tabHedge}</div>
+  </div>
+  <div class="sb-footer">
+    <button class="btn-reset" onclick="resetToDefaults()">Reset defaults</button>
+    <span class="mod-badge" id="modified-badge" hidden>Modified</span>
+  </div>
+</aside>`;
+
+// ── 8. Header HTML ───────────────────────────────────────────────────────────
+const shortTitle = esc(t.meta.tradeName.replace(/\s*\([^)]*(?:REGRESSION|FIXTURE|dummy|test|sample)[^)]*\)/gi, '').trim());
+const fixtureBadge = `<span style="display:inline-block;margin-left:10px;padding:2px 7px;font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;background:rgba(212,29,29,.20);color:#fca5a5;border:1px solid rgba(212,29,29,.35);border-radius:3px;vertical-align:middle">Fixture</span>`;
+
+// ── 9. Assemble CSS ──────────────────────────────────────────────────────────
+let sharedCss;
+try { sharedCss = css(); }
+catch(e) { throw e; }
+
+// ── 10. Full HTML ────────────────────────────────────────────────────────────
 const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -358,9 +834,10 @@ ${sharedCss}
 </head>
 <body>
 
-<header class="report-header" role="banner">
+<!-- ── App header (always visible) ─────────────────────────────────────── -->
+<header class="report-header">
   <div class="header-inner">
-    <div class="header-logo" aria-label="TIS Global Trading">${logo}</div>
+    <div class="header-logo">${logo}</div>
     <div class="header-trade">
       <h1 class="trade-name">${shortTitle}${fixtureBadge}</h1>
       <p class="trade-id">${esc(t.meta.tradeId)}</p>
@@ -369,108 +846,139 @@ ${sharedCss}
       <div class="kpi-chip kpi-accent">
         <span class="kpi-label">TIS Net Profit</span>
         <span class="kpi-value" id="kpi-tisnet-val">—</span>
-        <span class="kpi-sub" id="kpi-tisnet-sub">after partner split</span>
+        <span class="kpi-sub"  id="kpi-tisnet-sub">after partner split</span>
       </div>
       <div class="kpi-chip">
         <span class="kpi-label">Annualised Return</span>
         <span class="kpi-value" id="kpi-annret-val">—</span>
-        <span class="kpi-sub" id="kpi-annret-sub">—</span>
+        <span class="kpi-sub"  id="kpi-annret-sub">—</span>
       </div>
       <div class="kpi-chip">
         <span class="kpi-label">Ex-Ship Margin</span>
         <span class="kpi-value" id="kpi-margin-val">—</span>
-        <span class="kpi-sub" id="kpi-margin-sub">—</span>
+        <span class="kpi-sub"  id="kpi-margin-sub">—</span>
       </div>
     </div>
   </div>
   <div class="header-meta-strip">
     <div class="header-meta-inner">
-      Flow: <b>equity-partner</b> &nbsp;&middot;&nbsp;
-      Partner: <b>${esc((t.parties||{}).partner||'—')}</b> &nbsp;&middot;&nbsp;
-      Supplier: ${esc((t.parties||{}).supplier||'—')} &nbsp;&middot;&nbsp;
-      Inspector: ${esc((t.parties||{}).inspector||'—')}
+      Flow: <b>${esc(t.meta.flow || 'equity-partner')}</b> &nbsp;&middot;&nbsp;
+      Partner: <b>${esc((t.parties || {}).partner || '—')}</b> &nbsp;&middot;&nbsp;
+      Supplier: ${esc((t.parties || {}).supplier || '—')} &nbsp;&middot;&nbsp;
+      Inspector: ${esc((t.parties || {}).inspector || '—')}
     </div>
   </div>
 </header>
 
-${controlsHtml}
+<!-- ── Narrow-screen drawer toggle ──────────────────────────────────────── -->
+<button class="drawer-btn" id="drawer-btn" onclick="toggleDrawer()">
+  ☰ Trade Inputs <span class="drawer-arrow">▼</span>
+</button>
 
-<div class="container">
-  <div id="rpt-error" class="error-banner" hidden></div>
-  <div id="sec-params"></div>
-  <div id="sec-cost"></div>
-  <div id="sec-waterfall"></div>
-  <div id="sec-partner-hedge"></div>
-  <div id="sec-tax"></div>
-  <div id="sec-ladder"></div>
-  <div id="sec-sens"></div>
+<!-- ── App body: sidebar + results ──────────────────────────────────────── -->
+<div class="app-body">
+
+  ${sidebarHtml}
+
+  <!-- ── Results ──────────────────────────────────────────────────────── -->
+  <main class="results" role="main">
+    <div id="rpt-error" class="err-banner" hidden></div>
+    <div id="sec-waterfall"></div>
+    <div id="sec-ladder"></div>
+    <div id="sec-cost"></div>
+    <div id="sec-partner"></div>
+    <div id="sec-hedge"></div>
+    <div id="sec-tax"></div>
+    <div id="sec-sens"></div>
+  </main>
+
 </div>
 
-<footer class="report-footer" role="contentinfo">
-  TIS Global Trading &mdash; Interactive Trade Model &mdash;
-  ${esc(t.meta.tradeId)} &mdash; All figures DUMMY/EXAMPLE data only. Not a real trade.
+<footer class="report-footer" role="contentinfo" style="display:none">
+  TIS Global Trading — Interactive Trade Model — ${esc(t.meta.tradeId)} — DUMMY/EXAMPLE data.
 </footer>
 
+<!-- ── Engine bundle ────────────────────────────────────────────────────── -->
+<script>${engineBundle}</script>
+
+<!-- ── Interactive controller ───────────────────────────────────────────── -->
 <script>
-// ── Engine bundle ─────────────────────────────────────────────────────────────
-${engineBundle}
-</script>
-<script>
-(function() {
+(function () {
 'use strict';
 
-// ── Initial trade (frozen as baseline) ───────────────────────────────────────
+// ── Initial trade (baseline for reset + modified detection) ────────────────
 const INIT = ${JSON.stringify(initialTrade)};
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Formatters ─────────────────────────────────────────────────────────────
 function esc(s) {
   return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 function fmtUsd(v) {
   if (v == null || !isFinite(v)) return '—';
-  const abs = Math.abs(v);
-  const s = abs.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
-  return (v < 0 ? '−$' : '$') + s;
+  const abs = Math.abs(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  return (v < 0 ? '−$' : '$') + abs;
 }
 function fmtUsdSign(v) {
   if (v == null || !isFinite(v)) return '—';
-  const abs = Math.abs(v);
-  const s = abs.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
-  return (v < 0 ? '−$' : '+$') + s;
+  const abs = Math.abs(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  return (v < 0 ? '−$' : '+$') + abs;
 }
-function fmtPct(v, d=2) {
+function fmtPct(v, d) {
   if (v == null || !isFinite(v)) return '—';
-  return (v * 100).toFixed(d) + '%';
+  return (v * 100).toFixed(d != null ? d : 2) + '%';
 }
-function fmtMt(v, d=2) {
+function fmtMt(v, d) {
   if (v == null || !isFinite(v)) return '—';
-  return Number(v).toLocaleString('en-US', {minimumFractionDigits:d, maximumFractionDigits:d}) + ' MT';
+  return Number(v).toLocaleString('en-US',{minimumFractionDigits:d??2,maximumFractionDigits:d??2}) + ' MT';
 }
-function fmtNum(v, d=0) {
+function fmtNum(v, d) {
   if (v == null || !isFinite(v)) return '—';
-  return Number(v).toLocaleString('en-US', {minimumFractionDigits:d, maximumFractionDigits:d});
+  return Number(v).toLocaleString('en-US',{minimumFractionDigits:d??0,maximumFractionDigits:d??0});
 }
 function badge(s) {
   if (!s || s === 'OK') return '';
-  const cls = {CONFIRM:'bdg-confirm', PLACEHOLDER:'bdg-placeholder', INDICATIVE:'bdg-indicative',
-    PENDING:'bdg-pending', RECOVERABLE:'bdg-ok', EXAMPLE:'bdg-indicative', 'EXAMPLE (dummy mark)':'bdg-indicative'}[s] || 'bdg-indicative';
-  return \`<span class="bdg \${cls}">\${esc(s.split('(')[0].trim())}</span>\`;
+  const cls = {
+    CONFIRM:'bdg-confirm', UNVERIFIED:'bdg-unverified', PLACEHOLDER:'bdg-placeholder',
+    PENDING:'bdg-pending', RECOVERABLE:'bdg-recoverable', INDICATIVE:'bdg-indicative',
+    EXAMPLE:'bdg-example', DUMMY:'bdg-example', FIXED:'bdg-fixed',
+  };
+  const upper = String(s).toUpperCase();
+  let c = 'bdg-default';
+  for (const [k,v] of Object.entries(cls)) { if (upper.includes(k)) { c = v; break; } }
+  const short = s.length > 18 ? s.replace(/\\s*\\([^)]*\\)/g,'').trim() : s;
+  return \`<span class="bdg \${c}" title="\${esc(s)}">\${esc(short.split('(')[0].trim())}</span>\`;
 }
 
-// ── Input collection ─────────────────────────────────────────────────────────
+// ── DOM helpers ────────────────────────────────────────────────────────────
 function gf(id) { const el = document.getElementById(id); return el ? parseFloat(el.value) : NaN; }
 function gi(id) { const el = document.getElementById(id); return el ? parseInt(el.value, 10) : NaN; }
 function gs(id) { const el = document.getElementById(id); return el ? el.value : ''; }
 function isOn(id) { const el = document.getElementById(id); return el ? el.dataset.on === 'true' : false; }
+function show(id, vis) { const el = document.getElementById(id); if (el) el.hidden = !vis; }
 
+// ── Collect trade from inputs ──────────────────────────────────────────────
 function collectTrade() {
-  const bondPct    = gf('inp-bond')    / 100;
-  const equityPct  = gf('inp-equity')  / 100;
-  const lcPct      = Math.round((1 - bondPct - equityPct) * 1e10) / 1e10;
-  const exShipPct  = Math.min(1, Math.max(0, gf('inp-exship-pct') / 100));
-  const depotPct   = Math.round((1 - exShipPct) * 1e10) / 1e10;
-  const currMode   = gs('inp-currency-mode') || 'USD';
-  const depotEnabled = depotPct > 0;
+  const bondPct     = gf('inp-bond')   / 100;
+  const equityPct   = gf('inp-equity') / 100;
+  const lcPct       = Math.round((1 - bondPct - equityPct) * 1e10) / 1e10;
+  const exShipPct   = Math.min(1, Math.max(0, gf('inp-exship-pct') / 100));
+  const depotPct    = Math.round((1 - exShipPct) * 1e10) / 1e10;
+  const depotOn     = depotPct > 0;
+  const currMode    = gs('inp-currency-mode') || 'USD';
+  const iceHedgeOn  = isOn('tog-ice-hedge');
+  const fxHedgeOn   = isOn('tog-fx-hedge');
+  const surOn       = isOn('tog-surcharge');
+  const eqProvider  = gs('sel-equity-provider') || 'partner';
+
+  // Hedge params
+  const iceRoute      = gs('sel-ice-route')   || 'bank_book';
+  const fxRoute       = gs('sel-fx-route')    || 'bank_book';
+  const iceFixedRaw   = gf('inp-ice-fixed');
+  const iceFixed      = (isNaN(iceFixedRaw) || iceFixedRaw <= 0) ? null : iceFixedRaw;
+  const fxFwdRaw      = gf('inp-fx-forward');
+  const fxFwd         = (isNaN(fxFwdRaw) || fxFwdRaw <= 0) ? null : fxFwdRaw;
+  const iceVolRaw     = gf('inp-ice-hedged-vol');
+  const iceVol        = (isNaN(iceVolRaw) || iceVolRaw <= 0) ? null : iceVolRaw;
 
   const sell = {
     ...INIT.sell,
@@ -478,7 +986,7 @@ function collectTrade() {
     currencyMode: currMode,
   };
   if (currMode === 'split') sell.splitUsdPct = gf('inp-split-usd') / 100;
-  if (depotEnabled) sell.depotPriceNgnPerL = { value: gf('inp-depot-price'), status: 'INDICATIVE' };
+  if (depotOn) sell.depotPriceNgnPerL = { value: gf('inp-depot-price'), status: 'INDICATIVE' };
 
   return {
     ...INIT,
@@ -486,397 +994,651 @@ function collectTrade() {
       ice:        { ...INIT.market.ice,        value: gf('inp-ice') },
       fobPremium: { ...INIT.market.fobPremium, value: gf('inp-fob') },
     },
-    cargo: { ...INIT.cargo, deliveredQtyMT: gf('inp-delivered') },
-    freight: { ...INIT.freight, tcRatePerDay: gf('inp-tc-rate'), charterDays: gi('inp-charter'), demurrageDays: gi('inp-demurrage') },
-    financing: { ...INIT.financing, creditRate: gf('inp-credit-rate') / 100, lcFeePct: gf('inp-lc-fee') / 100, financingDays: gi('inp-fin-days'), capitalLockupDays: gi('inp-lockup'), lcPctOfCargo: lcPct },
+    cargo:    { ...INIT.cargo, deliveredQtyMT: gf('inp-delivered') },
+    freight:  { ...INIT.freight, tcRatePerDay: gf('inp-tc-rate'), charterDays: gi('inp-charter'), demurrageDays: gi('inp-demurrage') },
+    financing: {
+      ...INIT.financing,
+      creditRate:       gf('inp-credit-rate') / 100,
+      lcFeePct:         gf('inp-lc-fee') / 100,
+      financingDays:    gi('inp-fin-days'),
+      capitalLockupDays:gi('inp-lockup'),
+      lcPctOfCargo:     lcPct,
+      wcSublimit:       gf('inp-wc-sublimit'),
+    },
     sell,
     fx: {
-      parallel: { ...INIT.fx.parallel, value: gf('inp-fx-parallel'), override: null },
-      nafem:    { ...INIT.fx.nafem,    value: gf('inp-fx-nafem'),    override: null },
+      parallel: { ...INIT.fx.parallel, value: gf('inp-fxpar'),   override: null },
+      nafem:    { ...INIT.fx.nafem,    value: gf('inp-fxnafem'), override: null },
     },
     channels: { exShipPct, depotPct },
-    partner: { ...INIT.partner, bondPct, equityPct, totalFundingPct: bondPct + equityPct, profitSharePct: gf('inp-profit-split') / 100 },
-    tax: { ...INIT.tax, taxableSupplyProportion: gf('inp-taxable-prop'), surcharge: { ...INIT.tax.surcharge, enabled: isOn('tog-surcharge') } },
-    hedge:   { ...INIT.hedge,   iceHedged: isOn('tog-ice-hedge') },
-    fxHedge: { ...INIT.fxHedge, fxHedged: isOn('tog-fx-hedge') },
-    depot: { enabled: depotEnabled },
+    partner: {
+      ...INIT.partner,
+      equityProvider:     eqProvider,
+      bondPct, equityPct,
+      totalFundingPct:    bondPct + equityPct,
+      profitSharePct:     gf('inp-profit-split') / 100,
+      productAllocationPct: gf('inp-product-alloc') / 100,
+    },
+    tax: {
+      ...INIT.tax,
+      vatRate:                   gf('inp-vat-rate') / 100,
+      whtFreightRate:            gf('inp-wht-rate') / 100,
+      taxableSupplyProportion:   gf('inp-taxable-prop'),
+      surcharge: { ...INIT.tax.surcharge, enabled: surOn, incidence: gs('sel-surcharge-inc') || 'cost' },
+    },
+    hedge: {
+      ...INIT.hedge,
+      iceHedged:       iceHedgeOn,
+      route:           iceRoute,
+      fixedPrice:      iceFixed,
+      feePerMT:        gf('inp-ice-fee'),
+      bankSpreadPerMT: gf('inp-ice-spread'),
+      initialMarginPct:gf('inp-ice-margin') / 100,
+      hedgedVolumeMT:  iceVol,
+    },
+    fxHedge: {
+      ...INIT.fxHedge,
+      fxHedged:    fxHedgeOn,
+      route:       fxRoute,
+      forwardRate: fxFwd,
+      hedgeRatio:  gf('inp-fx-ratio') / 100,
+      feePerUsd:   gf('inp-fx-fee'),
+      spreadPerUsd:gf('inp-fx-spread'),
+    },
+    pricing: {
+      ...INIT.pricing,
+      conversion: {
+        ...INIT.pricing.conversion,
+        litresPerMT: depotOn ? gf('inp-litres-per-mt') : (INIT.pricing.conversion.litresPerMT || 1183),
+      },
+    },
+    depot: { enabled: depotOn },
+    costLines: {
+      npaCargoDuesPerMT:    gf('inp-npa-per-mt'),
+      portDAs:              gf('inp-port-das'),
+      nimasaCabotagePct:    gf('inp-nimasa-cab')     / 100,
+      nimasaFreightLevyPct: gf('inp-nimasa-freight') / 100,
+      spomoCvffPct:         gf('inp-spomo')          / 100,
+      ncsDocs:              gf('inp-ncs-docs'),
+      marineIccPct:         gf('inp-marine-icc')     / 100,
+      sgsInspection:        gf('inp-sgs'),
+      portAgency:           gf('inp-port-agency'),
+      allocSecurityPct:     gf('inp-alloc-security') / 100,
+      bankCharges:          gf('inp-bank-charges'),
+      overhead:             gf('inp-overhead'),
+      contingency:          gf('inp-contingency'),
+      collateralManager:    gf('inp-collateral-mgr'),
+      throughputNgnPerMT:   depotOn ? gf('inp-throughput')      : 0,
+      storageRentalNgn:     depotOn ? gf('inp-storage-rental')  : 0,
+      evaporationPct:       gf('inp-evaporation')    / 100,
+      tankInsurancePct:     gf('inp-tank-insurance') / 100,
+    },
   };
 }
 
-// ── Update LC display ────────────────────────────────────────────────────────
+// ── Visibility updates ────────────────────────────────────────────────────
 function updateLcDisplay() {
   const b = gf('inp-bond') / 100, e = gf('inp-equity') / 100;
   const lc = Math.round((1 - b - e) * 10000) / 100;
-  const el = document.getElementById('lc-pct-display');
-  if (el) { el.textContent = lc.toFixed(2) + '%'; el.style.color = lc < 0 ? 'var(--red)' : 'var(--slate)'; }
+  const el = document.getElementById('lc-display');
+  if (el) { el.textContent = lc.toFixed(2) + '%'; el.style.color = lc < 0 ? 'var(--red)' : ''; }
 }
 
-// ── Depot price row visibility ───────────────────────────────────────────────
 function updateDepotVisibility() {
   const pct = gf('inp-exship-pct');
   const hasDepot = pct < 100;
-  const dpRow = document.getElementById('depot-price-row');
-  const dpNa  = document.getElementById('depot-price-na');
-  if (dpRow) dpRow.hidden = !hasDepot;
-  if (dpNa)  dpNa.hidden  = hasDepot;
+  show('depot-price-row', hasDepot);
+  show('storage-sec', hasDepot);
+  show('storage-off-note', !hasDepot);
 }
 
-// ── Render helpers ────────────────────────────────────────────────────────────
-function statusBadge(s) { return badge(s); }
-
-function wfBox(cls, label, prefix, amount, sub, extra='') {
-  return \`<div class="wf-box \${cls}">
-    <div class="wf-box-label">\${label}</div>
-    <div class="wf-box-amount">\${prefix}\${fmtUsd(amount)}</div>
-    <div class="wf-box-sub">\${sub}</div>
-    \${extra}
-  </div>\`;
+function updateCurrencyVisibility() {
+  show('split-usd-row', gs('inp-currency-mode') === 'split');
 }
 
-// ── KPI chips ────────────────────────────────────────────────────────────────
+function updateSurchargeVisibility() {
+  const on = isOn('tog-surcharge');
+  show('sur-inc-row', on);
+  show('sur-off-note', !on);
+}
+
+function updateHedgeTab() {
+  const iceOn = isOn('tog-ice-hedge');
+  const fxOn  = isOn('tog-fx-hedge');
+  show('ice-on-warn', iceOn);  show('ice-off-note', !iceOn);
+  show('fx-on-warn',  fxOn);   show('fx-off-note',  !fxOn);
+  const iceP = document.getElementById('ice-params');
+  const fxP  = document.getElementById('fx-params');
+  if (iceP) iceP.classList.toggle('hedge-off', !iceOn);
+  if (fxP)  fxP.classList.toggle('hedge-off',  !fxOn);
+}
+
+function updateIceRouteVisibility() {
+  const r = gs('sel-ice-route');
+  show('ice-spread-row', r !== 'third_party');
+  show('ice-margin-row', r === 'third_party');
+}
+
+// ── Modified state ─────────────────────────────────────────────────────────
+let _modified = false;
+function setModified(v) {
+  _modified = v;
+  const el = document.getElementById('modified-badge');
+  if (el) el.hidden = !v;
+}
+
+// ── Reset to defaults ──────────────────────────────────────────────────────
+function resetToDefaults() {
+  const I = INIT;
+  const f = I.financing, p = I.partner, cl = I.costLines, h = I.hedge, fxh = I.fxHedge || {};
+  const sur = I.tax.surcharge || {};
+
+  function sv(id, v) { const el = document.getElementById(id); if (el) el.value = v; }
+  function sd(id, v) { const el = document.getElementById(id); if (el) el.value = v; }
+
+  sv('inp-ice',            I.market.ice.value);
+  sv('inp-fob',            I.market.fobPremium.value);
+  sv('inp-fxpar',          I.fx.parallel.value);
+  sv('inp-delivered',      I.cargo.deliveredQtyMT);
+  sv('inp-exship-price',   I.sell.exShipPricePerMT.value);
+  sv('inp-exship-pct',     I.channels ? +(I.channels.exShipPct * 100).toFixed(1) : 100);
+  sv('inp-depot-price',    I.sell.depotPriceNgnPerL ? I.sell.depotPriceNgnPerL.value : 1400);
+  sv('inp-profit-split',   +(p.profitSharePct * 100).toFixed(1));
+  sv('inp-fxnafem',        I.fx.nafem.value);
+  sd('inp-currency-mode',  I.sell.currencyMode || 'USD');
+  sv('inp-split-usd',      +(((I.sell.splitUsdPct || 1) * 100)).toFixed(1));
+  sv('inp-taxable-prop',   I.tax.taxableSupplyProportion);
+  sv('inp-tc-rate',        I.freight.tcRatePerDay);
+  sv('inp-charter',        I.freight.charterDays);
+  sv('inp-demurrage',      I.freight.demurrageDays);
+  sv('inp-credit-rate',    +(f.creditRate * 100).toFixed(2));
+  sv('inp-lc-fee',         +(f.lcFeePct * 100).toFixed(3));
+  sv('inp-fin-days',       f.financingDays);
+  sv('inp-lockup',         f.capitalLockupDays);
+  sv('inp-wc-sublimit',    f.wcSublimit);
+  sd('sel-equity-provider',p.equityProvider || 'partner');
+  sv('inp-bond',           +(p.bondPct * 100).toFixed(2));
+  sv('inp-equity',         +(p.equityPct * 100).toFixed(2));
+  sv('inp-product-alloc',  +((p.productAllocationPct ?? 1) * 100).toFixed(1));
+  sd('sel-surcharge-inc',  sur.incidence || 'cost');
+  sv('inp-vat-rate',       +(I.tax.vatRate * 100).toFixed(2));
+  sv('inp-wht-rate',       +((I.tax.whtFreightRate || 0.05) * 100).toFixed(2));
+  // Costs
+  sv('inp-npa-per-mt',     cl.npaCargoDuesPerMT);
+  sv('inp-port-das',       cl.portDAs);
+  sv('inp-ncs-docs',       cl.ncsDocs);
+  sv('inp-nimasa-cab',     +(cl.nimasaCabotagePct * 100).toFixed(2));
+  sv('inp-nimasa-freight', +(cl.nimasaFreightLevyPct * 100).toFixed(2));
+  sv('inp-spomo',          +(cl.spomoCvffPct * 100).toFixed(2));
+  sv('inp-marine-icc',     +(cl.marineIccPct * 100).toFixed(4));
+  sv('inp-sgs',            cl.sgsInspection);
+  sv('inp-port-agency',    cl.portAgency);
+  sv('inp-alloc-security', +(cl.allocSecurityPct * 100).toFixed(4));
+  sv('inp-bank-charges',   cl.bankCharges);
+  sv('inp-overhead',       cl.overhead);
+  sv('inp-contingency',    cl.contingency);
+  sv('inp-collateral-mgr', cl.collateralManager);
+  sv('inp-throughput',     cl.throughputNgnPerMT || cl.throughput || 0);
+  sv('inp-storage-rental', cl.storageRentalNgn || cl.storageRental || 0);
+  sv('inp-evaporation',    +(cl.evaporationPct * 100).toFixed(4));
+  sv('inp-tank-insurance', +(cl.tankInsurancePct * 100).toFixed(4));
+  sv('inp-litres-per-mt',  I.pricing.conversion.litresPerMT);
+  // Hedge
+  sd('sel-ice-route',      h.route || 'bank_book');
+  sv('inp-ice-fixed',      h.fixedPrice != null ? h.fixedPrice : '');
+  sv('inp-ice-fee',        h.feePerMT || 1.5);
+  sv('inp-ice-spread',     h.bankSpreadPerMT || 0.5);
+  sv('inp-ice-margin',     +((h.initialMarginPct || 0.10) * 100).toFixed(1));
+  sv('inp-ice-hedged-vol', h.hedgedVolumeMT != null ? h.hedgedVolumeMT : '');
+  sd('sel-fx-route',       fxh.route || 'bank_book');
+  sv('inp-fx-forward',     fxh.forwardRate != null ? fxh.forwardRate : '');
+  sv('inp-fx-ratio',       +((fxh.hedgeRatio != null ? fxh.hedgeRatio : 1) * 100).toFixed(1));
+  sv('inp-fx-fee',         fxh.feePerUsd || 0.004);
+  sv('inp-fx-spread',      fxh.spreadPerUsd || 0.002);
+  // Toggles
+  activateToggle(document.getElementById('tog-ice-hedge'), !!h.iceHedged);
+  activateToggle(document.getElementById('tog-fx-hedge'),  !!fxh.fxHedged);
+  activateToggle(document.getElementById('tog-surcharge'), !!(sur.enabled));
+  // UI state
+  updateLcDisplay();
+  updateDepotVisibility();
+  updateCurrencyVisibility();
+  updateSurchargeVisibility();
+  updateHedgeTab();
+  updateIceRouteVisibility();
+  setModified(false);
+  recompute();
+}
+
+// ── Render helpers ─────────────────────────────────────────────────────────
+function infoRow(label, value, extra) {
+  return \`<div class="info-row"><span>\${esc(label)}</span><b>\${value ?? '—'}</b>\${extra ? \` \${extra}\` : ''}</div>\`;
+}
+
+// ── KPI chips ──────────────────────────────────────────────────────────────
 function renderKPIs(res) {
-  const p = res.profit;
+  const p   = res.profit;
   const tisNet = p.tisNetProfit;
-  document.getElementById('kpi-tisnet-val').textContent = fmtUsd(tisNet);
-  document.getElementById('kpi-tisnet-sub').textContent = 'after partner split';
+
+  const kv = document.getElementById('kpi-tisnet-val');
+  const ks = document.getElementById('kpi-tisnet-sub');
+  if (kv) { kv.textContent = fmtUsd(tisNet); kv.classList.add('kpi-flash'); setTimeout(() => kv.classList.remove('kpi-flash'), 350); }
+  if (ks) ks.textContent = res.equityProvider === 'TIS' ? 'self-funded (no partner)' : 'after partner split';
 
   const ann = res.tisAnnualisedReturn;
-  document.getElementById('kpi-annret-val').textContent = ann != null ? fmtPct(ann) : '—';
-  document.getElementById('kpi-annret-sub').textContent =
-    \`on cargo value · \${res.financing.capitalLockupDays}d lockup\`;
+  const av  = document.getElementById('kpi-annret-val');
+  const as_ = document.getElementById('kpi-annret-sub');
+  if (av) av.textContent = ann != null ? fmtPct(ann) : '—';
+  if (as_) as_.textContent = \`on cargo value · \${res.financing.capitalLockupDays}d lockup\`;
 
-  const exShipLanded = res.price.exShipLandedPerMT;
-  const exShipPrice  = res.price.exShipPricePerMT;
-  const marginPct    = (exShipPrice && exShipLanded) ? (exShipPrice - exShipLanded) / exShipPrice : null;
-  document.getElementById('kpi-margin-val').textContent = marginPct != null ? fmtPct(marginPct) : '—';
-  document.getElementById('kpi-margin-sub').textContent = exShipPrice ? fmtUsd(exShipPrice) + '/MT sell' : '—';
+  const landed = res.price.exShipLandedPerMT;
+  const price  = res.price.exShipPricePerMT;
+  const margin = (price && landed) ? (price - landed) / price : null;
+  const mv = document.getElementById('kpi-margin-val');
+  const ms = document.getElementById('kpi-margin-sub');
+  if (mv) mv.textContent = margin != null ? fmtPct(margin) : '—';
+  if (ms) ms.textContent = price ? fmtUsd(price) + '/MT sell' : '—';
 }
 
-// ── Trade Parameters ─────────────────────────────────────────────────────────
-function renderParams(trade, res) {
-  const f = res.financing;
-  const fx = (trade.fx || {});
-  const nafem    = fx.nafem    ? (fx.nafem.override    ?? fx.nafem.value)    : null;
-  const parallel = fx.parallel ? (fx.parallel.override ?? fx.parallel.value) : null;
-  const cards = [
-    {label:'ICE Mark',        value: fmtUsd(trade.market.ice.value) + '/MT',    sub: badge(trade.market.ice.status)},
-    {label:'FOB Premium',     value: fmtUsd(trade.market.fobPremium.value)+'/MT',sub:''},
-    {label:'Unit FOB',        value: fmtUsd(res.unitFob)+'/MT',                  sub:'ICE + premium'},
-    {label:'Cargo Size',      value: fmtMt(trade.cargo.deliveredQtyMT, 0),      sub:'Delivered qty'},
-    {label:'Ex-Ship Price',   value: fmtUsd(res.price.exShipPricePerMT)+'/MT',  sub: badge(trade.sell.exShipPricePerMT.status)},
-    {label:'Landed/MT',       value: fmtUsd(res.price.exShipLandedPerMT)+'/MT', sub:'excl. recoverable VAT'},
-    {label:'FX Parallel',     value: parallel != null ? fmtNum(parallel,0)+' ₦/USD' : '—', sub:'drives P&amp;L'},
-    {label:'FX NAFEM',        value: nafem    != null ? fmtNum(nafem,0)   +' ₦/USD' : '—', sub:'reference only'},
-    {label:'Equity Stack',    value: fmtPct(f.pct.bondPct)+' + '+fmtPct(f.pct.equityPct), sub:'Partner '+fmtPct(f.pct.partnerPct)+' · LC '+fmtPct(f.pct.lcPct)},
-    {label:'Partner Principal',value:fmtUsd(f.partnerFunding), sub:'Bond '+fmtUsd(f.performanceBond)+' + Equity '+fmtUsd(f.equity)},
-    {label:'Credit Rate',     value: fmtPct(f.creditRate), sub:f.financingDays+'d financing'},
-    {label:'Profit Split',    value: fmtPct(1-res.profit.profitSharePct)+' TIS', sub:'Partner '+fmtPct(res.profit.profitSharePct)+' cash share'},
-  ];
-  return \`<section class="section" aria-labelledby="params-heading">
-  <h2 class="section-heading" id="params-heading">Trade Parameters</h2>
-  <div class="param-grid">
-    \${cards.map(c => \`<div class="param-card">
-      <span class="param-label">\${c.label}</span>
-      <span class="param-value">\${c.value}</span>
-      \${c.sub ? \`<span class="param-sub">\${c.sub}</span>\` : ''}
-    </div>\`).join('')}
+// ── 1. Profit Waterfall ────────────────────────────────────────────────────
+function renderWaterfall(res) {
+  const p   = res.profit;
+  const ep  = res.equityProvider;
+  const qty = res.quantities;
+  const rec = p.reconciliation;
+  const okMark = rec.ok
+    ? \`<span class="bdg bdg-recoverable">&#10003; OK</span>\`
+    : \`<span class="bdg bdg-confirm">MISMATCH</span>\`;
+
+  function box(cls, label, prefix, amount, sub) {
+    return \`<div class="wf-box \${cls}">
+      <div class="wf-box-label">\${label}</div>
+      <div class="wf-box-amount">\${prefix}\${fmtUsd(amount)}</div>
+      <div class="wf-box-sub">\${sub}</div>
+    </div>\`;
+  }
+
+  let wfBoxes;
+  if (ep === 'TIS') {
+    wfBoxes = \`
+      \${box('wf-standalone','REVENUE','',   res.revenue.combinedUSD,  'Combined channels')}
+      <div class="wf-arrow">›</div>
+      \${box('wf-deduct',    'ALL-IN COST','−',res.cost.allInCost,     'Incl. irrecoverable VAT')}
+      <div class="wf-arrow">›</div>
+      \${box('wf-net',       'TIS NET PROFIT','=', p.tisNetProfit,     'Self-funded — no partner')}
+    \`;
+  } else {
+    wfBoxes = \`
+      \${box('wf-standalone','STANDALONE PROFIT','',  p.standaloneProfit, 'TIS as 100% owner')}
+      <div class="wf-arrow">›</div>
+      \${box('wf-deduct',    'MARGIN FOREGONE','−',   p.marginForegone,   fmtMt(qty.economic.partnerTonnes,2)+' partner tonnes')}
+      <div class="wf-arrow">›</div>
+      \${box('wf-adjusted',  'ADJUSTED PROFIT','=',   p.adjustedProfit,   'TIS retained tonnes share')}
+      <div class="wf-arrow">›</div>
+      \${box('wf-share',     'PARTNER CASH SHARE','−',p.partnerCashProfitShare, fmtPct(p.profitSharePct)+' of adjusted')}
+      <div class="wf-arrow">›</div>
+      \${box('wf-net',       'TIS NET PROFIT','=',    p.tisNetProfit,     fmtPct(1-p.profitSharePct)+' of adjusted')}
+    \`;
+  }
+
+  const hedgeNote = (res.hedges.iceHedgeNetImpact !== 0 || res.hedges.fxHedgeNetImpact !== 0)
+    ? \`ICE hedge impact: <b>\${fmtUsdSign(res.hedges.iceHedgeNetImpact)}</b> &nbsp;·&nbsp; FX hedge: <b>\${fmtUsdSign(res.hedges.fxHedgeNetImpact)}</b> &nbsp;·&nbsp;\`
+    : '';
+
+  const reconcile = ep === 'TIS'
+    ? \`Revenue − cost = TIS net: <b>\${fmtUsd(res.revenue.combinedUSD)} − \${fmtUsd(res.cost.allInCost)} = \${fmtUsd(p.tisNetProfit)}</b>\`
+    : \`Reconciliation: marginForegone + adjusted = standalone <b>\${fmtUsd(p.marginForegone)} + \${fmtUsd(p.adjustedProfit)} = \${fmtUsd(p.standaloneProfit)}</b> \${okMark}\`;
+
+  return \`<section class="section" aria-labelledby="wf-h">
+  <h2 class="section-heading" id="wf-h">Profit Waterfall</h2>
+  <div class="card">
+    <div class="wf-row">\${wfBoxes}</div>
+    <div class="wf-reconcile">
+      \${hedgeNote}
+      \${reconcile}
+      &nbsp;·&nbsp; Annualised return: <b>\${fmtPct(res.tisAnnualisedReturn)}</b> on \${esc(res.annualReturnBaseLabel||'cargo value')} · \${res.financing.capitalLockupDays}d lockup
+    </div>
+    <div class="card-footer">
+      Unit FOB: <b>\${fmtUsd(res.unitFob)}/MT</b> &nbsp;·&nbsp;
+      Ex-ship landed: <b>\${fmtUsd(res.price.exShipLandedPerMT)}/MT</b> &nbsp;·&nbsp;
+      Equity stack: <b>\${fmtPct(res.financing.pct.bondPct,1)} bond + \${fmtPct(res.financing.pct.equityPct,1)} equity + \${fmtPct(res.financing.pct.lcPct,1)} LC</b>
+    </div>
   </div>
 </section>\`;
 }
 
-// ── Cost Build-Up ─────────────────────────────────────────────────────────────
-function renderCost(res) {
-  const cost = res.cost;
-  const lines = cost.lines;
-  function catLabel(c) {
-    return {per_mt:'Per MT', pct_of_freight:'% of freight', pct_of_cargo_value:'% of cargo', pct_of_LC:'% of LC',
-      pct_of_services:'% of services', pct_of_sell:'% of sell', fixed:'Fixed fee', derived_freight:'Freight',
-      derived_financing:'Financing', storage:'Storage'}[c] || c;
+// ── 2. Pricing Ladder ──────────────────────────────────────────────────────
+function renderLadder(trade, res, ladder) {
+  if (!ladder || !ladder.exShip) return '';
+  const exShip  = ladder.exShip;
+  const tiers   = exShip.tiers || [];
+  const curPrice = res.price.exShipPricePerMT;
+  const landed   = res.price.exShipLandedPerMT;
+
+  // Price-scale bar: floor to premium range
+  let scaleHtml = '';
+  if (tiers.length >= 2) {
+    const prices = tiers.map(t => t.pricePerMT);
+    const lo = Math.min(...prices);
+    const hi = Math.max(...prices);
+    const range = hi - lo || 1;
+    const tierPips = tiers.map(tier => {
+      const pos = ((tier.pricePerMT - lo) / range * 80 + 10).toFixed(1);
+      return \`<span class="ladder-tier-pip" style="left:\${pos}%">\${esc(tier.name)}</span>\`;
+    }).join('');
+    let tick = '';
+    if (curPrice != null && curPrice >= lo - (range*0.1) && curPrice <= hi + (range*0.1)) {
+      const pos = ((curPrice - lo) / range * 80 + 10).toFixed(1);
+      tick = \`<div class="ladder-scale-tick" style="left:\${pos}%" data-label="\${esc(fmtUsd(curPrice)+'/MT')}"></div>\`;
+    }
+    scaleHtml = \`<div class="ladder-scale-wrap" style="padding-top:28px">
+      <div class="ladder-scale-bar">\${tierPips}\${tick}</div>
+    </div>\`;
   }
-  const rows = lines.map((l, i) => {
-    const isCost = !l.recoverable;
-    return \`<tr>
-      <td class="tc-num">\${l.id}</td>
-      <td>\${esc(l.label)}\${l.legalRef ? \`<div class="legal-ref">\${esc(l.legalRef)}</div>\` : ''}</td>
-      <td class="muted">\${catLabel(l.category)}</td>
-      <td class="tc-amt">\${l.amountUsd === 0 && l.category==='storage' ? '<span class="muted">—</span>' : fmtUsd(l.amountUsd)}</td>
-      <td>\${statusBadge(l.status)}</td>
+
+  const tierRows = tiers.map(tier => {
+    const isCur = curPrice != null && Math.abs(tier.pricePerMT - curPrice) < 0.005;
+    return \`<tr class="\${isCur ? 'ladder-current' : ''}">
+      <td><b>\${esc(tier.name)}</b></td>
+      <td class="r">\${fmtUsd(tier.pricePerMT)}/MT</td>
+      <td class="r">\${fmtPct(tier.marginPctOfSell)}</td>
+      <td class="r">\${fmtPct(tier.markupPctOnCost)}</td>
+      <td class="r">\${fmtUsd(tier.spreadPerMT)}/MT</td>
+      <td class="r \${tier.tisNetProfit >= 0 ? 'pos' : 'neg'}">\${fmtUsd(tier.tisNetProfit)}</td>
     </tr>\`;
   }).join('');
 
-  const rv = cost.recoverableVat;
-  const sb = cost.servicesBucket;
-  const vatRow = \`<tr style="border-top:2px solid var(--border)">
-    <td colspan="2"><b>VAT base (services bucket)</b><div class="legal-ref">\${sb.composition.map(x=>esc(x.label)).join(', ')}</div></td>
-    <td class="muted">% of services</td>
-    <td class="tc-amt">\${fmtUsd(sb.sum)}</td>
-    <td></td>
-  </tr>\`;
+  const depotTiers = (ladder.depot && ladder.depot.tiers) || [];
+  let depotSection = '';
+  if (depotTiers.length > 0) {
+    const depotRows = depotTiers.map(tier => \`<tr>
+      <td><b>\${esc(tier.name)}</b></td>
+      <td class="r">\${fmtNum(tier.ngnPricePerL || tier.priceNgnPerL || 0, 2)} ₦/L</td>
+      <td class="r">\${fmtPct(tier.marginPctOfSell)}</td>
+      <td class="r">\${fmtPct(tier.markupPctOnCost)}</td>
+      <td class="r \${tier.tisNetProfit >= 0 ? 'pos' : 'neg'}">\${fmtUsd(tier.tisNetProfit)}</td>
+    </tr>\`).join('');
+    depotSection = \`<h3 style="font-family:var(--f-display);font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--slate);margin:16px 20px 8px">Depot ₦/L Ladder</h3>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Tier</th><th class="r">₦/L</th><th class="r">Margin %</th><th class="r">Markup on Landed</th><th class="r">TIS Net</th></tr></thead>
+      <tbody>\${depotRows}</tbody>
+    </table></div>\`;
+  }
 
-  const recRows = rv.lines.map(l => \`<tr class="tc-rec-row">
-    <td colspan="2" class="muted" style="padding-left:24px">↩ \${esc(l.label)} (recoverable s.155(4))</td>
-    <td></td><td class="tc-amt muted">\${fmtUsd(l.amount)}</td><td></td>
+  const compNote = ladder.comparison && ladder.comparison.summary ? \`&nbsp;·&nbsp;\${esc(ladder.comparison.summary)}\` : '';
+  return \`<section class="section" aria-labelledby="ladder-h">
+  <h2 class="section-heading" id="ladder-h">Pricing Ladder <span class="muted" style="font-size:11px;font-weight:400;letter-spacing:0;text-transform:none">— advisory only</span></h2>
+  <div class="card">
+    \${scaleHtml}
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Tier</th><th class="r">Price/MT</th><th class="r">Margin of Sell</th><th class="r">Markup on Landed</th><th class="r">Spread/MT</th><th class="r">TIS Net</th></tr></thead>
+      <tbody>\${tierRows}</tbody>
+    </table></div>
+    \${depotSection}
+    <div class="card-footer">
+      Ex-ship landed: <b>\${fmtUsd(landed)}/MT</b> &nbsp;·&nbsp; Current price: <b>\${fmtUsd(curPrice)}/MT</b>\${compNote}
+    </div>
+  </div>
+</section>\`;
+}
+
+// ── 3. Cost Build-Up ───────────────────────────────────────────────────────
+function renderCost(res) {
+  const cost = res.cost;
+  const catLabel = c => ({ per_mt:'Per MT', derived_freight:'Freight', derived_financing:'Financing',
+    flat:'Fixed fee', storage:'Storage', pct_of_freight:'% of freight',
+    pct_of_cargo_value:'% of cargo', pct_of_services:'% of services',
+    pct_of_LC:'% of LC', pct_of_sell:'% of sell', derived:'Derived' }[c] || c);
+
+  const rows = cost.lines.map(l => \`<tr>
+    <td class="muted" style="font-variant-numeric:tabular-nums">\${l.id}</td>
+    <td>\${esc(l.label)}\${l.legalRef ? \`<div class="legal-ref">\${esc(l.legalRef)}</div>\` : ''}</td>
+    <td class="muted">\${catLabel(l.category)}</td>
+    <td class="r">\${l.amountUsd === 0 && l.category === 'storage' ? '<span class="muted">—</span>' : fmtUsd(l.amountUsd)}</td>
+    <td>\${badge(l.status)}</td>
   </tr>\`).join('');
 
-  const depotNote = cost.storageActive ? 'Storage active — depot leg' : '';
-  return \`<section class="section" aria-labelledby="cost-heading">
-  <h2 class="section-heading" id="cost-heading">Cost Build-Up</h2>
+  const rv = cost.recoverableVat;
+  const sb = cost.servicesBucket;
+  const vatBase = \`<tr style="border-top:2px solid var(--border)">
+    <td colspan="2"><b>VAT base (services bucket)</b><div class="legal-ref">\${sb.composition.map(x => esc(x.label)).join(', ')}</div></td>
+    <td class="muted">% of services</td>
+    <td class="r">\${fmtUsd(sb.sum)}</td>
+    <td></td>
+  </tr>\`;
+  const recRows = rv.lines.map(l => \`<tr class="tc-rec-row">
+    <td colspan="2" class="muted" style="padding-left:22px">↩ \${esc(l.label)} (recoverable s.155(4))</td>
+    <td></td><td class="r muted">\${fmtUsd(l.amount)}</td><td></td>
+  </tr>\`).join('');
+
+  return \`<section class="section" aria-labelledby="cost-h">
+  <h2 class="section-heading" id="cost-h">Cost Build-Up</h2>
   <div class="card">
-    <table class="cost-table">
-      <thead><tr>
-        <th class="tc-num">#</th><th>Line Item</th><th>Category</th><th class="tc-amt">Amount (USD)</th><th>Flag</th>
-      </tr></thead>
-      <tbody>\${rows}\${vatRow}\${recRows}</tbody>
-    </table>
+    <div class="tbl-wrap"><table class="cost-table">
+      <thead><tr><th>#</th><th>Line</th><th>Category</th><th class="r">USD</th><th>Flag</th></tr></thead>
+      <tbody>\${rows}\${vatBase}\${recRows}</tbody>
+    </table></div>
     <div class="cost-totals">
       <div class="cost-total-row"><span>All-in cost (incl. irrecoverable VAT):</span><b>\${fmtUsd(cost.allInCost)}</b></div>
       <div class="cost-total-row"><span>Recoverable VAT (timing only, s.155(4)):</span><b>\${fmtUsd(rv.recoverable)}</b></div>
       <div class="cost-total-row"><span>Landed cost / MT (ex-ship, excl. storage):</span><b>\${fmtUsd(cost.exShipLandedPerMT)}/MT</b></div>
     </div>
-    <div class="card-footer" style="border-top:1px solid var(--border)">
-      Cost base: \${fmtUsd(cost.exShipLandedPerMT)}/MT (ex-ship landed, excl. storage)
-      \${depotNote ? '&nbsp;&middot;&nbsp; ' + esc(depotNote) : ''}
+    <div class="card-footer">
+      Freight base: TC hire <b>\${fmtUsd(cost.freight.tcHire)}</b> + demurrage <b>\${fmtUsd(cost.freight.demurrage)}</b> = <b>\${fmtUsd(cost.freight.freightBase)}</b>
+      \${cost.storageActive ? '&nbsp;·&nbsp; Storage active (depot leg)' : ''}
     </div>
   </div>
 </section>\`;
 }
 
-// ── Profit Waterfall ──────────────────────────────────────────────────────────
-function renderWaterfall(res) {
-  const p   = res.profit;
-  const qty = res.quantities;
-  const rec = p.reconciliation;
+// ── 4. Partner Deliverables ────────────────────────────────────────────────
+function renderPartner(trade, res) {
+  const pd  = res.partnerDelivers;
+  const q   = res.quantities;
+  const ep  = res.equityProvider;
 
-  const okMark  = rec.ok ? \`<span class="bdg bdg-ok">&#10003; OK</span>\` : \`<span class="bdg bdg-confirm">MISMATCH</span>\`;
-  const recLine = \`Reconciliation: marginForegone + adjusted = standalone
-    <b>\${fmtUsd(p.marginForegone)} + \${fmtUsd(p.adjustedProfit)} = \${fmtUsd(p.standaloneProfit)}</b> \${okMark} &nbsp;&nbsp;
-    Annualised return: <b>\${fmtPct(res.tisAnnualisedReturn)}</b> on cargo value (INDICATIVE) · \${res.financing.capitalLockupDays}d lockup\`;
-
-  return \`<section class="section" aria-labelledby="waterfall-heading">
-  <h2 class="section-heading" id="waterfall-heading">Profit Waterfall</h2>
-  <div class="card">
-    <div class="wf-row">
-      \${wfBox('wf-standalone','STANDALONE PROFIT','',   p.standaloneProfit, 'TIS as 100% owner')}
-      <div class="wf-arrow" aria-hidden="true">&#8250;</div>
-      \${wfBox('wf-deduct',   'MARGIN FOREGONE',  '−',  p.marginForegone,   fmtMt(qty.economic.partnerTonnes,2)+' partner tonnes')}
-      <div class="wf-arrow" aria-hidden="true">&#8250;</div>
-      \${wfBox('wf-adjusted', 'ADJUSTED PROFIT',  '=',  p.adjustedProfit,   'TIS retained tonnes share')}
-      <div class="wf-arrow" aria-hidden="true">&#8250;</div>
-      \${wfBox('wf-share',    'PARTNER CASH SHARE','−', p.partnerCashProfitShare, fmtPct(p.profitSharePct)+' of adjusted')}
-      <div class="wf-arrow" aria-hidden="true">&#8250;</div>
-      \${wfBox('wf-net',      'TIS NET PROFIT',   '=',  p.tisNetProfit,     fmtPct(1-p.profitSharePct)+' of adjusted')}
+  if (ep === 'TIS') {
+    return \`<section class="section" aria-labelledby="partner-h">
+    <h2 class="section-heading" id="partner-h">Equity Structure</h2>
+    <div class="card card-body">
+      <p class="muted" style="font-size:12px;margin-bottom:10px">\${esc(pd.note)}</p>
+      <div class="info-block">
+        \${infoRow('Cargo value', fmtUsd(res.cargoValue))}
+        \${infoRow('Partner funding (self)', fmtUsd(res.financing.partnerFunding))}
+        \${infoRow('Standalone = Adjusted = TIS net', fmtUsd(res.profit.tisNetProfit))}
+      </div>
     </div>
-    <div class="wf-reconcile">\${recLine}</div>
-  </div>
-</section>\`;
-}
+    </section>\`;
+  }
 
-// ── Partner Deliverables + Hedges ─────────────────────────────────────────────
-function renderPartnerHedge(trade, res) {
-  const pd = res.partnerDelivers;
-  const q  = res.quantities;
-  const h  = res.hedge;
-  const fxh= res.fxHedge;
-  const hc = res.hedgeComparison;
-  const iceOn = trade.hedge && trade.hedge.iceHedged;
-  const fxOn  = trade.fxHedge && trade.fxHedge.fxHedged;
-  const pp  = q.paper;
-
-  const partnerSection = \`
-  <div class="two-col-card">
-    <h3 style="font-family:var(--f-display);font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--slate);margin-bottom:12px">Partner Deliverables</h3>
-    <p class="muted" style="font-size:11px;margin-bottom:10px">\${esc(pd.note)}</p>
-    <div class="info-block">
-      <div class="info-sub">(1) Product Received</div>
-      <div class="info-row"><span>Tonnes (economic)</span><b>\${fmtMt(q.economic.partnerTonnes,2)}</b></div>
-      <div class="info-row"><span>Valued at ex-ship landed</span><b>\${fmtUsd(pd.productReceived?.valuedAtExShipLandedCost)}</b></div>
-      <div class="info-row"><span>= Principal at par</span><b>\${fmtUsd(res.financing.partnerFunding)}</b></div>
+  const pp = q.paper;
+  return \`<section class="section" aria-labelledby="partner-h">
+  <h2 class="section-heading" id="partner-h">Partner Deliverables</h2>
+  <div class="card card-body">
+    <p class="muted" style="font-size:11px;margin-bottom:12px">\${esc(pd.note)}</p>
+    <div class="two-col-grid">
+      <div>
+        <div class="info-block">
+          <div class="info-sub">(1) Product Received</div>
+          \${infoRow('Tonnes (economic)', fmtMt(q.economic.partnerTonnes, 2))}
+          \${infoRow('Valued at ex-ship landed', fmtUsd(pd.productReceived?.valuedAtExShipLandedCost))}
+          \${infoRow('= Principal at par', fmtUsd(res.financing.partnerFunding))}
+        </div>
+        <div class="info-block">
+          <div class="info-sub">(2) Cash Received</div>
+          \${infoRow('Profit share ('+fmtPct(res.profit.profitSharePct)+')', fmtUsd(pd.cashReceived?.profitShare))}
+        </div>
+      </div>
+      <div>
+        <div class="info-block">
+          <div class="info-sub">Funding Stack</div>
+          \${infoRow('Partner bond ('+fmtPct(res.financing.pct.bondPct,1)+')', fmtUsd(res.financing.performanceBond))}
+          \${infoRow('Partner equity ('+fmtPct(res.financing.pct.equityPct,1)+')', fmtUsd(res.financing.equity))}
+          \${infoRow('Bank LC ('+fmtPct(res.financing.pct.lcPct,1)+')', fmtUsd(res.financing.lc))}
+        </div>
+        \${pp ? \`<div class="info-block">
+          <div class="info-sub">Paper vs Economic Quantities</div>
+          \${infoRow('Partner economic', fmtMt(q.economic.partnerTonnes, 2))}
+          \${infoRow('Partner paper (nearest 50)', fmtMt(pp.partnerPaper, 0) + ' ↓ TIS favour')}
+          \${infoRow('Settlement cash true-up', fmtUsd(pp.cashTrueUp))}
+        </div>\` : ''}
+      </div>
     </div>
-    <div class="info-block">
-      <div class="info-sub">(2) Cash Received</div>
-      <div class="info-row"><span>Profit share (\${fmtPct(res.profit.profitSharePct)})</span><b>\${fmtUsd(pd.cashReceived?.profitShare)}</b></div>
-    </div>
-    \${pp ? \`<div class="info-block">
-      <div class="info-sub">Paper vs Economic Quantities</div>
-      <div class="info-row"><span>Partner (economic)</span><b>\${fmtMt(q.economic.partnerTonnes,2)}</b></div>
-      <div class="info-row"><span>Partner (paper, nearest 50)</span><b>\${fmtMt(pp.partnerPaper,0)} &darr; (TIS favour)</b></div>
-      <div class="info-row"><span>TIS retained (economic)</span><b>\${fmtMt(q.economic.tisRetainedTonnes,2)}</b></div>
-      <div class="info-row"><span>Settlement cash true-up</span><b>\${fmtUsd(pp.cashTrueUp)}</b></div>
-    </div>\` : ''}
-    <div class="tie-out-box\${pd.principalTie?.ok?' tie-ok':' tie-warn'}">
+    <div class="tie-out-box\${pd.principalTie?.ok ? ' tie-ok' : ' tie-warn'}">
       Principal tie-out: owed <b>\${fmtUsd(res.financing.partnerFunding)}</b> = product <b>\${fmtUsd(pd.productReceived?.valuedAtExShipLandedCost)}</b> + cash <b>\${fmtUsd(pd.cashReceived?.principalCashPortion)}</b>
-      \${pd.principalTie?.ok ? ' <span class="bdg bdg-ok">&#10003; OK</span>' : ' <span class="bdg bdg-confirm">MISMATCH</span>'}
+      \${pd.principalTie?.ok ? ' <span class="bdg bdg-recoverable">&#10003; OK</span>' : ' <span class="bdg bdg-confirm">MISMATCH</span>'}
     </div>
-  </div>\`;
+  </div>
+</section>\`;
+}
 
-  function hedgeBlock(title, on, details, comp) {
-    const pillCls = on ? 'hedge-status-pill on' : 'hedge-status-pill';
-    const pillTxt = on ? 'Active' : 'Off';
-    const rows = Object.entries(details).map(([k,v]) => \`<div class="info-row"><span>\${esc(k)}</span><b>\${v ?? '—'}</b></div>\`).join('');
-    const compBlock = comp ? \`<div class="hedge-compare">
-      <div class="info-row"><span>Hedged TIS Net</span><b>\${fmtUsd(comp.hedgedTisNet)}</b></div>
-      <div class="info-row"><span>Unhedged TIS Net</span><b>\${fmtUsd(comp.unhedgedTisNet)}</b></div>
-      <div class="info-row"><span>Hedge value</span><b>\${fmtUsdSign(comp.hedgeWorthItVsUnhedged)}</b></div>
-    </div>\` : '';
-    return \`<div class="hedge-block">
-      <div class="hedge-title">\${esc(title)}</div>
-      <div class="\${pillCls}"><span class="hedge-status-dot"></span> \${pillTxt}</div>
-      \${rows ? \`<div class="info-block">\${rows}</div>\` : ''}
-      \${compBlock}
+// ── 5. Hedge Analysis (two independent full-width stacked cards) ───────────
+function renderHedge(trade, res) {
+  const h   = res.hedge;
+  const fxh = res.fxHedge;
+  const hc  = res.hedgeComparison;
+  const iceOn = !!(trade.hedge && trade.hedge.iceHedged);
+  const fxOn  = !!(trade.fxHedge && trade.fxHedge.fxHedged);
+
+  // ICE hedge: null fixedPrice = no lock-in
+  const iceNullFixed = iceOn && (trade.hedge.fixedPrice == null);
+  const fxNullFwd    = fxOn  && (trade.fxHedge.forwardRate == null);
+
+  function cmpBlock(comp) {
+    if (!comp) return '<div class="h-cmp"><span class="muted" style="font-size:11px">Comparison not available</span></div>';
+    const delta = comp.hedgeWorthItVsUnhedged;
+    const dcls  = delta > 0 ? 'pos' : delta < 0 ? 'neg' : '';
+    return \`<div class="h-cmp">
+      <div class="h-cmp-row"><span class="h-cmp-lbl">Hedged TIS Net</span><b class="h-cmp-val">\${fmtUsd(comp.hedgedTisNet)}</b></div>
+      <div class="h-cmp-row"><span class="h-cmp-lbl">Unhedged TIS Net</span><b class="h-cmp-val">\${fmtUsd(comp.unhedgedTisNet)}</b></div>
+      <div class="h-cmp-row"><span class="h-cmp-lbl">Hedge value vs unhedged</span><b class="h-cmp-delta \${dcls}">\${fmtUsdSign(delta)}</b></div>
     </div>\`;
   }
 
-  const iceDetails = {
-    Route: h.route || '—',
-    Lots: \`\${h.lots ?? '—'} (\${fmtNum(h.hedgedTonnes, 0)} MT)\`,
-    'Comparison basis': \`\${fmtNum(h.comparisonBasisTonnes, 2)} MT TIS retained\`,
-    'Fixed price': fmtUsd(h.fixedPrice)+'/MT '+badge('PLACEHOLDER'),
-    'Live ICE': fmtUsd(h.liveIce || trade.market.ice.value)+'/MT',
-    'ICE cost delta': fmtUsdSign(h.iceCostDelta),
-    'Swap fee': fmtUsd(h.swapFee)+' '+badge('PLACEHOLDER'),
-    'Bank margin': fmtUsd(h.bankProvidedMargin),
-    'Extra financing': fmtUsd(h.extraFinancingCost),
-  };
+  const iceDetail = iceNullFixed
+    ? \`<div class="h-lock-warn">⚠ Fixed price not set — hedge prices at live ICE (<b>\${fmtUsd(trade.market.ice.value)}/MT</b>). No lock-in effect. Set a fixed price in the Hedge tab before live trading.</div>\`
+    : '';
+  const iceRows = \`
+    \${infoRow('Route', h.route || '—')}
+    \${infoRow('Lots / Hedged MT', \`\${h.lots ?? '—'} lots (\${fmtNum(h.hedgedTonnes, 0)} MT)\`)}
+    \${infoRow('Retained basis', fmtMt(h.comparisonBasisTonnes, 2) + ' TIS retained')}
+    \${infoRow('Fixed price', fmtUsd(h.fixedPrice) + '/MT ' + (trade.hedge.fixedPrice == null ? badge('PLACEHOLDER') : ''))}
+    \${infoRow('Live ICE', fmtUsd(h.liveIce || trade.market.ice.value) + '/MT')}
+    \${infoRow('ICE cost delta', fmtUsdSign(h.iceCostDelta) + (iceOn ? '' : ' (OFF — not applied)'))}
+    \${infoRow('Swap fee', fmtUsd(h.swapFee) + ' ' + badge('PLACEHOLDER'))}
+    \${infoRow('Bank margin', fmtUsd(h.bankProvidedMargin))}
+    \${infoRow('Extra financing', fmtUsd(h.extraFinancingCost))}
+  \`;
 
-  const fxDetails = fxh.noHedgeReason
-    ? { Note: fxh.noHedgeReason }
-    : {
-        'Net NGN exposure': fmtNum(fxh.netNairaNgn,0)+' ₦',
-        'Hedged ratio': fmtPct(fxh.hedgeRatio||0),
-        'Forward rate': fxh.forwardRate ? fmtNum(fxh.forwardRate,0)+' ₦/USD' : 'PLACEHOLDER',
-        'FX realized delta': fmtUsdSign(fxh.fxRealizedDeltaUsd||0),
-        'FX hedge cost': fmtUsd(fxh.extraFinancingCost||0),
-      };
+  const fxDetail = fxh.noHedgeReason
+    ? infoRow('Note', fxh.noHedgeReason)
+    : (fxNullFwd
+        ? \`<div class="h-lock-warn">⚠ Forward rate not set — FX hedge prices at parallel pricing rate (<b>\${fmtNum(res.fx.rates.parallelPricing, 0)} ₦/USD</b>). No lock-in effect. Set a forward rate in the Hedge tab.</div>\`
+        : '') + \`
+    \${infoRow('Net ₦ exposure', fmtNum(fxh.exposureNgn, 0) + ' ₦')}
+    \${infoRow('Hedge ratio', fmtPct(fxh.hedgeRatio || 0))}
+    \${infoRow('Forward rate', fxh.forwardRate ? fmtNum(fxh.forwardRate, 0) + ' ₦/USD' : badge('PLACEHOLDER'))}
+    \${infoRow('FX realized delta', fmtUsdSign(fxh.fxRealizedDeltaUsd || 0) + (fxOn ? '' : ' (OFF)'))}
+    \${infoRow('FX hedge cost', fmtUsd(fxh.extraFinancingCost || 0))}
+    \${fxh.basis ? infoRow('Basis risk (benchmark vs parallel)', fmtNum(fxh.basis.gapNgnPerUsd, 2) + ' ₦/USD residual') : ''}
+  \`;
 
-  const hedgesSection = \`<div class="two-col-card">
-    \${hedgeBlock('ICE Gasoil Swap', iceOn, iceDetails, hc?.ice, 'ICE')}
-    \${hedgeBlock('FX Hedge (Naira Exposure)', fxOn, fxDetails, hc?.fx, 'FX')}
-  </div>\`;
+  function card(title, on, detail, detailExtra, comp) {
+    const pillCls = on ? 'h-pill on' : 'h-pill';
+    return \`<div class="h-card\${on ? ' on' : ''}">
+      <div class="h-card-hdr">
+        <span class="h-card-title">\${esc(title)}</span>
+        <span class="\${pillCls}"><span class="h-pill-dot"></span>\${on ? 'Active' : 'Off'}</span>
+      </div>
+      <div class="h-detail">
+        <div class="h-detail-inner">
+          \${detailExtra || ''}
+          <div class="info-block">\${detail}</div>
+        </div>
+      </div>
+      \${cmpBlock(comp)}
+    </div>\`;
+  }
 
-  return \`<section class="section">
-  <div class="two-col-grid">
-    \${partnerSection}
-    \${hedgesSection}
+  return \`<section class="section" aria-labelledby="hedge-h">
+  <h2 class="section-heading" id="hedge-h">Hedge Analysis</h2>
+  <div class="hedge-cards">
+    \${card('ICE Gasoil Swap',        iceOn, iceRows, iceDetail, hc?.ice)}
+    \${card('FX Hedge (Naira Exposure)', fxOn, fxDetail, fxNullFwd ? '' : '', hc?.fx)}
   </div>
 </section>\`;
 }
 
-// ── Tax Block ─────────────────────────────────────────────────────────────────
+// ── 6. Tax Block ───────────────────────────────────────────────────────────
 function renderTax(res) {
-  const tb = res.tax;
+  const tb  = res.tax;
   const sur = tb.surcharge;
-  const rows = tb.lines ? tb.lines.map(l => \`<tr>
+  const rows = (tb.lines || []).map(l => \`<tr>
     <td>\${esc(l.label)}</td>
-    <td class="tc-amt">\${fmtUsd(l.amount)}</td>
-    <td>\${statusBadge(l.status)}</td>
-  </tr>\`).join('') : '';
+    <td class="r">\${fmtUsd(l.amount)}</td>
+    <td>\${badge(l.status)}</td>
+  </tr>\`).join('');
   const surRow = \`<tr style="border-top:2px solid var(--border)">
     <td><b>Fossil-fuel surcharge (5%)</b></td>
-    <td class="tc-amt">\${sur.enabled ? fmtUsd(sur.tisBorneUsd||0) : '<span class="muted">OFF (toggled)</span>'}</td>
+    <td class="r">\${sur.enabled ? fmtUsd(sur.tisBorneUsd || 0) : '<span class="muted">OFF</span>'}</td>
     <td>\${sur.enabled ? '' : badge('PENDING')}</td>
   </tr>\`;
-  return \`<section class="section" aria-labelledby="tax-heading">
-  <h2 class="section-heading" id="tax-heading">Tax Block</h2>
+
+  const afterSurcharge = sur.enabled
+    ? \`<div class="tax-net-box">
+        <span class="lbl">TIS Net after surcharge</span>
+        <span class="val">\${fmtUsd(res.profit.tisNetAfterSurcharge)}</span>
+      </div>\`
+    : '';
+
+  return \`<section class="section" aria-labelledby="tax-h">
+  <h2 class="section-heading" id="tax-h">Tax Block</h2>
   <div class="card">
-    <table class="cost-table">
-      <thead><tr><th>Tax Line</th><th class="tc-amt">Amount</th><th>Flag</th></tr></thead>
+    <div class="tbl-wrap"><table class="cost-table">
+      <thead><tr><th>Tax Line</th><th class="r">Amount</th><th>Flag</th></tr></thead>
       <tbody>\${rows}\${surRow}</tbody>
-    </table>
-    \${sur.enabled ? \`<div class="cost-total-row" style="padding:12px 0 0"><span>TIS Net after surcharge:</span><b>\${fmtUsd(res.profit.tisNetAfterSurcharge)}</b></div>\` : ''}
+    </table></div>
+    \${afterSurcharge}
   </div>
 </section>\`;
 }
 
-// ── Pricing Ladder ────────────────────────────────────────────────────────────
-function renderLadder(trade, res, ladder) {
-  if (!ladder || !ladder.exShip) return '';
-  const exShipLanded  = res.price.exShipLandedPerMT;
-  const currentPrice  = res.price.exShipPricePerMT;
-  const exShip        = ladder.exShip;
-  const tiers         = exShip.tiers || [];
-  const currentTier   = exShip.current || {};
-
-  const tierRows = tiers.map(tier => {
-    const isCurrent = currentTier.nearestTier === tier.name ||
-      (currentPrice != null && Math.abs(tier.pricePerMT - currentPrice) < 0.005);
-    const rowCls = isCurrent ? 'ladder-current' : '';
-    return \`<tr class="\${rowCls}">
-      <td><b>\${esc(tier.name)}</b></td>
-      <td class="tc-amt">\${fmtUsd(tier.pricePerMT)}/MT</td>
-      <td class="tc-amt">\${fmtPct(tier.marginPctOfSell)}</td>
-      <td class="tc-amt">\${fmtPct(tier.markupPctOnCost)}</td>
-      <td class="tc-amt">\${fmtUsd(tier.spreadPerMT)}/MT</td>
-      <td class="tc-amt \${tier.tisNetProfit >= 0 ? 'pos' : 'neg'}">\${fmtUsd(tier.tisNetProfit)}</td>
-    </tr>\`;
-  }).join('');
-
-  const depotTiers = (ladder.depot && ladder.depot.tiers) || [];
-  const depotSection = depotTiers.length > 0 ? \`
-  <h3 style="font-family:var(--f-display);font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--slate);margin:16px 0 8px">Depot &#8358;/L Ladder</h3>
-  <table class="cost-table">
-    <thead><tr><th>Tier</th><th class="tc-amt">&#8358;/L Price</th><th class="tc-amt">Margin %</th><th class="tc-amt">Markup on Landed</th><th class="tc-amt">TIS Net</th></tr></thead>
-    <tbody>\${depotTiers.map(tier => \`<tr>
-      <td><b>\${esc(tier.name)}</b></td>
-      <td class="tc-amt">\${fmtNum(tier.ngnPricePerL || tier.priceNgnPerL || 0, 2)} &#8358;/L</td>
-      <td class="tc-amt">\${fmtPct(tier.marginPctOfSell)}</td>
-      <td class="tc-amt">\${fmtPct(tier.markupPctOnCost)}</td>
-      <td class="tc-amt \${tier.tisNetProfit >= 0 ? 'pos' : 'neg'}">\${fmtUsd(tier.tisNetProfit)}</td>
-    </tr>\`).join('')}</tbody>
-  </table>\` : '';
-
-  const compNote = ladder.comparison && ladder.comparison.summary ? \` &nbsp;&middot;&nbsp; \${esc(ladder.comparison.summary)}\` : '';
-
-  return \`<section class="section" aria-labelledby="ladder-heading">
-  <h2 class="section-heading" id="ladder-heading">Pricing Ladder <span class="muted" style="font-size:12px;font-weight:400;letter-spacing:0;text-transform:none">— advisory guide only</span></h2>
-  <div class="card">
-    <table class="cost-table">
-      <thead><tr><th>Tier</th><th class="tc-amt">Price/MT</th><th class="tc-amt">Margin of Sell</th><th class="tc-amt">Markup on Landed</th><th class="tc-amt">Spread/MT</th><th class="tc-amt">TIS Net</th></tr></thead>
-      <tbody>\${tierRows}</tbody>
-    </table>
-    \${depotSection}
-    <div class="card-footer" style="border-top:1px solid var(--border)">
-      Ex-ship landed: <b>\${fmtUsd(exShipLanded)}/MT</b> &nbsp;&middot;&nbsp; Current price: <b>\${fmtUsd(currentPrice)}/MT</b>\${compNote}
-    </div>
-  </div>
-</section>\`;
-}
-
-// ── Sensitivities ─────────────────────────────────────────────────────────────
+// ── 7. Sensitivities ───────────────────────────────────────────────────────
 function renderTornado(sens) {
   const scenarios = sens.scenarios;
   const maxAbs = Math.max(...scenarios.map(s => Math.abs(s.deltaVsBase)), 1);
-  const sorted = [...scenarios].sort((a, b) => Math.abs(b.deltaVsBase) - Math.abs(a.deltaVsBase));
+  const sorted  = [...scenarios].sort((a, b) => Math.abs(b.deltaVsBase) - Math.abs(a.deltaVsBase));
 
   const seen = new Set();
   const rows = [];
   for (const s of sorted) {
     if (seen.has(s.lever)) continue;
-    const baseName = s.lever.replace(/\\s*[+\\-]\\s*10%$/i, '').trim();
-    const partner = sorted.find(p => !seen.has(p.lever) && p !== s && p.lever.replace(/\\s*[+\\-]\\s*10%$/i,'').trim() === baseName);
+    const baseName = s.lever.replace(/\\s*[+\\-]\\s*\\d+%$/i, '').trim();
+    const partner  = sorted.find(p => !seen.has(p.lever) && p !== s && p.lever.replace(/\\s*[+\\-]\\s*\\d+%$/i,'').trim() === baseName);
     let label, pos, neg;
     if (partner) {
       label = baseName;
       pos = s.deltaVsBase >= 0 ? s : partner;
-      neg = s.deltaVsBase <  0 ? s : partner;
+      neg = s.deltaVsBase < 0  ? s : partner;
       seen.add(s.lever); seen.add(partner.lever);
     } else {
       label = s.lever;
       pos = s.deltaVsBase >= 0 ? s : null;
-      neg = s.deltaVsBase <  0 ? s : null;
+      neg = s.deltaVsBase < 0  ? s : null;
       seen.add(s.lever);
     }
     const impact = Math.max(pos ? Math.abs(pos.deltaVsBase) : 0, neg ? Math.abs(neg.deltaVsBase) : 0);
-    rows.push({label, pos, neg, impact});
+    rows.push({ label, pos, neg, impact });
   }
-  rows.sort((a,b) => b.impact - a.impact);
+  rows.sort((a, b) => b.impact - a.impact);
 
-  const BAR_PCT = 46, THRESH = 13;
+  const BAR = 52, THRESH = 13;
   const rowHtml = rows.filter(r => r.impact > 1).map(row => {
-    const negPct = row.neg ? +(Math.abs(row.neg.deltaVsBase)/maxAbs*BAR_PCT).toFixed(1) : 0;
-    const posPct = row.pos ? +(Math.abs(row.pos.deltaVsBase)/maxAbs*BAR_PCT).toFixed(1) : 0;
+    const negPct = row.neg ? +(Math.abs(row.neg.deltaVsBase) / maxAbs * BAR).toFixed(1) : 0;
+    const posPct = row.pos ? +(Math.abs(row.pos.deltaVsBase) / maxAbs * BAR).toFixed(1) : 0;
     const negVal = row.neg ? fmtUsd(row.neg.deltaVsBase) : '';
     const posVal = row.pos ? (row.pos.deltaVsBase >= 0 ? '+' : '') + fmtUsd(row.pos.deltaVsBase) : '';
-    const negIn = negPct >= THRESH, posIn = posPct >= THRESH;
+    const negIn  = negPct >= THRESH, posIn = posPct >= THRESH;
     const negBar = row.neg ? \`<div class="tn-bar tn-neg" style="width:\${negPct}%">\${negIn ? \`<span class="tn-val">\${esc(negVal)}</span>\` : ''}</div>\` : '';
     const posBar = row.pos ? \`<div class="tn-bar tn-pos" style="width:\${posPct}%">\${posIn ? \`<span class="tn-val">\${esc(posVal)}</span>\` : ''}</div>\` : '';
     return \`<div class="tn-row">
@@ -886,7 +1648,7 @@ function renderTornado(sens) {
           \${!negIn && row.neg ? \`<span class="tn-val-out tn-neg-val">\${esc(negVal)}</span>\` : ''}
           \${negBar}
         </div>
-        <div class="tn-spine" aria-hidden="true"></div>
+        <div class="tn-spine"></div>
         <div class="tn-half tn-right">
           \${posBar}
           \${!posIn && row.pos ? \`<span class="tn-val-out tn-pos-val">\${esc(posVal)}</span>\` : ''}
@@ -895,61 +1657,65 @@ function renderTornado(sens) {
     </div>\`;
   }).join('');
 
-  return \`<div class="tn-wrap" role="img" aria-label="Sensitivity tornado chart">
+  return \`<div class="tn-wrap">
     <div class="tn-axis-labels">
       <span class="tn-axis-left">&larr; Negative impact (&darr; TIS Net)</span>
       <span class="tn-axis-right">Positive impact (&uarr; TIS Net) &rarr;</span>
     </div>
     \${rowHtml}
-    <div class="tn-baseline-label">Base case: <b>\${fmtUsd(sens.baseNet)}</b> &nbsp;&middot;&nbsp; Bars show &Delta; vs base at &plusmn;10% of each input</div>
+    <div class="tn-baseline-label">Base: <b>\${fmtUsd(sens.baseNet)}</b> &nbsp;·&nbsp; Bars = &Delta; vs base at &plusmn;10%</div>
   </div>\`;
 }
 
 function renderSens(res) {
   if (!res.sensitivities) return '';
   const sens = res.sensitivities;
-  const scenarios = [...sens.scenarios].sort((a,b) => Math.abs(b.deltaVsBase)-Math.abs(a.deltaVsBase));
+  const scenarios = [...sens.scenarios].sort((a,b) => Math.abs(b.deltaVsBase) - Math.abs(a.deltaVsBase));
   const maxAbs = Math.max(...scenarios.map(s => Math.abs(s.deltaVsBase)), 1);
 
+  function heatCls(delta) {
+    const pct = Math.abs(delta) / maxAbs;
+    if (delta > 0) return pct > 0.6 ? 'sh-pos-s' : pct > 0.2 ? 'sh-pos' : '';
+    if (delta < 0) return pct > 0.6 ? 'sh-neg-s' : pct > 0.2 ? 'sh-neg' : '';
+    return '';
+  }
+
   const tableRows = [
-    \`<tr class="sens-base"><td><b>Base case</b></td><td class="tc-amt"><b>\${fmtUsd(sens.baseNet)}</b></td><td class="tc-amt">&mdash;</td></tr>\`,
-    ...scenarios.map(s => {
-      const pct = Math.abs(s.deltaVsBase) / maxAbs;
-      let dcls = s.deltaVsBase > 0 ? (pct > 0.6 ? 'sens-pos-strong' : 'sens-pos') : (pct > 0.6 ? 'sens-neg-strong' : (pct > 0.2 ? 'sens-neg' : ''));
-      return \`<tr>
-        <td>\${esc(s.lever)}</td>
-        <td class="tc-amt">\${fmtUsd(s.tisNet)}</td>
-        <td class="tc-amt \${dcls}">\${s.deltaVsBase >= 0 ? '+' : ''}\${fmtUsd(s.deltaVsBase)}</td>
-      </tr>\`;
-    }),
+    \`<tr class="sens-base"><td><b>Base case</b></td><td class="r"><b>\${fmtUsd(sens.baseNet)}</b></td><td class="r">—</td></tr>\`,
+    ...scenarios.map(s => \`<tr>
+      <td>\${esc(s.lever)}</td>
+      <td class="r">\${fmtUsd(s.tisNet)}</td>
+      <td class="r \${heatCls(s.deltaVsBase)}">\${s.deltaVsBase >= 0 ? '+' : ''}\${fmtUsd(s.deltaVsBase)}</td>
+    </tr>\`),
   ].join('');
 
-  const fxNote = !sens.hasNairaLegs ? \`<div class="card-footer muted" style="border-top:1px solid var(--border)">FX: No NGN legs in this trade — FX sensitivity = $0 (all-USD ex-ship trade).</div>\` : '';
+  const fxNote = !(sens.fx && sens.fx.hasNgnLegs)
+    ? \`<div class="card-footer muted">FX: No NGN legs — FX sensitivity = $0 (all-USD ex-ship trade).</div>\`
+    : '';
 
-  return \`<section class="section" aria-labelledby="sens-heading">
-  <h2 class="section-heading" id="sens-heading">Sensitivities (&plusmn;10%)</h2>
+  return \`<section class="section" aria-labelledby="sens-h">
+  <h2 class="section-heading" id="sens-h">Sensitivities (&plusmn;10%)</h2>
   <div class="card">
     \${renderTornado(sens)}
-    <table class="cost-table" style="margin-top:16px">
-      <thead><tr><th>Lever</th><th class="tc-amt">TIS Net</th><th class="tc-amt">&Delta; vs Base</th></tr></thead>
+    <div class="tbl-wrap"><table class="cost-table" style="margin-top:16px">
+      <thead><tr><th>Lever</th><th class="r">TIS Net</th><th class="r">&Delta; vs Base</th></tr></thead>
       <tbody>\${tableRows}</tbody>
-    </table>
+    </table></div>
     \${fxNote}
   </div>
 </section>\`;
 }
 
-// ── Master render ─────────────────────────────────────────────────────────────
+// ── Master render ──────────────────────────────────────────────────────────
 function renderAll(trade, res, ladder) {
   renderKPIs(res);
-  document.getElementById('sec-params').innerHTML       = renderParams(trade, res);
-  document.getElementById('sec-cost').innerHTML         = renderCost(res);
-  document.getElementById('sec-waterfall').innerHTML    = renderWaterfall(res);
-  document.getElementById('sec-partner-hedge').innerHTML= renderPartnerHedge(trade, res);
-  document.getElementById('sec-tax').innerHTML          = renderTax(res);
-  document.getElementById('sec-ladder').innerHTML       = renderLadder(trade, res, ladder);
-  document.getElementById('sec-sens').innerHTML         = renderSens(res);
-  // Flash sections to show live update
+  document.getElementById('sec-waterfall').innerHTML = renderWaterfall(res);
+  document.getElementById('sec-ladder').innerHTML    = renderLadder(trade, res, ladder);
+  document.getElementById('sec-cost').innerHTML      = renderCost(res);
+  document.getElementById('sec-partner').innerHTML   = renderPartner(trade, res);
+  document.getElementById('sec-hedge').innerHTML     = renderHedge(trade, res);
+  document.getElementById('sec-tax').innerHTML       = renderTax(res);
+  document.getElementById('sec-sens').innerHTML      = renderSens(res);
   requestAnimationFrame(() => {
     document.querySelectorAll('.section').forEach(el => {
       el.classList.remove('val-flash');
@@ -959,102 +1725,128 @@ function renderAll(trade, res, ladder) {
   });
 }
 
-// ── Error UI ──────────────────────────────────────────────────────────────────
+// ── Error UI ───────────────────────────────────────────────────────────────
 function showError(msg) {
   const el = document.getElementById('rpt-error');
-  el.textContent = '⚠ ' + msg;
-  el.hidden = false;
+  if (el) { el.textContent = '⚠ ' + msg; el.hidden = false; }
 }
 function clearError() {
   const el = document.getElementById('rpt-error');
-  el.textContent = '';
-  el.hidden = true;
+  if (el) { el.textContent = ''; el.hidden = true; }
 }
 
-// ── Recompute ─────────────────────────────────────────────────────────────────
-let lastTrade = null, lastRes = null;
-
+// ── Recompute ──────────────────────────────────────────────────────────────
 function recompute() {
   let trade;
   try { trade = collectTrade(); }
   catch(e) { showError('Input error: ' + e.message); return; }
 
   let res;
-  try {
-    res = TISEngine.computeTrade(trade);
-  } catch(e) {
-    showError(e.message);
-    return;
-  }
+  try { res = TISEngine.computeTrade(trade); }
+  catch(e) { showError(e.message); return; }
 
-  // Sensitivities (re-run engine N times — fine for local use)
   try {
-    const computeFn = t => TISEngine.computeTrade(t, { skipHedgeCompare: true });
-    res.sensitivities = TISEngine.runSensitivities(trade, computeFn, { fxMode: 'parallel' });
-  } catch(e) {
-    res.sensitivities = null;
-  }
+    const fn = t => TISEngine.computeTrade(t, { skipHedgeCompare: true });
+    res.sensitivities = TISEngine.runSensitivities(trade, fn, { fxMode: 'parallel' });
+  } catch(_) { res.sensitivities = null; }
 
-  // Pricing ladder
   let ladder = null;
   try {
-    const computeFn = t => TISEngine.computeTrade(t, { skipHedgeCompare: true });
-    ladder = TISEngine.buildLadder(trade, computeFn, res);
-  } catch(e) {
-    ladder = null;
-  }
+    const fn = t => TISEngine.computeTrade(t, { skipHedgeCompare: true });
+    ladder = TISEngine.buildLadder(trade, fn, res);
+  } catch(_) { ladder = null; }
 
-  lastTrade = trade; lastRes = res;
   clearError();
   renderAll(trade, res, ladder);
 }
 
-// ── Input listeners ───────────────────────────────────────────────────────────
-document.querySelectorAll('.ctrl-input').forEach(el => el.addEventListener('input', () => {
-  updateLcDisplay();
-  updateDepotVisibility();
-  recompute();
-}));
-document.querySelectorAll('.ctrl-select').forEach(el => el.addEventListener('change', recompute));
-
-['inp-bond','inp-equity'].forEach(id => {
-  const el = document.getElementById(id);
-  if (el) el.addEventListener('input', updateLcDisplay);
-});
-
-document.getElementById('inp-exship-pct').addEventListener('input', updateDepotVisibility);
-
-// ── Toggle switches ───────────────────────────────────────────────────────────
+// ── Toggle switches ────────────────────────────────────────────────────────
 function activateToggle(wrap, on) {
-  wrap.dataset.on = on.toString();
-  wrap.setAttribute('aria-checked', on.toString());
+  if (!wrap) return;
+  wrap.dataset.on = String(on);
+  wrap.setAttribute('aria-checked', String(on));
   wrap.querySelector('.tgl-track').classList.toggle('on', on);
 }
+
 document.querySelectorAll('.tgl-wrap').forEach(wrap => {
-  const toggle = () => { activateToggle(wrap, wrap.dataset.on !== 'true'); recompute(); };
+  const toggle = () => {
+    activateToggle(wrap, wrap.dataset.on !== 'true');
+    updateSurchargeVisibility();
+    updateHedgeTab();
+    setModified(true);
+    recompute();
+  };
   wrap.addEventListener('click', toggle);
-  wrap.addEventListener('keydown', e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggle(); } });
+  wrap.addEventListener('keydown', e => {
+    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggle(); }
+  });
 });
 
-// ── Collapse panel ────────────────────────────────────────────────────────────
-window.togglePanel = function(btn) {
-  const grid = document.getElementById('ctrl-grid');
-  const hidden = grid.hidden;
-  grid.hidden = !hidden;
-  btn.textContent = hidden ? '▲ Collapse' : '▼ Expand';
+// ── Tab switching ──────────────────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const tabId = 'tab-' + btn.dataset.tab;
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    const panel = document.getElementById(tabId);
+    if (panel) panel.classList.add('active');
+  });
+});
+
+// ── Disclosure toggles ─────────────────────────────────────────────────────
+window.toggleDisc = function(btn) {
+  const body = btn.nextElementSibling;
+  if (!body) return;
+  const open = body.classList.toggle('open');
+  const arrow = btn.querySelector('span');
+  if (arrow) arrow.textContent = open ? '▲' : '▼';
 };
 
-// ── Boot ──────────────────────────────────────────────────────────────────────
+// ── Drawer (responsive) ────────────────────────────────────────────────────
+window.toggleDrawer = function() {
+  const sb  = document.getElementById('sidebar');
+  const btn = document.getElementById('drawer-btn');
+  const open = sb.classList.toggle('open');
+  if (btn) {
+    const arr = btn.querySelector('.drawer-arrow');
+    if (arr) arr.textContent = open ? '▲' : '▼';
+  }
+};
+
+// ── Input listeners ────────────────────────────────────────────────────────
+document.querySelectorAll('.si, .ss').forEach(el => {
+  el.addEventListener('input',  () => { onInputChange(el.id); });
+  el.addEventListener('change', () => { onInputChange(el.id); });
+});
+
+function onInputChange(id) {
+  setModified(true);
+  updateLcDisplay();
+  updateDepotVisibility();
+  updateCurrencyVisibility();
+  updateSurchargeVisibility();
+  updateHedgeTab();
+  updateIceRouteVisibility();
+  recompute();
+}
+
+// ── Boot ───────────────────────────────────────────────────────────────────
 updateLcDisplay();
 updateDepotVisibility();
+updateCurrencyVisibility();
+updateSurchargeVisibility();
+updateHedgeTab();
+updateIceRouteVisibility();
 recompute();
 
 })();
 </script>
+
 </body>
 </html>`;
 
-// Write out
+// ── 11. Write output ─────────────────────────────────────────────────────────
 const outPath = path.join(OUT, 'TIS-interactive.html');
 fs.writeFileSync(outPath, html, 'utf8');
 console.log('HTML → ' + path.relative(ROOT, outPath));
