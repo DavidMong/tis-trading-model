@@ -1,0 +1,12 @@
+{
+  "name": "tis-trading-model",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reusable petroleum cargo trading model for TIS Global Trading. Correctness and auditability first; UI is not a concern.",
+  "type": "commonjs",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node run.js",
+    "first-trade": "node run.js trades/profogas-dangote-001.json"
+  }
+}

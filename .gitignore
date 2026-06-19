@@ -1,0 +1,17 @@
+# Real trade data — never commit (contains margins, partner terms, prices)
+trades/*.json
+!trades/sample-trade.json
+
+# Secrets & local config
+.env
+.env.local
+*.local
+
+# Tax law source documents (large / licensed)
+*.pdf
+
+# Node
+node_modules/
+
+# OS files
+.DS_Store

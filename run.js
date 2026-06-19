@@ -1,0 +1,358 @@
+'use strict';
+
+const fs = require('node:fs');
+const path = require('node:path');
+const { parseArgs } = require('node:util');
+
+const { computeEquityPartner } = require('./engine/flows/equity-partner');
+const { computeStraightExship } = require('./engine/flows/straight-exship');
+const { computeFullDepotResale } = require('./engine/flows/full-depot-resale');
+const { runSensitivities } = require('./engine/core/sensitivities');
+const { buildHedge } = require('./engine/core/hedge');
+const { chooseRate } = require('./engine/core/fx');
+const { buildLadder } = require('./engine/core/pricing-ladder');
+
+const FLOWS = {
+  'equity-partner': computeEquityPartner,
+  'straight-exship': computeStraightExship,
+  'full-depot-resale': computeFullDepotResale,
+};
+
+// ---------------------------------------------------------------- formatting
+const usd = (x) => (x == null ? 'n/a' : `$${Number(x).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+const mt = (x) => (x == null ? 'n/a' : `${Number(x).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MT`);
+const pct = (x) => (x == null ? 'n/a' : `${(x * 100).toFixed(4).replace(/\.?0+$/, '')}%`);
+const pad = (s, n) => String(s).padEnd(n);
+const padL = (s, n) => String(s).padStart(n);
+const hr = (c = '-', n = 92) => c.repeat(n);
+const badge = (s) => (!s || s === 'OK' ? '' : `  [${s}]`);
+
+// ---------------------------------------------------------------- CLI
+function parseCli() {
+  const { values, positionals } = parseArgs({
+    allowPositionals: true,
+    options: {
+      'with-surcharge': { type: 'boolean', default: false },
+      'compare-fx': { type: 'boolean', default: false },
+      'compare-hedge': { type: 'boolean', default: false },
+      ladder: { type: 'boolean', default: false },
+      upside: { type: 'boolean', default: false },
+      export: { type: 'string' }, // 'csv'
+      help: { type: 'boolean', short: 'h', default: false },
+    },
+  });
+  return { flags: values, tradeFile: positionals[0] };
+}
+
+function loadTrade(file) {
+  const abs = path.resolve(file);
+  return JSON.parse(fs.readFileSync(abs, 'utf8'));
+}
+
+// ---------------------------------------------------------------- report
+function printReport(res, trade, flags) {
+  const L = (s = '') => console.log(s);
+
+  L(hr('='));
+  L('TIS GLOBAL TRADING — TRADE MODEL REPORT');
+  L(res.meta.tradeName);
+  L(`Trade ${res.meta.tradeId}   |   Flow: ${res.meta.flow}   |   Entity: ${res.meta.entity}`);
+  L(`Partner ${res.meta.parties.partner}  |  Supplier ${res.meta.parties.supplier}  |  Facility ${res.meta.parties.facility}  |  Inspector ${res.meta.parties.inspector}`);
+  L(`Delivered qty: ${mt(res.meta.deliveredQty)}${flags.upside ? '   (UPSIDE case +5% seller option)' : ''}`);
+  L(hr('='));
+
+  // 1. Funding stack
+  const f = res.financing;
+  L('\n1. FUNDING STACK  (of cargo FOB value)');
+  L(hr());
+  L(`  Unit FOB (ICE + premium)        ${padL(usd(res.unitFob) + '/MT', 24)}`);
+  L(`  Cargo (FOB) value               ${padL(usd(res.cargoValue), 24)}   = unit FOB x ${mt(res.meta.deliveredQty)}`);
+  L(`  Performance bond  ${pct(f.pct.bondPct)} (first-loss) ${padL(usd(f.performanceBond), 18)}`);
+  L(`  Equity            ${pct(f.pct.equityPct)}             ${padL(usd(f.equity), 18)}`);
+  L(`  Partner funding   ${pct(f.pct.partnerPct)} (bond+equity)${padL(usd(f.partnerFunding), 18)}   <- partner returnable principal`);
+  L(`  Bank LC           ${pct(f.pct.lcPct)}             ${padL(usd(f.lc), 18)}`);
+  L(`  WC sublimit (non-cargo costs)   ${padL(usd(f.wc), 18)}`);
+  L(`  Net advance (LC + WC)           ${padL(usd(f.netAdvance), 18)}`);
+  L(`  Funding-stack check (bond+equity+LC = 100% of cargo): ${(f.check.fundingStackPctOfCargo * 100).toFixed(2)}%  ${f.check.fundingStackPctOfCargo === 1 ? 'OK' : 'MISMATCH'}`);
+
+  // 2. Cost build-up
+  L('\n2. COST BUILD-UP  (all-in landed cost EXCLUDES recoverable VAT)');
+  L(hr());
+  L(`  ${pad('#', 3)}${pad('Line', 34)}${pad('Category', 19)}${padL('Amount (USD)', 18)}  Flag`);
+  for (const l of res.cost.lines) {
+    const flag = l.recoverable ? 'RECOVERABLE' : (l.status === 'OK' ? '' : l.status);
+    L(`  ${pad(l.id, 3)}${pad(l.label, 34)}${pad(l.category, 19)}${padL(usd(l.amountUsd), 18)}  ${flag}`);
+  }
+  L(hr());
+  L(`  ${pad('', 3)}${pad('ALL-IN LANDED COST (excl. recoverable VAT)', 53)}${padL(usd(res.cost.allInCost), 18)}`);
+  L(`  ${pad('', 3)}${pad('Landed cost / MT', 53)}${padL(usd(res.price.landedCostPerMT) + '/MT', 18)}`);
+  L(`  Freight base (TC hire ${usd(res.cost.freight.tcHire)} + demurrage ${usd(res.cost.freight.demurrage)}) = ${usd(res.cost.freight.freightBase)}`);
+
+  // 2b. VAT-services bucket (INFERRED composition)
+  const sb = res.cost.servicesBucket;
+  L('\n2b. VAT-SERVICES BASE  (line 13 — INFERRED, configurable named bucket)');
+  L(hr());
+  for (const x of sb.composition) L(`  line ${pad(x.id, 3)} ${pad(x.label, 28)} ${padL(usd(x.amount), 16)}`);
+  L(`  ${pad('servicesBucket SUM', 38)} ${padL(usd(sb.sum), 16)}`);
+  L(`  VAT on services @ 7.5%  =        ${padL(usd(res.cost.byId[13].amountUsd), 16)}   (recoverable input VAT)`);
+
+  // 3. Recoverable-VAT block
+  const rv = res.cost.recoverableVat;
+  L('\n3. RECOVERABLE VAT  (cash-flow TIMING only — does NOT affect profit; s.155(4))');
+  L(hr());
+  for (const l of rv.lines) L(`  line ${pad(l.id, 3)} ${pad(l.label, 36)} ${padL(usd(l.amount), 16)}`);
+  L(`  Gross recoverable                       ${padL(usd(rv.grossRecoverable), 16)}`);
+  L(`  x taxableSupplyProportion (${pct(rv.taxableSupplyProportion)})         ${padL('', 16)}`);
+  L(`  = Recoverable VAT (reclaimed / WC timing)${padL(usd(rv.recoverable), 16)}`);
+
+  // 4. Tax block
+  L('\n4. TAX BLOCK  (authority: tax-reference.md vs Nigeria Tax Act 2025)');
+  L(hr());
+  L(`  ${pad('#', 3)}${pad('Line', 34)}${padL('Amount', 15)}  Treatment / status`);
+  for (const t of res.tax.items) {
+    L(`  ${pad(t.id, 3)}${pad(t.label, 34)}${padL(usd(t.amountUsd), 15)}  ${t.treatment}${t.status === 'OK' ? '' : ' [' + t.status + ']'}`);
+    L(`      ${t.legalRef}`);
+  }
+  const sc = res.tax.surcharge;
+  L(`\n  Fossil-fuel surcharge (s.158-161): ${sc.enabled ? 'ENABLED' : 'OFF (default)'}   status: ${sc.status}`);
+  L(`      rate ${pct(sc.rate)}  base: ${sc.baseDescription}  ${sc.baseAmount != null ? '(' + usd(sc.baseAmount) + ')' : ''}`);
+  L(`      incidence: ${sc.incidence}   amount: ${usd(sc.amountUsd)}`);
+  L(`      ${sc.legalRef}`);
+
+  // 5. Quantities — paper vs economic
+  const q = res.quantities;
+  L('\n5. QUANTITIES  (economic drives ALL P&L; paper is documentary, rounded in TIS favour)');
+  L(hr());
+  L(`  ${pad('', 22)}${padL('ECONOMIC (exact)', 22)}${padL('PAPER (nearest 50)', 22)}`);
+  L(`  ${pad('Partner tonnes', 22)}${padL(mt(q.economic.partnerTonnes), 22)}${padL(mt(q.paper.partnerPaper) + ' (down)', 22)}`);
+  L(`  ${pad('TIS retained tonnes', 22)}${padL(mt(q.economic.tisRetainedTonnes), 22)}${padL(mt(q.paper.tisPaper) + ' (up)', 22)}`);
+  L(`  Partner principal as product: ${usd(q.economic.principalAsProduct)}   as cash: ${usd(q.economic.principalAsCash)}`);
+  L(`  Paper partner value ${usd(q.paper.partnerPaperValue)}  ->  settlement cash true-up to par: ${usd(q.paper.cashTrueUp)}`);
+
+  // 6. Price
+  L('\n6. PRICE');
+  L(hr());
+  L(`  Landed cost / MT                ${padL(usd(res.price.landedCostPerMT) + '/MT', 20)}`);
+  L(`  Ex-storage landed cost / MT     ${padL(usd(res.price.exStorageLandedPerMT) + '/MT', 20)}`);
+  L(`  Ex-ship SELL price / MT         ${padL(usd(res.price.exShipPricePerMT) + '/MT', 20)}${badge(res.price.exShipStatus)}`);
+  if (res.price.placeholderMarginPct != null) L(`      (placeholder = landed x (1 + ${pct(res.price.placeholderMarginPct)}))`);
+  L(`  Per-MT margin                   ${padL(usd(res.price.perMtMargin) + '/MT', 20)}`);
+
+  // 7. Profit waterfall
+  const p = res.profit;
+  L('\n7. PROFIT WATERFALL  (standalone <-> adjusted reconciliation — INFERRED)');
+  L(hr());
+  L(`  Standalone profit  (TIS as 100% owner)     ${padL(usd(p.standaloneProfit), 18)}   = ${mt(res.meta.deliveredQty)} x per-MT margin`);
+  L(`  - Margin foregone  (TIS opportunity cost)  ${padL(usd(p.marginForegone), 18)}   = partner tonnes x per-MT margin`);
+  L(`  = Adjusted profit                          ${padL(usd(p.adjustedProfit), 18)}   = retained tonnes x per-MT margin`);
+  L(`  - Partner cash profit share (${pct(p.profitSharePct)})       ${padL(usd(p.partnerCashProfitShare), 18)}   = share x adjusted`);
+  L(`  = TIS net profit                           ${padL(usd(p.tisNetProfit), 18)}   = (1 - share) x adjusted`);
+  if (p.tisNetAfterSurcharge !== p.tisNetProfit) L(`    TIS net after surcharge incidence        ${padL(usd(p.tisNetAfterSurcharge), 18)}`);
+  L(`  reconciliation: marginForegone + adjusted = standalone -> ${usd(p.reconciliation.lhs)} = ${usd(p.reconciliation.rhs)}  ${p.reconciliation.ok ? 'OK' : 'MISMATCH'}`);
+  L(`  TIS annualised return on cargo (lockup ${f.capitalLockupDays}d): ${pct(res.tisAnnualisedReturnOnCargo)}   [TIS-side metric, INDICATIVE]`);
+
+  // 8. Partner deliverables
+  const pd = res.partnerDelivers;
+  L(`\n8. PARTNER DELIVERABLES — ${res.meta.parties.partner}  (TIS-internal view: only what TIS delivers)`);
+  L(hr());
+  L(`  (1) Product received: ${mt(pd.productReceived.tonnes)}  valued at landed cost ${usd(pd.productReceived.valuedAtLandedCost)}  (= principal at par)`);
+  L(`  (2) Cash received:    profit share ${usd(pd.cashReceived.profitShare)}` + (pd.cashReceived.principalCashPortion > 0 ? `  + principal cash ${usd(pd.cashReceived.principalCashPortion)}` : '') + `  + settlement true-up ${usd(pd.cashReceived.settlementTrueUp)}`);
+  L(`  Principal tie-out: owed ${usd(pd.principalTie.owed)} = product ${usd(pd.principalTie.returnedProductValue)} + cash ${usd(pd.principalTie.returnedCash)}  ${pd.principalTie.ok ? 'OK' : 'MISMATCH'}`);
+  L(`  (Margin foregone is shown as TIS opportunity cost only — no partner-side upside attributed.)`);
+
+  // 9. Hedge
+  const h = res.hedge;
+  L('\n9. HEDGE — ICE Gasoil swap  (hedged vs unhedged)');
+  L(hr());
+  L(`  Route: ${h.route}   lots: ${h.lots} (${mt(h.hedgedTonnes)})   unhedged: ${mt(h.unhedgedTonnes)}`);
+  L(`  Fixed price ${usd(h.fixedPrice)}/MT  vs live ICE ${usd(h.liveIce)}/MT   notional ${usd(h.notional)}`);
+  L(`  Effective ICE cost (hedged) ${usd(h.effectiveIceCost)}   |   unhedged ${usd(h.unhedgedIceCost)}   |   delta ${usd(h.iceCostDelta)}`);
+  L(`  Swap fee ${usd(h.swapFee)}   bank-provided margin ${usd(h.bankProvidedMargin)}   extra financing cost ${usd(h.extraFinancingCost)}`);
+  L(`  ${badge(h.status).trim()}`);
+
+  // 10. Sensitivities
+  L('\n10. SENSITIVITIES  (+/-10%; change in TIS net profit)');
+  L(hr());
+  for (const s of res.sensitivities.scenarios) {
+    L(`  ${pad(s.lever, 22)} TIS net ${padL(usd(s.tisNet), 18)}   delta ${padL(usd(s.deltaVsBase), 16)}`);
+  }
+  L(`  FX: ${res.sensitivities.fx.note}`);
+  L(`  Hedge: effective ${usd(res.sensitivities.hedge.effectiveIceCost)} vs unhedged ${usd(res.sensitivities.hedge.unhedgedIceCost)} (delta ${usd(res.sensitivities.hedge.delta)})`);
+  if (res.sensitivities.depotDownside) L(`  Depot sold at cost: TIS net ${usd(res.sensitivities.depotDownside.tisNet)} (delta ${usd(res.sensitivities.depotDownside.deltaVsBase)})`);
+  else L('  Depot sold-at-cost downside: n/a (no depot leg).');
+
+  // 11. Inferred formulas & status flags appendix
+  L('\n11. INFERRED FORMULAS & STATUS FLAGS  (eyeball before relying on figures)');
+  L(hr());
+  L('  INFERRED:');
+  L('   - VAT-services base = SGS(15) + port agency(16) + collateral mgr(24); 7.5% applied. [configurable]');
+  L('   - Landed cost / MT = sum(all cost lines except recoverable VAT 12,13) / deliveredQty.');
+  if (res.price.placeholderMarginPct != null) L(`   - Ex-ship placeholder = landed cost / MT x (1 + ${pct(res.price.placeholderMarginPct)}).`);
+  else L('   - Ex-ship price = FIXED input (decoupled from cost; does NOT move with ICE/FOB/TC).');
+  L('   - Standalone<->adjusted: adjusted = standalone - marginForegone; TIS = (1-share) x adjusted.');
+  L('   - WC draw = full WC sublimit (not actual non-cargo spend).');
+  L('   - Evaporation / tank-insurance base = cargo value (depot legs only).');
+  L('   - TIS annualised return = (TIS net / cargo value) x (365 / capitalLockupDays).');
+  L('  STATUS FLAGS:');
+  L('   - WHT freight 5%      CONFIRM  (TAA s.51 enabling; rate in regs, UNVERIFIED).');
+  L('   - Surcharge 5%        PENDING  (s.158-161; commencementGazetted=false; default OFF).');
+  L(`   - Ex-ship price       ${res.price.exShipStatus}.`);
+  L('   - VAT-services base   CONFIRM  (inferred composition).');
+  L('   - NIMASA 2%/3%, SPOMO/CVFF 2%   CONFIRM (non-NTA levies).');
+  L('   - Marine 0.125%, alloc security 0.029%   INDICATIVE (commercial).');
+  L('   - Hedge fee/margin/fixedPrice   PLACEHOLDER (verify before live hedge).');
+  L('   - creditRate, lcFeePct, charter/demurrage days, FX   INDICATIVE / overridable.');
+  L(hr('='));
+}
+
+// ---------------------------------------------------------------- comparisons
+function printFxComparison(trade) {
+  console.log('\nFX COMPARISON (NAFEM vs parallel)');
+  console.log(hr());
+  const nafem = chooseRate(trade.fx, 'nafem');
+  const parallel = chooseRate(trade.fx, 'parallel');
+  console.log(`  NAFEM    ${padL(nafem.effective, 10)} NGN/USD  (${nafem.source}, ${nafem.status})`);
+  console.log(`  Parallel ${padL(parallel.effective, 10)} NGN/USD  (${parallel.source}, ${parallel.status})`);
+  console.log('  Note: this trade is all-USD ex-ship — no NGN legs, so FX choice does not change P&L.');
+}
+
+function printHedgeComparison(trade, res) {
+  console.log('\nHEDGE ROUTE COMPARISON (A bank_book vs B third_party)');
+  console.log(hr());
+  const ctx = { tisRetainedTonnes: res.quantities.economic.tisRetainedTonnes };
+  const a = buildHedge({ ...trade, hedge: { ...trade.hedge, route: 'bank_book' } }, ctx);
+  const b = buildHedge({ ...trade, hedge: { ...trade.hedge, route: 'third_party' } }, ctx);
+  console.log(`  Route A bank_book   : extra cost ${usd(a.extraFinancingCost)} (spread ${usd(a.routeEconomics.bankSpread)} + fee ${usd(a.swapFee)}); bank margin ${usd(a.bankProvidedMargin)}`);
+  console.log(`  Route B third_party : extra cost ${usd(b.extraFinancingCost)} (margin int ${usd(b.routeEconomics.marginInterest)} + 3p fee ${usd(b.routeEconomics.thirdPartyFee)} + fee ${usd(b.swapFee)}); bank margin ${usd(b.bankProvidedMargin)}`);
+  console.log('  In both routes swap margin is bank-provided, never partner equity.');
+}
+
+// ---------------------------------------------------------------- pricing ladder
+function printLadder(ladder, trade) {
+  const L = (s = '') => console.log(s);
+  L('\n' + hr('='));
+  L('PRICING LADDER  (cost-plus margin guidance)');
+  L(`*** ${ladder.disclaimer} ***`);
+  L(hr('='));
+
+  // EX-SHIP ladder
+  const ex = ladder.exShip;
+  L(`\nEX-SHIP LADDER (USD cargo sale)   cost base = ex-ship landed ${usd(ex.costBasePerMT)}/MT  (ex-storage)`);
+  L(hr());
+  L(`  ${pad('Tier', 14)}${padL('Margin%sell', 13)}${padL('Price $/MT', 14)}${padL('Spread $/MT', 14)}${padL('Markup%cost', 13)}${padL('Spread N/L', 12)}${padL('TIS net', 16)}`);
+  for (const t of ex.tiers) {
+    const here = ex.current && Math.abs(t.pricePerMT - ex.current.pricePerMT) < 0.01;
+    L(`  ${pad((here ? '> ' : '') + t.name, 14)}${padL(pct(t.marginOfSell), 13)}${padL(usd(t.pricePerMT), 14)}${padL(usd(t.spreadPerMT), 14)}${padL(pct(t.markupPctOnCost), 13)}${padL(t.spreadNgnPerL != null ? '₦' + t.spreadNgnPerL.toFixed(2) : 'n/a', 12)}${padL(usd(t.tisNetProfit), 16)}`);
+  }
+  if (ex.current) {
+    const c = ex.current;
+    L(hr('.'));
+    L(`  YOUR ENTERED PRICE: ${usd(c.pricePerMT)}/MT  [${c.status}]`);
+    L(`    margin ${pct(c.marginPctOfSell)} of sell  |  markup ${pct(c.markupPctOnCost)} on cost  |  spread ${usd(c.spreadPerMT)}/MT (₦${c.spreadNgnPerL}/L)`);
+    L(`    sits between tiers: ${c.between}   ->   nearest tier: ${c.nearestTier}`);
+  }
+
+  // DEPOT ladder
+  const dp = ladder.depot;
+  L('\nDEPOT LADDER (naira downstream resale)');
+  L(hr());
+  if (!dp.applicable) {
+    L(`  ${dp.note}`);
+  } else {
+    L(`  cost base = all-in depot landed ₦${dp.costBaseNgnPerL}/L  (${usd(dp.costBasePerMT)}/MT incl. storage; FX ${dp.fxUsed}, ${dp.litresPerMT} L/MT)`);
+    L(`  ${pad('Tier', 14)}${padL('Spread N/L', 13)}${padL('Price N/L', 14)}${padL('Price $/MT', 14)}${padL('Margin%sell', 13)}${padL('TIS net', 18)}`);
+    for (const t of dp.tiers) {
+      L(`  ${pad(t.name, 14)}${padL('₦' + t.spreadNgnPerL.toFixed(2), 13)}${padL('₦' + t.priceNgnPerL.toFixed(2), 14)}${padL(usd(t.priceUsdPerMT), 14)}${padL(pct(t.marginPctOfSell), 13)}${padL(t.tisNetProfit != null ? usd(t.tisNetProfit) : t.pnlStatus, 18)}`);
+    }
+  }
+
+  // PRIMARY comparison
+  const cmp = ladder.comparison;
+  L('\nPRIMARY COMPARISON — absolute spread (cross-leg headline)');
+  L(hr());
+  if (!cmp.applicable) {
+    L(`  ${cmp.note}`);
+    L(`  Ex-ship representative (${cmp.exShipRepresentative.tier}): spread ${usd(cmp.exShipRepresentative.spreadPerMT)}/MT  (= ₦${cmp.exShipRepresentative.spreadNgnPerL}/L)`);
+  } else {
+    L(`  Ex-ship (${cmp.exShip.tier}):  ${usd(cmp.exShip.spreadPerMT)}/MT   = ₦${cmp.exShip.spreadNgnPerL}/L`);
+    L(`  Depot   (${cmp.depot.tier}):  ₦${cmp.depot.spreadNgnPerL}/L   = ${usd(cmp.depot.spreadPerMT)}/MT`);
+    L(`  Depot earns larger absolute spread: ${cmp.depotEarnsMoreAbsolute ? 'YES' : 'NO'}   (${cmp.rationale})`);
+  }
+  L(hr('='));
+}
+
+// ---------------------------------------------------------------- CSV export
+function exportCsv(res, outDir) {
+  const rows = [['section', 'id', 'label', 'value', 'unit', 'flag']];
+  for (const l of res.cost.lines) rows.push(['cost', l.id, l.label, l.amountUsd, 'USD', l.recoverable ? 'RECOVERABLE' : l.status]);
+  rows.push(['summary', '', 'All-in landed cost', res.cost.allInCost, 'USD', '']);
+  rows.push(['summary', '', 'Landed cost/MT', res.price.landedCostPerMT, 'USD/MT', '']);
+  rows.push(['summary', '', 'Ex-ship price/MT', res.price.exShipPricePerMT, 'USD/MT', res.price.exShipStatus]);
+  rows.push(['summary', '', 'Recoverable VAT', res.cost.recoverableVat.recoverable, 'USD', 'timing only']);
+  rows.push(['profit', '', 'Standalone profit', res.profit.standaloneProfit, 'USD', '']);
+  rows.push(['profit', '', 'Margin foregone', res.profit.marginForegone, 'USD', '']);
+  rows.push(['profit', '', 'Adjusted profit', res.profit.adjustedProfit, 'USD', '']);
+  rows.push(['profit', '', 'Partner cash profit share', res.profit.partnerCashProfitShare, 'USD', '']);
+  rows.push(['profit', '', 'TIS net profit', res.profit.tisNetProfit, 'USD', '']);
+  rows.push(['partner', '', 'Product received (MT)', res.partnerDelivers.productReceived.tonnes, 'MT', '']);
+  rows.push(['partner', '', 'Product value', res.partnerDelivers.productReceived.valuedAtLandedCost, 'USD', '']);
+  rows.push(['partner', '', 'Cash profit share', res.partnerDelivers.cashReceived.profitShare, 'USD', '']);
+
+  const csv = rows.map((r) => r.map((c) => (typeof c === 'string' && c.includes(',') ? `"${c}"` : c)).join(',')).join('\n');
+  const file = path.join(outDir, `${res.meta.tradeId}.csv`);
+  fs.writeFileSync(file, csv, 'utf8');
+  console.log(`\nCSV exported (Excel-compatible): ${file}`);
+}
+
+// ---------------------------------------------------------------- help
+function printHelp() {
+  console.log(`TIS trading model
+Usage: node run.js [tradeFile.json] [flags]
+
+  default tradeFile: trades/profogas-dangote-001.json
+
+Flags:
+  --with-surcharge   enable the 5% fossil-fuel surcharge (default OFF, pending Gazette)
+  --upside           use deliveredQtyUpsideMT (+5% seller option)
+  --compare-fx       print NAFEM vs parallel FX comparison
+  --compare-hedge    print hedge route A vs B comparison
+  --ladder           print the cost-plus pricing ladder (advisory price guidance)
+  --export csv       write an Excel-compatible CSV to out/
+  -h, --help         this help`);
+}
+
+// ---------------------------------------------------------------- main
+function main() {
+  const { flags, tradeFile } = parseCli();
+  if (flags.help) return printHelp();
+
+  const file = tradeFile || path.join(__dirname, 'trades', 'profogas-dangote-001.json');
+  const trade = loadTrade(file);
+
+  // Apply flags to the trade object
+  if (flags['with-surcharge']) trade.tax.surcharge.enabled = true;
+  const opts = {};
+  if (flags.upside) opts.deliveredQtyOverride = trade.cargo.deliveredQtyUpsideMT;
+
+  const compute = FLOWS[trade.meta.flow];
+  if (!compute) throw new Error(`Unknown flow '${trade.meta.flow}'. Known: ${Object.keys(FLOWS).join(', ')}`);
+
+  let res;
+  try {
+    res = compute(trade, opts);
+  } catch (err) {
+    console.error(`\n[flow '${trade.meta.flow}' error] ${err.message}\n`);
+    process.exit(1);
+  }
+
+  // Attach sensitivities (re-runs the same pure compute under perturbed inputs)
+  res.sensitivities = runSensitivities(trade, (t) => compute(t, opts));
+
+  printReport(res, trade, flags);
+  if (flags['compare-fx']) printFxComparison(trade);
+  if (flags['compare-hedge']) printHedgeComparison(trade, res);
+  if (flags.ladder) printLadder(buildLadder(trade, (t) => compute(t, opts), res), trade);
+  if (flags.export === 'csv') exportCsv(res, path.join(__dirname, 'out'));
+}
+
+main();
