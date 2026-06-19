@@ -132,30 +132,86 @@ function css() {
   box-sizing: border-box;
 }
 .ctrl-select:focus { outline: none; border-color: var(--red); }
-.ctrl-toggles { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
-.ctrl-tog-btn {
+.ctrl-toggles { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+/* ── Toggle switch ───────────────────────────────────────────────────────── */
+.tgl-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  outline: none;
+}
+.tgl-wrap:focus-visible .tgl-track {
+  box-shadow: 0 0 0 2px rgba(212,29,29,.30);
+}
+.tgl-track {
+  flex-shrink: 0;
+  width: 34px;
+  height: 18px;
+  background: #c9cdd4;
+  border-radius: 9px;
+  position: relative;
+  transition: background .18s ease;
+}
+.tgl-track.on { background: var(--red); }
+.tgl-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0,0,0,.22);
+  transition: transform .18s ease;
+}
+.tgl-track.on .tgl-knob { transform: translateX(16px); }
+.tgl-label {
   font-family: var(--f-body);
   font-size: 11px;
-  font-weight: 600;
-  border: 1.5px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 8px;
-  cursor: pointer;
-  background: var(--bg);
+  font-weight: 500;
   color: var(--slate);
-  text-align: left;
-  transition: all .12s;
+  transition: color .18s;
+  line-height: 1;
 }
-.ctrl-tog-btn.active {
-  background: rgba(212,29,29,.06);
-  border-color: var(--red);
-  color: var(--red);
+.tgl-wrap[data-on="true"] .tgl-label { color: var(--ink); font-weight: 600; }
+/* ── Input affordances ───────────────────────────────────────────────────── */
+.ctrl-input {
+  transition: border-color .12s, box-shadow .12s;
+  appearance: textfield;
 }
-.ctrl-tog-btn.active-green {
-  background: #f0fdf4;
-  border-color: #15803d;
-  color: #15803d;
+.ctrl-input:hover:not(:focus) {
+  border-color: #9ca3af;
+  background: #fafafa;
 }
+.ctrl-select:hover:not(:focus) { border-color: #9ca3af; }
+/* ── Flash animation on live recompute ───────────────────────────────────── */
+@keyframes val-flash {
+  0%   { background-color: rgba(212,29,29,.07); }
+  100% { background-color: transparent; }
+}
+.val-flash { animation: val-flash .5s ease-out; }
+/* ── Compact controls ────────────────────────────────────────────────────── */
+.ctrl-group { padding: 9px 11px; }
+.ctrl-row { margin-bottom: 5px; }
+.ctrl-input { padding: 3px 5px; font-size: 12px; }
+/* ── Hedge improvements ──────────────────────────────────────────────────── */
+.hedge-block { padding: 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; }
+.hedge-title { font-family: var(--f-display); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--slate); margin-bottom: 10px; }
+.hedge-status-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 20px; margin-bottom: 12px;
+  font-family: var(--f-body); font-size: 11px; font-weight: 600; letter-spacing: .04em;
+  background: #f3f4f6; color: var(--slate); border: 1px solid var(--border);
+  transition: all .18s;
+}
+.hedge-status-pill.on { background: rgba(212,29,29,.07); color: var(--red); border-color: rgba(212,29,29,.35); }
+.hedge-status-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.hedge-compare { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+/* ── Section spacing ─────────────────────────────────────────────────────── */
+.two-col-card { padding: 20px 24px; background: var(--white); border: 1px solid var(--border); border-radius: 8px; }
+.two-col-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 .error-banner {
   background: #fff5f5;
   border: 1.5px solid #fca5a5;
@@ -213,8 +269,11 @@ function selInput(id, options, selected) {
   const opts = options.map(([v,l]) => `<option value="${v}"${v===selected?' selected':''}>${l}</option>`).join('');
   return `<select id="${id}" class="ctrl-select">${opts}</select>`;
 }
-function togBtn(id, label, active, cls='') {
-  return `<button id="${id}" class="ctrl-tog-btn${active ? ' '+(cls||'active') : ''}" data-on="${active}">${active ? '&#10003;' : '&#215;'} ${label}</button>`;
+function togSwitch(id, label, active) {
+  return `<div id="${id}" class="tgl-wrap" data-on="${active}" tabindex="0" role="switch" aria-checked="${active}" aria-label="${label}">
+    <div class="tgl-track${active?' on':''}"><div class="tgl-knob"></div></div>
+    <span class="tgl-label">${label}</span>
+  </div>`;
 }
 
 const f = t.financing;
@@ -265,9 +324,9 @@ const controlsHtml = `
         ctrlRow('Taxable Supply Prop.', numInput('inp-taxable-prop', t.tax.taxableSupplyProportion, 0.05, 0)),
         `<div class="ctrl-row"><label class="ctrl-label">Toggles</label>
           <div class="ctrl-toggles">
-            ${togBtn('tog-ice-hedge', 'ICE Hedge', false)}
-            ${togBtn('tog-fx-hedge', 'FX Hedge', false)}
-            ${togBtn('tog-surcharge', 'Surcharge', false)}
+            ${togSwitch('tog-ice-hedge', 'ICE Hedge', false)}
+            ${togSwitch('tog-fx-hedge', 'FX Hedge', false)}
+            ${togSwitch('tog-surcharge', 'Surcharge', false)}
           </div>
         </div>`,
       ].join(''))}
@@ -650,18 +709,18 @@ function renderPartnerHedge(trade, res) {
     </div>
   </div>\`;
 
-  function hedgeBlock(title, on, details, comp, compLabel) {
-    const toggleCls = on ? 'hedge-toggle hedge-on' : 'hedge-toggle hedge-off';
-    const toggleTxt = on ? '&#10003; HEDGED &mdash; Toggle ON' : '&#215; UNHEDGED &mdash; Toggle OFF';
-    const rows = Object.entries(details).map(([k,v]) => \`<div class="info-row"><span>\${esc(k)}</span><b>\${esc(String(v??'—'))}</b></div>\`).join('');
+  function hedgeBlock(title, on, details, comp) {
+    const pillCls = on ? 'hedge-status-pill on' : 'hedge-status-pill';
+    const pillTxt = on ? 'Active' : 'Off';
+    const rows = Object.entries(details).map(([k,v]) => \`<div class="info-row"><span>\${esc(k)}</span><b>\${v ?? '—'}</b></div>\`).join('');
     const compBlock = comp ? \`<div class="hedge-compare">
       <div class="info-row"><span>Hedged TIS Net</span><b>\${fmtUsd(comp.hedgedTisNet)}</b></div>
       <div class="info-row"><span>Unhedged TIS Net</span><b>\${fmtUsd(comp.unhedgedTisNet)}</b></div>
-      <div class="info-row"><span>Hedge worth it?</span><b>\${fmtUsdSign(comp.hedgeWorthItVsUnhedged)}</b></div>
+      <div class="info-row"><span>Hedge value</span><b>\${fmtUsdSign(comp.hedgeWorthItVsUnhedged)}</b></div>
     </div>\` : '';
     return \`<div class="hedge-block">
       <div class="hedge-title">\${esc(title)}</div>
-      <div class="\${toggleCls}">\${toggleTxt}</div>
+      <div class="\${pillCls}"><span class="hedge-status-dot"></span> \${pillTxt}</div>
       \${rows ? \`<div class="info-block">\${rows}</div>\` : ''}
       \${compBlock}
     </div>\`;
@@ -669,14 +728,14 @@ function renderPartnerHedge(trade, res) {
 
   const iceDetails = {
     Route: h.route || '—',
-    Lots: \`\${h.lots} (\${fmtNum(h.hedgedVolumeMT,2)} MT)\`,
-    'Comparison basis': \`\${fmtNum(h.tisRetainedTonnes,2)} MT TIS retained\`,
+    Lots: \`\${h.lots ?? '—'} (\${fmtNum(h.hedgedTonnes, 0)} MT)\`,
+    'Comparison basis': \`\${fmtNum(h.comparisonBasisTonnes, 2)} MT TIS retained\`,
     'Fixed price': fmtUsd(h.fixedPrice)+'/MT '+badge('PLACEHOLDER'),
-    'Live ICE': fmtUsd(trade.market.ice.value)+'/MT',
+    'Live ICE': fmtUsd(h.liveIce || trade.market.ice.value)+'/MT',
     'ICE cost delta': fmtUsdSign(h.iceCostDelta),
     'Swap fee': fmtUsd(h.swapFee)+' '+badge('PLACEHOLDER'),
-    'Bank-provided margin': fmtUsd(h.bankProvidedMargin),
-    'Extra financing cost': fmtUsd(h.extraFinancingCost),
+    'Bank margin': fmtUsd(h.bankProvidedMargin),
+    'Extra financing': fmtUsd(h.extraFinancingCost),
   };
 
   const fxDetails = fxh.noHedgeReason
@@ -890,6 +949,14 @@ function renderAll(trade, res, ladder) {
   document.getElementById('sec-tax').innerHTML          = renderTax(res);
   document.getElementById('sec-ladder').innerHTML       = renderLadder(trade, res, ladder);
   document.getElementById('sec-sens').innerHTML         = renderSens(res);
+  // Flash sections to show live update
+  requestAnimationFrame(() => {
+    document.querySelectorAll('.section').forEach(el => {
+      el.classList.remove('val-flash');
+      void el.offsetWidth;
+      el.classList.add('val-flash');
+    });
+  });
 }
 
 // ── Error UI ──────────────────────────────────────────────────────────────────
@@ -957,20 +1024,16 @@ document.querySelectorAll('.ctrl-select').forEach(el => el.addEventListener('cha
 
 document.getElementById('inp-exship-pct').addEventListener('input', updateDepotVisibility);
 
-// ── Toggle buttons ────────────────────────────────────────────────────────────
-document.querySelectorAll('.ctrl-tog-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const on = btn.dataset.on === 'true';
-    btn.dataset.on = (!on).toString();
-    if (!on) {
-      btn.classList.add('active');
-      btn.innerHTML = '&#10003; ' + btn.textContent.replace(/^[×✓] /, '');
-    } else {
-      btn.classList.remove('active');
-      btn.innerHTML = '&#215; ' + btn.textContent.replace(/^[×✓] /, '');
-    }
-    recompute();
-  });
+// ── Toggle switches ───────────────────────────────────────────────────────────
+function activateToggle(wrap, on) {
+  wrap.dataset.on = on.toString();
+  wrap.setAttribute('aria-checked', on.toString());
+  wrap.querySelector('.tgl-track').classList.toggle('on', on);
+}
+document.querySelectorAll('.tgl-wrap').forEach(wrap => {
+  const toggle = () => { activateToggle(wrap, wrap.dataset.on !== 'true'); recompute(); };
+  wrap.addEventListener('click', toggle);
+  wrap.addEventListener('keydown', e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggle(); } });
 });
 
 // ── Collapse panel ────────────────────────────────────────────────────────────
