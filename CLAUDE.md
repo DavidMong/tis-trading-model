@@ -163,6 +163,27 @@ Two **independent** per-trade toggles, both default **OFF**: `hedge.iceHedged` a
   never implies full parallel cover. All hedge params are PLACEHOLDER — confirm with bank/broker.
 - Profogas runs on `computeEquityPartner` (toggles n/a) → byte-for-byte unchanged.
 
+## Config-driven cost/tax lines (`engine/config/cost-line-schema.json`)
+
+Policy-change-proofing: **every cost/tax line's structure lives in config, not code.** The schema JSON
+defines each line as a self-describing object; `buildCostBuildup` is a generic evaluator that reads
+`type` and applies the matching base — **no rate, percentage, or %-vs-fixed assumption is hardcoded in
+calculation logic.** A policy change (rate edit, %→fixed flip, base change) is a config edit.
+
+- **type** (editable): `pct_of_freight | pct_of_cargo_value | pct_of_services | pct_of_LC | pct_of_sell
+  | fixed | derived`. `derived` names a structural `derivation` (per_mt, tc_hire, demurrage,
+  credit_interest, wc_interest, ngn_per_mt, ngn_fixed, pct_of_depot_cargo_value).
+- **rate** (inline) or **rateFrom** (path into the trade) for percentage types; **amount**/**amountFrom**
+  for `fixed`. `statusFrom`, `legalRef`, `recoverable`, `taxLine` (tax-block membership), `group`
+  (`storage`) are all config fields.
+- **Per-trade overrides:** `trade.costLineOverrides[id] = { ... }` overrides any field for one trade —
+  e.g. flip a 2% levy to a fixed fee, or move a line to a different base, with zero code change.
+- Editing a **rate** (VAT 7.5%→10%): edit `trade.tax.vatRate` (or the line's `rate`). Editing a **type**:
+  edit the schema or a per-trade override. Both are config edits; the engine re-flows everything.
+- Verified: rate change propagates (CFG1), type flip computes + reconciles (CFG2), base change recomputes
+  (CFG3), config is the sole rate source (CFG4), tax-block membership is config-driven (CFG5). Profogas
+  byte-for-byte unchanged with current defaults.
+
 ## Status-flag taxonomy (carried into every report)
 
 `OK` · `INDICATIVE` (overridable assumption) · `CONFIRM` (needs external confirmation) ·

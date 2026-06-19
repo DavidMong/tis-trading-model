@@ -1,0 +1,33 @@
+{
+  "_doc": "POLICY CONFIG — edit this file (not engine code) to change cost/tax line structure. Each line is a self-describing object. 'type' is editable: pct_of_freight | pct_of_cargo_value | pct_of_services | pct_of_LC | pct_of_sell | fixed | derived. For percentage types set 'rate' (inline) or 'rateFrom' (path into the trade). For 'fixed' set 'amount' or 'amountFrom'. 'derived' lines name a structural 'derivation' (per_mt | tc_hire | demurrage | credit_interest | wc_interest | ngn_per_mt | ngn_fixed | pct_of_depot_cargo_value). A trade may override any field per line via trade.costLineOverrides[id]. The engine reads 'type' and applies the matching base — no rate/percentage/%-vs-fixed assumption lives in calculation code.",
+  "lines": [
+    { "id": 1, "label": "ICE LSGO", "type": "derived", "derivation": "per_mt", "rateFrom": "market.ice.value", "statusFrom": "market.ice.status", "status": "OK", "recoverable": false, "legalRef": null },
+    { "id": 2, "label": "FOB premium", "type": "derived", "derivation": "per_mt", "rateFrom": "market.fobPremium.value", "status": "OK", "recoverable": false, "legalRef": null },
+    { "id": 3, "label": "TC hire", "type": "derived", "derivation": "tc_hire", "statusFrom": "freight.status", "status": "INDICATIVE", "recoverable": false, "legalRef": null },
+    { "id": 4, "label": "Demurrage", "type": "derived", "derivation": "demurrage", "statusFrom": "freight.status", "status": "INDICATIVE", "recoverable": false, "legalRef": null },
+    { "id": 5, "label": "NPA cargo dues", "type": "derived", "derivation": "per_mt", "rateFrom": "costLines.npaCargoDuesPerMT", "status": "OK", "recoverable": false, "legalRef": null },
+    { "id": 6, "label": "Port disbursement (DAs)", "type": "fixed", "amountFrom": "costLines.portDAs", "status": "OK", "recoverable": false, "legalRef": null },
+    { "id": 7, "label": "NIMASA cabotage 2%", "type": "pct_of_freight", "rateFrom": "costLines.nimasaCabotagePct", "status": "CONFIRM", "recoverable": false, "taxLine": true, "legalRef": "NIMASA cabotage surcharge (non-NTA maritime levy)" },
+    { "id": 8, "label": "NIMASA gross freight levy 3%", "type": "pct_of_freight", "rateFrom": "costLines.nimasaFreightLevyPct", "status": "CONFIRM", "recoverable": false, "taxLine": true, "legalRef": "NIMASA gross freight levy (non-NTA maritime levy)" },
+    { "id": 9, "label": "SPOMO / CVFF 2%", "type": "pct_of_freight", "rateFrom": "costLines.spomoCvffPct", "status": "CONFIRM", "recoverable": false, "taxLine": true, "legalRef": "Cabotage Act CVFF 2% (non-NTA)" },
+    { "id": 10, "label": "NCS documentation", "type": "fixed", "amountFrom": "costLines.ncsDocs", "status": "OK", "recoverable": false, "legalRef": null },
+    { "id": 11, "label": "WHT on freight 5%", "type": "pct_of_freight", "rateFrom": "tax.whtFreightRate", "status": "CONFIRM", "recoverable": false, "taxLine": true, "legalRef": "TAA 2025 s.51 (Deduction at source); rate per Deduction-of-Tax-at-Source Regs — UNVERIFIED" },
+    { "id": 12, "label": "VAT on freight 7.5% (recoverable)", "type": "pct_of_freight", "rateFrom": "tax.vatRate", "status": "OK", "recoverable": true, "taxLine": true, "legalRef": "Nigeria Tax Act 2025 s.147; recoverable input VAT s.155(4)" },
+    { "id": 13, "label": "VAT on services 7.5% (recoverable)", "type": "pct_of_services", "rateFrom": "tax.vatRate", "status": "CONFIRM", "recoverable": true, "taxLine": true, "legalRef": "Nigeria Tax Act 2025 s.147; recoverable s.155(4); INFERRED base composition" },
+    { "id": 14, "label": "Marine insurance ICC(A) 0.125%", "type": "pct_of_cargo_value", "rateFrom": "costLines.marineIccPct", "status": "INDICATIVE", "recoverable": false, "taxLine": true, "legalRef": "Commercial cover (not statutory)" },
+    { "id": 15, "label": "SGS inspection", "type": "fixed", "amountFrom": "costLines.sgsInspection", "status": "OK", "recoverable": false, "legalRef": null },
+    { "id": 16, "label": "Port agency", "type": "fixed", "amountFrom": "costLines.portAgency", "status": "OK", "recoverable": false, "legalRef": null },
+    { "id": 17, "label": "Allocated security 0.029%", "type": "pct_of_cargo_value", "rateFrom": "costLines.allocSecurityPct", "status": "INDICATIVE", "recoverable": false, "legalRef": null },
+    { "id": 18, "label": "LC issuance fee", "type": "pct_of_LC", "rateFrom": "financing.lcFeePct", "status": "INDICATIVE", "recoverable": false, "legalRef": null },
+    { "id": 19, "label": "Credit interest (LC)", "type": "derived", "derivation": "credit_interest", "status": "INDICATIVE", "recoverable": false, "legalRef": null },
+    { "id": 20, "label": "WC interest", "type": "derived", "derivation": "wc_interest", "status": "INDICATIVE", "recoverable": false, "legalRef": null },
+    { "id": 21, "label": "Bank charges", "type": "fixed", "amountFrom": "costLines.bankCharges", "status": "OK", "recoverable": false, "legalRef": null },
+    { "id": 22, "label": "Overhead", "type": "fixed", "amountFrom": "costLines.overhead", "status": "OK", "recoverable": false, "legalRef": null },
+    { "id": 23, "label": "Contingency", "type": "fixed", "amountFrom": "costLines.contingency", "status": "OK", "recoverable": false, "legalRef": null },
+    { "id": 24, "label": "Collateral manager", "type": "fixed", "amountFrom": "costLines.collateralManager", "status": "OK", "recoverable": false, "legalRef": null },
+    { "id": 25, "label": "Throughput", "type": "derived", "derivation": "ngn_per_mt", "rateFrom": "costLines.throughputNgnPerMT", "group": "storage", "activeStatus": "NGN->USD @ parallel (FX-exposed)", "status": "OK", "recoverable": false, "legalRef": null },
+    { "id": 26, "label": "Storage rental", "type": "derived", "derivation": "ngn_fixed", "amountFrom": "costLines.storageRentalNgn", "group": "storage", "activeStatus": "NGN->USD @ parallel (FX-exposed)", "status": "OK", "recoverable": false, "legalRef": null },
+    { "id": 27, "label": "Evaporation 0.125%", "type": "derived", "derivation": "pct_of_depot_cargo_value", "rateFrom": "costLines.evaporationPct", "group": "storage", "activeStatus": "INFERRED base", "status": "OK", "recoverable": false, "legalRef": null },
+    { "id": 28, "label": "Tank insurance 0.05%", "type": "derived", "derivation": "pct_of_depot_cargo_value", "rateFrom": "costLines.tankInsurancePct", "group": "storage", "activeStatus": "INFERRED base", "status": "OK", "recoverable": false, "legalRef": null }
+  ]
+}

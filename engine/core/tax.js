@@ -20,13 +20,11 @@ const { round } = require('./rounding');
 
 function buildTaxBlock(trade, ctx, costBuildup) {
   const tax = trade.tax;
-  const byId = costBuildup.byId;
 
-  const taxLineIds = [7, 8, 9, 11, 12, 13, 14];
-  const items = taxLineIds.map((id) => {
-    const l = byId[id];
+  // Which lines appear in the tax block is config-driven (schema `taxLine: true`), not hardcoded.
+  const items = costBuildup.lines.filter((l) => l.taxLine).map((l) => {
     return {
-      id,
+      id: l.id,
       label: l.label,
       rate: l.rate,
       base: l.base,

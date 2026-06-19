@@ -1,31 +1,46 @@
 'use strict';
 
 const { round } = require('./rounding');
+const SCHEMA = require('../config/cost-line-schema.json');
 
-// Cost-line build-up. Rebuilt from inputs every run — NO amount is hardcoded.
-// Each line: { id, label, category, base, rate, currency, amountUsd, recoverable, status, legalRef }
+// Cost-line build-up — fully CONFIG-DRIVEN. The per-line structure (type / base / rate-source /
+// recoverable / status / legalRef) lives in engine/config/cost-line-schema.json, NOT in this code.
+// This module is a generic evaluator: it reads each line's `type` and applies the matching base.
+// NO rate, percentage, or %-vs-fixed assumption is hardcoded in the calculation logic — a policy
+// change (rate edit, or a line flipping from "% of freight" to "fixed", or a base change) is a
+// config edit. A trade may override any field per line via trade.costLineOverrides[id].
 //
-// Categories (drivers):
-//   per_mt            : rate x deliveredQty
-//   derived_freight   : TC rate x days
-//   pct_of_freight    : rate x freightBase (TC hire + demurrage)
-//   pct_of_cargo_value: rate x cargo FOB value
-//   pct_of_services   : rate x servicesBucket (configurable named line ids)
-//   pct_of_LC         : rate x bank LC
-//   derived_financing : drawn principal x rate x days/365
-//   flat              : fixed amount (does NOT scale with deliveredQty)
-//   storage           : depot legs only (=0 when no depot)
+//   type: pct_of_freight | pct_of_cargo_value | pct_of_services | pct_of_LC | pct_of_sell | fixed | derived
+//   derived derivation: per_mt | tc_hire | demurrage | credit_interest | wc_interest |
+//                       ngn_per_mt | ngn_fixed | pct_of_depot_cargo_value
 //
-// Recoverable input VAT (lines 12 freight, 13 services) is EXCLUDED from landed cost — it is a
-// cash-flow timing item only (Nigeria Tax Act 2025 s.155(4)), surfaced in the recoverable-VAT block.
+// Recoverable input VAT is EXCLUDED from landed cost (cash-flow timing only, s.155(4)); the
+// irrecoverable proportion (1 - taxableSupplyProportion) IS a cost (s.155(4) proviso (a)).
+
+function resolvePath(obj, pathStr) {
+  if (!pathStr) return undefined;
+  return pathStr.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
+}
+
+// Legacy display category (preserves the existing report wording) derived from the config type.
+function displayCategory(e) {
+  if (e.group === 'storage') return 'storage';
+  if (e.type === 'fixed') return 'flat';
+  if (e.type === 'derived') {
+    if (e.derivation === 'per_mt') return 'per_mt';
+    if (e.derivation === 'tc_hire' || e.derivation === 'demurrage') return 'derived_freight';
+    if (e.derivation === 'credit_interest' || e.derivation === 'wc_interest') return 'derived_financing';
+    return 'derived';
+  }
+  return e.type; // pct_of_freight | pct_of_cargo_value | pct_of_services | pct_of_LC | pct_of_sell
+}
 
 function buildCostBuildup(trade, ctx) {
   const { cargoValue, deliveredQty, financing } = ctx;
-  const c = trade.costLines;
   const tax = trade.tax;
-  // Storage is active for DEPOT volume only. Channel-driven (ctx.depotTonnes) with a legacy
-  // trade.depot.enabled fallback. Depot operational costs (throughput, tank rental) are naira-paid
-  // and converted to USD-equivalent at the PARALLEL payment rate, carrying their own FX exposure.
+
+  // Storage is active for DEPOT volume only (channel-driven, legacy depot.enabled fallback). Naira
+  // depot costs convert to USD at the PARALLEL payment rate (FX-exposed).
   const depotTonnes = ctx.depotTonnes || 0;
   const storageActive = depotTonnes > 0 || !!(trade.depot && trade.depot.enabled);
   const storageQty = depotTonnes > 0 ? depotTonnes : storageActive ? deliveredQty : 0;
@@ -40,172 +55,106 @@ function buildCostBuildup(trade, ctx) {
     return ngn / parPay;
   };
 
-  // Derived freight (3, 4) and freight base
-  const tcHire = trade.freight.tcRatePerDay * trade.freight.charterDays; // 3
-  const demurrage = trade.freight.tcRatePerDay * trade.freight.demurrageDays; // 4
+  const tcRate = trade.freight.tcRatePerDay;
+  const tcHire = tcRate * trade.freight.charterDays;
+  const demurrage = tcRate * trade.freight.demurrageDays;
   const freightBase = tcHire + demurrage;
 
-  const L = (
-    id,
-    label,
-    category,
-    { base = null, rate = null, amount = null, currency = 'USD', recoverable = false, status = 'OK', legalRef = null, ngnAmount = null }
-  ) => ({ id, label, category, base, rate, currency, amountUsd: round(amount, 2), ngnAmount: ngnAmount == null ? null : round(ngnAmount, 2), recoverable, status, legalRef });
+  // Default schema merged with per-trade overrides (policy edits without code change).
+  const overrides = trade.costLineOverrides || {};
+  const schema = SCHEMA.lines.map((e) => ({ ...e, ...(overrides[e.id] || overrides[String(e.id)] || {}) }));
 
-  const lines = [];
+  // Base resolver — the ONLY place a type maps to its base. Pure data, no per-line assumption.
+  const baseFor = { pct_of_freight: freightBase, pct_of_cargo_value: cargoValue, pct_of_LC: financing.lc, pct_of_sell: ctx.sellValue || 0 };
 
-  // 1,2 per_mt product
-  lines.push(L(1, 'ICE LSGO', 'per_mt', {
-    rate: trade.market.ice.value, base: deliveredQty, amount: trade.market.ice.value * deliveredQty,
-    status: trade.market.ice.status || 'OK',
-  }));
-  lines.push(L(2, 'FOB premium', 'per_mt', {
-    rate: trade.market.fobPremium.value, base: deliveredQty, amount: trade.market.fobPremium.value * deliveredQty,
-  }));
+  const rateOf = (e) => (e.rate != null ? e.rate : resolvePath(trade, e.rateFrom));
+  const amountOf = (e) => (e.amount != null ? e.amount : resolvePath(trade, e.amountFrom));
+  const statusOf = (e) => {
+    if (e.statusFrom) { const s = resolvePath(trade, e.statusFrom); if (s) return s; }
+    return e.status || 'OK';
+  };
 
-  // 3,4 derived freight
-  lines.push(L(3, 'TC hire', 'derived_freight', {
-    rate: trade.freight.tcRatePerDay, base: trade.freight.charterDays, amount: tcHire,
-    status: trade.freight.status || 'INDICATIVE',
-  }));
-  lines.push(L(4, 'Demurrage', 'derived_freight', {
-    rate: trade.freight.tcRatePerDay, base: trade.freight.demurrageDays, amount: demurrage,
-    status: trade.freight.status || 'INDICATIVE',
-  }));
+  function buildLine(e, servicesBucketSum) {
+    const out = {
+      id: e.id, label: e.label, type: e.type, derivation: e.derivation || null,
+      category: displayCategory(e), base: null, rate: null, currency: 'USD',
+      amountUsd: 0, ngnAmount: null, recoverable: !!e.recoverable, taxLine: !!e.taxLine, status: statusOf(e), legalRef: e.legalRef || null,
+    };
+    const isStorage = e.group === 'storage';
 
-  // 5 per_mt
-  lines.push(L(5, 'NPA cargo dues', 'per_mt', {
-    rate: c.npaCargoDuesPerMT, base: deliveredQty, amount: c.npaCargoDuesPerMT * deliveredQty,
-  }));
+    if (isStorage && !storageActive) {
+      // Inactive storage line: zero, USD, no FX status. (rate retained for display parity.)
+      out.rate = e.derivation === 'ngn_fixed' ? null : (rateOf(e) ?? null);
+      out.base = 0; out.amountUsd = 0; out.status = 'OK';
+      return out;
+    }
+    if (isStorage) out.status = e.activeStatus || out.status;
 
-  // 6 flat
-  lines.push(L(6, 'Port disbursement (DAs)', 'flat', { amount: c.portDAs }));
+    switch (e.type) {
+      case 'fixed':
+        out.amountUsd = round(amountOf(e), 2);
+        break;
+      case 'pct_of_freight':
+      case 'pct_of_cargo_value':
+      case 'pct_of_LC':
+      case 'pct_of_sell': {
+        const rate = rateOf(e);
+        out.rate = rate; out.base = baseFor[e.type]; out.amountUsd = round(rate * baseFor[e.type], 2);
+        break;
+      }
+      case 'pct_of_services': {
+        const rate = rateOf(e);
+        out.rate = rate; out.base = servicesBucketSum; out.amountUsd = round(rate * servicesBucketSum, 2);
+        break;
+      }
+      case 'derived':
+        switch (e.derivation) {
+          case 'per_mt': { const rate = rateOf(e); out.rate = rate; out.base = deliveredQty; out.amountUsd = round(rate * deliveredQty, 2); break; }
+          case 'tc_hire': out.rate = tcRate; out.base = trade.freight.charterDays; out.amountUsd = round(tcHire, 2); break;
+          case 'demurrage': out.rate = tcRate; out.base = trade.freight.demurrageDays; out.amountUsd = round(demurrage, 2); break;
+          case 'credit_interest': out.rate = financing.creditRate; out.base = financing.lc; out.amountUsd = round(financing.creditInterest, 2); break;
+          case 'wc_interest': out.rate = financing.creditRate; out.base = financing.wc; out.amountUsd = round(financing.wcInterest, 2); break;
+          case 'ngn_per_mt': { const rate = rateOf(e); const ngn = (rate || 0) * storageQty; out.rate = rate; out.base = storageQty; out.currency = 'NGN'; out.ngnAmount = round(ngn, 2); out.amountUsd = round(ngnStorageToUsd(ngn), 2); break; }
+          case 'ngn_fixed': { const ngn = amountOf(e) || 0; out.currency = 'NGN'; out.ngnAmount = round(ngn, 2); out.amountUsd = round(ngnStorageToUsd(ngn), 2); break; }
+          case 'pct_of_depot_cargo_value': { const rate = rateOf(e); out.rate = rate; out.base = depotCargoValue; out.amountUsd = round(rate * depotCargoValue, 2); break; }
+          default: throw new Error(`buildCostBuildup: unknown derivation '${e.derivation}' for line ${e.id}`);
+        }
+        break;
+      default:
+        throw new Error(`buildCostBuildup: unknown type '${e.type}' for line ${e.id}`);
+    }
+    return out;
+  }
 
-  // 7,8,9 pct_of_freight — maritime levies (non-NTA, COST)
-  lines.push(L(7, 'NIMASA cabotage 2%', 'pct_of_freight', {
-    rate: c.nimasaCabotagePct, base: freightBase, amount: c.nimasaCabotagePct * freightBase,
-    status: 'CONFIRM', legalRef: 'NIMASA cabotage surcharge (non-NTA maritime levy)',
-  }));
-  lines.push(L(8, 'NIMASA gross freight levy 3%', 'pct_of_freight', {
-    rate: c.nimasaFreightLevyPct, base: freightBase, amount: c.nimasaFreightLevyPct * freightBase,
-    status: 'CONFIRM', legalRef: 'NIMASA gross freight levy (non-NTA maritime levy)',
-  }));
-  lines.push(L(9, 'SPOMO / CVFF 2%', 'pct_of_freight', {
-    rate: c.spomoCvffPct, base: freightBase, amount: c.spomoCvffPct * freightBase,
-    status: 'CONFIRM', legalRef: 'Cabotage Act CVFF 2% (non-NTA)',
-  }));
+  // Pass 1: everything except pct_of_services (which needs the services bucket).
+  const lines = schema.filter((e) => e.type !== 'pct_of_services').map((e) => buildLine(e, 0));
 
-  // 10 flat
-  lines.push(L(10, 'NCS documentation', 'flat', { amount: c.ncsDocs }));
-
-  // 11 WHT freight — COST, NOT recoverable. Rate status CONFIRM.
-  // TAA 2025 s.51 ("Deduction at source") is the enabling section but states NO rate; the rate
-  // lives in the Deduction-of-Tax-at-Source (Withholding) Regulations, which are not in the
-  // attached statute. So 5% is INDICATIVE/unverified.
-  lines.push(L(11, 'WHT on freight 5%', 'pct_of_freight', {
-    rate: tax.whtFreightRate, base: freightBase, amount: tax.whtFreightRate * freightBase,
-    recoverable: false, status: 'CONFIRM',
-    legalRef: 'TAA 2025 s.51 (Deduction at source); rate per Deduction-of-Tax-at-Source Regs — UNVERIFIED',
-  }));
-
-  // 12 VAT freight — RECOVERABLE input VAT (timing only)
-  lines.push(L(12, 'VAT on freight 7.5% (recoverable)', 'pct_of_freight', {
-    rate: tax.vatRate, base: freightBase, amount: tax.vatRate * freightBase,
-    recoverable: true, status: 'OK',
-    legalRef: 'Nigeria Tax Act 2025 s.147; recoverable input VAT s.155(4)',
-  }));
-
-  // 14 pct_of_cargo_value
-  lines.push(L(14, 'Marine insurance ICC(A) 0.125%', 'pct_of_cargo_value', {
-    rate: c.marineIccPct, base: cargoValue, amount: c.marineIccPct * cargoValue,
-    status: 'INDICATIVE', legalRef: 'Commercial cover (not statutory)',
-  }));
-
-  // 15,16 flat (services that feed the VAT-services bucket)
-  lines.push(L(15, 'SGS inspection', 'flat', { amount: c.sgsInspection }));
-  lines.push(L(16, 'Port agency', 'flat', { amount: c.portAgency }));
-
-  // 17 pct_of_cargo_value
-  lines.push(L(17, 'Allocated security 0.029%', 'pct_of_cargo_value', {
-    rate: c.allocSecurityPct, base: cargoValue, amount: c.allocSecurityPct * cargoValue,
-    status: 'INDICATIVE',
-  }));
-
-  // 18 pct_of_LC
-  lines.push(L(18, 'LC issuance fee', 'pct_of_LC', {
-    rate: trade.financing.lcFeePct, base: financing.lc, amount: financing.lcFee, status: 'INDICATIVE',
-  }));
-
-  // 19,20 derived_financing
-  lines.push(L(19, 'Credit interest (LC)', 'derived_financing', {
-    rate: financing.creditRate, base: financing.lc, amount: financing.creditInterest, status: 'INDICATIVE',
-  }));
-  lines.push(L(20, 'WC interest', 'derived_financing', {
-    rate: financing.creditRate, base: financing.wc, amount: financing.wcInterest, status: 'INDICATIVE',
-  }));
-
-  // 21,22,23,24 flat
-  lines.push(L(21, 'Bank charges', 'flat', { amount: c.bankCharges }));
-  lines.push(L(22, 'Overhead', 'flat', { amount: c.overhead }));
-  lines.push(L(23, 'Contingency', 'flat', { amount: c.contingency }));
-  lines.push(L(24, 'Collateral manager', 'flat', { amount: c.collateralManager }));
-
-  // 25-28 storage (depot volume only; =0 otherwise).
-  // 25 throughput, 26 tank/storage rental: NAIRA-paid -> converted to USD at parallel (FX-exposed).
-  // 27 evaporation, 28 tank insurance: USD, % of depot cargo value (INFERRED base).
-  const throughputNgn = storageActive ? (c.throughputNgnPerMT || 0) * storageQty : 0;
-  const rentalNgn = storageActive ? c.storageRentalNgn || 0 : 0;
-  lines.push(L(25, 'Throughput', 'storage', {
-    rate: c.throughputNgnPerMT, base: storageActive ? storageQty : 0, currency: storageActive ? 'NGN' : 'USD',
-    amount: ngnStorageToUsd(throughputNgn), ngnAmount: storageActive ? throughputNgn : null,
-    status: storageActive ? 'NGN->USD @ parallel (FX-exposed)' : 'OK',
-  }));
-  lines.push(L(26, 'Storage rental', 'storage', {
-    currency: storageActive ? 'NGN' : 'USD', amount: ngnStorageToUsd(rentalNgn), ngnAmount: storageActive ? rentalNgn : null,
-    status: storageActive ? 'NGN->USD @ parallel (FX-exposed)' : 'OK',
-  }));
-  lines.push(L(27, 'Evaporation 0.125%', 'storage', {
-    rate: c.evaporationPct, base: storageActive ? depotCargoValue : 0, amount: storageActive ? c.evaporationPct * depotCargoValue : 0,
-    status: storageActive ? 'INFERRED base' : 'OK',
-  }));
-  lines.push(L(28, 'Tank insurance 0.05%', 'storage', {
-    rate: c.tankInsurancePct, base: storageActive ? depotCargoValue : 0, amount: storageActive ? c.tankInsurancePct * depotCargoValue : 0,
-    status: storageActive ? 'INFERRED base' : 'OK',
-  }));
-
-  // 13 VAT services — base = configurable servicesBucket (named line ids). INFERRED composition.
+  // Services bucket = sum of named line ids (configurable composition).
   const byIdPre = Object.fromEntries(lines.map((l) => [l.id, l]));
   const bucketIds = trade.servicesBucket;
   const bucketComposition = bucketIds.map((id) => ({ id, label: byIdPre[id].label, amount: byIdPre[id].amountUsd }));
   const servicesBucketSum = bucketComposition.reduce((s, x) => s + x.amount, 0);
-  lines.push(L(13, 'VAT on services 7.5% (recoverable)', 'pct_of_services', {
-    rate: tax.vatRate, base: servicesBucketSum, amount: tax.vatRate * servicesBucketSum,
-    recoverable: true, status: 'CONFIRM',
-    legalRef: 'Nigeria Tax Act 2025 s.147; recoverable s.155(4); INFERRED base composition',
-  }));
+
+  // Pass 2: pct_of_services lines.
+  for (const e of schema.filter((e) => e.type === 'pct_of_services')) lines.push(buildLine(e, servicesBucketSum));
 
   lines.sort((a, b) => a.id - b.id);
   const byId = Object.fromEntries(lines.map((l) => [l.id, l]));
 
-  // Input VAT apportionment (s.155(4) proviso (a)): only the taxable-supply proportion is recoverable.
+  // Input VAT apportionment (s.155(4) proviso (a)).
   const recoverableLines = lines.filter((l) => l.recoverable);
   const grossRecoverable = recoverableLines.reduce((s, l) => s + l.amountUsd, 0);
   const recoverableVat = round(grossRecoverable * tax.taxableSupplyProportion, 2);
-  // The NON-recoverable proportion of input VAT is irrecoverable -> it is a real COST.
   const irrecoverableVat = round(grossRecoverable * (1 - tax.taxableSupplyProportion), 2);
 
-  // Landed cost EXCLUDES the recoverable proportion of input VAT (timing only) but INCLUDES the
-  // irrecoverable proportion (a genuine cost when taxableSupplyProportion < 1).
-  // Split base (cargo/freight/levies/financing) from storage so we can expose two landed bases:
-  //   ex-ship landed (base, EXCLUDES storage) and depot landed (base + storage / depot tonnes).
+  // Landed cost: EXCLUDES the recoverable VAT proportion (timing only), INCLUDES the irrecoverable
+  // proportion. Split base (excl storage) from storage to expose ex-ship vs depot landed.
   const storageTotal = round(lines.filter((l) => l.category === 'storage').reduce((s, l) => s + l.amountUsd, 0), 2);
-  const baseNonRecoverable = lines
-    .filter((l) => !l.recoverable && l.category !== 'storage')
-    .reduce((s, l) => s + l.amountUsd, 0);
+  const baseNonRecoverable = lines.filter((l) => !l.recoverable && l.category !== 'storage').reduce((s, l) => s + l.amountUsd, 0);
   const baseAllIn = round(baseNonRecoverable + irrecoverableVat, 2);
   const allInCost = round(baseAllIn + storageTotal, 2);
-  const landedCostPerMT = allInCost / deliveredQty; // kept for computeEquityPartner compatibility
-  const exShipLandedPerMT = baseAllIn / deliveredQty; // EXCLUDES storage
+  const landedCostPerMT = allInCost / deliveredQty;
+  const exShipLandedPerMT = baseAllIn / deliveredQty;
   const depotLandedPerMT = depotTonnes > 0 ? exShipLandedPerMT + storageTotal / depotTonnes : exShipLandedPerMT;
 
   return {
@@ -218,14 +167,14 @@ function buildCostBuildup(trade, ctx) {
       taxableSupplyProportion: tax.taxableSupplyProportion,
       grossRecoverable: round(grossRecoverable, 2),
       recoverable: recoverableVat,
-      irrecoverable: irrecoverableVat, // added to landed cost (s.155(4) proviso (a))
+      irrecoverable: irrecoverableVat,
     },
     allInCost,
     landedCostPerMT,
     baseAllIn,
     storageTotal,
-    exShipLandedPerMT, // base landed, EXCLUDES storage
-    depotLandedPerMT, // base + storage / depot tonnes (INCLUDES storage)
+    exShipLandedPerMT,
+    depotLandedPerMT,
     depotTonnes,
     storageActive,
   };

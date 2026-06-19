@@ -326,6 +326,46 @@ const bothOn = computeTrade({ ...bothChannels, hedge: { ...bothChannels.hedge, i
 check('HX9 reconciliation holds with ICE+FX both ON', bothOn.profit.reconciliation.ok === true);
 
 // ============================================================================================
+// Config-driven cost/tax lines (policy-change-proofing) — type/rate/base editable via config only.
+// ============================================================================================
+const cfgBase = computeEquityPartner(trade);
+const freightBaseV = cfgBase.cost.freight.freightBase;
+
+// CFG0 — lines are self-describing (type/derivation surfaced) and config-sourced.
+check('CFG0 line 7 self-describes type pct_of_freight', cfgBase.cost.byId[7].type === 'pct_of_freight');
+check('CFG0 line 6 self-describes type fixed', cfgBase.cost.byId[6].type === 'fixed');
+check('CFG0 line 1 self-describes derived/per_mt', cfgBase.cost.byId[1].type === 'derived' && cfgBase.cost.byId[1].derivation === 'per_mt');
+
+// CFG1 — a RATE change (VAT 7.5% -> 10%) propagates correctly (no hardcoded rate in engine).
+const v075 = computeEquityPartner({ ...trade, tax: { ...trade.tax, vatRate: 0.075 } });
+const v100 = computeEquityPartner({ ...trade, tax: { ...trade.tax, vatRate: 0.10 } });
+check('CFG1 VAT 7.5%->10% scales VAT-freight line by 10/7.5',
+  approx(v100.cost.byId[12].amountUsd / v075.cost.byId[12].amountUsd, 0.10 / 0.075, 1e-4));
+check('CFG1 VAT 7.5%->10% scales VAT-services line by 10/7.5',
+  approx(v100.cost.byId[13].amountUsd / v075.cost.byId[13].amountUsd, 0.10 / 0.075, 1e-4));
+check('CFG1 VAT change moves the recoverable-VAT block', v100.cost.recoverableVat.grossRecoverable > v075.cost.recoverableVat.grossRecoverable);
+
+// CFG2 — a TYPE FLIP (2% levy -> fixed fee) computes correctly, via config override alone.
+const defLevy = cfgBase.cost.byId[7].amountUsd; // 2% of freight
+check('CFG2 default line 7 = 2% of freight', approx(defLevy, trade.costLines.nimasaCabotagePct * freightBaseV, 0.01));
+const flip = computeEquityPartner({ ...trade, costLineOverrides: { 7: { type: 'fixed', amount: 500000 } } });
+check('CFG2 type flip pct->fixed: line 7 now fixed $500,000', approx(flip.cost.byId[7].amountUsd, 500000, 0.01));
+check('CFG2 type flip: display category now flat', flip.cost.byId[7].category === 'flat');
+check('CFG2 type flip moves allInCost by (fixed - pct)', approx(flip.cost.allInCost - cfgBase.cost.allInCost, 500000 - defLevy, 0.02));
+check('CFG2 reconciliation holds after type flip', computeTrade({ ...trade, costLineOverrides: { 7: { type: 'fixed', amount: 500000 } } }).profit.reconciliation.ok === true);
+
+// CFG3 — a BASE change (% of freight -> % of cargo value) recomputes against the new base.
+const baseFlip = computeEquityPartner({ ...trade, costLineOverrides: { 7: { type: 'pct_of_cargo_value' } } });
+check('CFG3 base flip: line 7 now 2% of cargo value', approx(baseFlip.cost.byId[7].amountUsd, trade.costLines.nimasaCabotagePct * baseFlip.cargoValue, 0.5));
+
+// CFG4 — config is the source: zeroing a config rate zeroes the line (no hardcoded fallback rate).
+const zeroed = computeEquityPartner({ ...trade, costLines: { ...trade.costLines, nimasaCabotagePct: 0 } });
+check('CFG4 zeroing config rate zeroes the line', zeroed.cost.byId[7].amountUsd === 0);
+
+// CFG5 — tax-block membership is config-driven (schema taxLine flag), not a hardcoded id list.
+check('CFG5 tax block built from config taxLine flag', cfgBase.cost.byId[7].taxLine === true && cfgBase.cost.byId[6].taxLine === false);
+
+// ============================================================================================
 // LOCAL-ONLY exact-value guards — run only when the real (gitignored) Profogas trade is present.
 // These keep the exact real-number baseline as a local guard; they SKIP cleanly on a clean clone,
 // so real figures never enter the repo.
