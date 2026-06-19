@@ -1401,4 +1401,7 @@ function main() {
   return htmlPath;
 }
 
-main();
+if (require.main === module) main();
+
+// Exported for use by build-interactive.js (CSS only — does not re-run main)
+module.exports = { reportCss: CSS };

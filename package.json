@@ -7,6 +7,8 @@
   "engines": { "node": ">=20" },
   "scripts": {
     "start": "node run.js",
-    "first-trade": "node run.js trades/profogas-dangote-001.json"
+    "first-trade": "node run.js trades/profogas-dangote-001.json",
+    "build:report": "node scripts/build-report.js",
+    "build:interactive": "node scripts/build-interactive.js"
   }
 }
