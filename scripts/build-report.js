@@ -131,6 +131,9 @@ function readLogo() {
   // The SVG has "Global Trading" in fill:#242331 (ink) — invisible on the dark header.
   // Replace with off-white so both words are legible on the dark background.
   raw = raw.replace(/fill:#242331/g, 'fill:#f0f1f2');
+  // "Global Trading" text element: leave x="90.62px" in place — the two SVG text elements
+  // already render with natural spacing in the browser. Shifting this x breaks the internal
+  // <tspan> absolute positions for the "ra" glyph pair in "Trading", causing "Tading".
   return raw;
 }
 
@@ -184,7 +187,7 @@ body {
 .container {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 32px 24px 64px;
+  padding: 32px 24px 96px;
   display: flex;
   flex-direction: column;
   gap: 32px;
@@ -194,11 +197,13 @@ body {
 .report-header {
   background: var(--ink);
   color: var(--white);
-  padding: 28px 32px;
+  padding: 28px 0; /* horizontal gutter handled by header-inner */
+  width: 100%;
 }
 .header-inner {
   max-width: 1200px;
   margin: 0 auto;
+  padding: 0 24px; /* matches container's 24px gutter */
   display: grid;
   grid-template-columns: auto 1fr auto;
   gap: 24px 40px;
@@ -242,8 +247,8 @@ body {
   text-align: right;
 }
 .kpi-chip.kpi-accent {
-  background: var(--red);
-  border-color: var(--red-dim);
+  background: var(--white);
+  border-color: var(--white);
 }
 .kpi-label {
   display: block;
@@ -255,7 +260,9 @@ body {
   color: rgba(255,255,255,.55);
   margin-bottom: 6px;
 }
-.kpi-accent .kpi-label { color: rgba(255,255,255,.75); }
+.kpi-accent .kpi-label { color: var(--slate); }
+.kpi-accent .kpi-value { color: var(--ink); }
+.kpi-accent .kpi-sub  { color: var(--ink-60); }
 .kpi-value {
   display: block;
   font-family: var(--f-display);
@@ -465,7 +472,7 @@ tbody td.muted { color: var(--slate); }
 .wf-box.wf-deduct     { background: #fff5f5;  border-color: #fca5a5; }
 .wf-box.wf-adjusted   { background: #fffbeb;  border-color: #fcd34d; }
 .wf-box.wf-share      { background: #eff6ff;  border-color: #93c5fd; }
-.wf-box.wf-net        { background: var(--red); border-color: var(--red-dim); }
+.wf-box.wf-net        { background: var(--ink); border-color: rgba(255,255,255,.20); }
 .wf-box-label {
   font-family: var(--f-display);
   font-size: 10px;
@@ -597,6 +604,78 @@ tbody td.muted { color: var(--slate); }
   border-top: 1px solid var(--border);
 }
 
+/* ── Tornado chart ─────────────────────────────────────────────────── */
+.tn-wrap { padding: 20px 24px 4px; }
+.tn-axis-labels {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--f-display);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--slate);
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 10px;
+}
+.tn-row {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.tn-label {
+  font-family: var(--f-body);
+  font-size: 12px;
+  color: var(--ink);
+  text-align: right;
+  padding-right: 4px;
+  white-space: nowrap;
+}
+.tn-bars {
+  display: flex;
+  align-items: center;
+  height: 26px;
+}
+.tn-half { flex: 1; display: flex; height: 100%; }
+.tn-left  { justify-content: flex-end; }
+.tn-right { justify-content: flex-start; }
+.tn-spine {
+  width: 2px;
+  height: 100%;
+  background: var(--border);
+  flex-shrink: 0;
+}
+.tn-bar {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  border-radius: 3px;
+  min-width: 4px;
+  overflow: hidden;
+}
+.tn-neg { background: #fee2e2; border-radius: 3px 0 0 3px; justify-content: flex-end;   padding: 0 6px; }
+.tn-pos { background: #d1fae5; border-radius: 0 3px 3px 0; justify-content: flex-start; padding: 0 6px; }
+.tn-val {
+  font-family: var(--f-body);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.tn-neg .tn-val { color: #991b1b; }
+.tn-pos .tn-val { color: #065f46; }
+.tn-baseline-label {
+  font-family: var(--f-body);
+  font-size: 11px;
+  color: var(--slate);
+  padding: 10px 0 6px;
+  border-top: 1px solid var(--border);
+  margin-top: 10px;
+}
+
 /* ── Tax block ─────────────────────────────────────────────────────── */
 .vat-block {
   background: #f0fdf9;
@@ -643,7 +722,7 @@ tbody td.muted { color: var(--slate); }
   color: rgba(255,255,255,.4);
   font-size: 11px;
   font-family: var(--f-body);
-  padding: 18px 32px;
+  padding: 24px 24px 40px;
   text-align: center;
   letter-spacing: .02em;
 }
@@ -707,7 +786,7 @@ function headerSection(logo, trade, res) {
       <p class="trade-meta">Delivered: <b>${fmt.mt(res.meta.deliveredQty)}</b></p>
     </div>
     <div class="header-kpis" role="region" aria-label="Key metrics">
-      <div class="kpi-chip">
+      <div class="kpi-chip kpi-accent">
         <span class="kpi-label">TIS Net Profit</span>
         <span class="kpi-value">${fmt.usd(tisNet)}</span>
         <span class="kpi-sub">after partner split</span>
@@ -717,7 +796,7 @@ function headerSection(logo, trade, res) {
         <span class="kpi-value">${annRet != null ? fmt.pct(annRet) : '—'}</span>
         <span class="kpi-sub">on cargo value · ${res.financing.capitalLockupDays}d lockup</span>
       </div>
-      <div class="kpi-chip kpi-accent">
+      <div class="kpi-chip">
         <span class="kpi-label">Ex-Ship Margin</span>
         <span class="kpi-value">${marginPct != null ? fmt.pct(marginPct) : '—'}</span>
         <span class="kpi-sub">${fmt.usd(exShipPrice)}/MT sell</span>
@@ -812,7 +891,7 @@ function costAndTax(trade, res) {
       </div>
       <div class="card-footer">
         Freight base: TC hire ${fmt.usd(cost.freight.tcHire)} + demurrage ${fmt.usd(cost.freight.demurrage)} = ${fmt.usd(cost.freight.freightBase)}
-        &nbsp;·&nbsp; Services VAT base: ${cost.servicesBucket.ids.map(id => `line ${id}`).join(', ')} = ${fmt.usd(cost.servicesBucket.sum)}
+        &nbsp;·&nbsp; Services VAT base: ${cost.servicesBucket.composition.map(c => `${esc(c.label)} (${fmt.usd(c.amount)})`).join(', ')} = ${fmt.usd(cost.servicesBucket.sum)}
       </div>
     </div>
   </div>`;
@@ -1108,8 +1187,72 @@ function pricingLadder(ladder) {
 </section>`;
 }
 
-function sensitivitiesSection(sens) {
+function tornadoChart(sens) {
   const scenarios = sens.scenarios;
+  const maxAbs = Math.max(...scenarios.map(s => Math.abs(s.deltaVsBase)), 1);
+  const sorted = [...scenarios].sort((a, b) => Math.abs(b.deltaVsBase) - Math.abs(a.deltaVsBase));
+
+  // Pair ± levers into single rows (e.g. "ICE +10%" and "ICE -10%" → one row)
+  const seen = new Set();
+  const rows = [];
+  for (const s of sorted) {
+    if (seen.has(s.lever)) continue;
+    const baseName = s.lever.replace(/\s*[+\-]\s*10%$/i, '').trim();
+    const partner = sorted.find(p =>
+      !seen.has(p.lever) && p !== s &&
+      p.lever.replace(/\s*[+\-]\s*10%$/i, '').trim() === baseName
+    );
+    let label, pos, neg;
+    if (partner) {
+      label = baseName;
+      pos = s.deltaVsBase >= 0 ? s : partner;
+      neg = s.deltaVsBase <  0 ? s : partner;
+      seen.add(s.lever); seen.add(partner.lever);
+    } else {
+      label = s.lever;
+      pos = s.deltaVsBase >= 0 ? s : null;
+      neg = s.deltaVsBase <  0 ? s : null;
+      seen.add(s.lever);
+    }
+    const impact = Math.max(pos ? Math.abs(pos.deltaVsBase) : 0, neg ? Math.abs(neg.deltaVsBase) : 0);
+    rows.push({ label, pos, neg, impact });
+  }
+  rows.sort((a, b) => b.impact - a.impact);
+
+  const BAR_PCT = 46;
+  const rowHtml = rows.map(row => {
+    const negPct = row.neg ? (Math.abs(row.neg.deltaVsBase) / maxAbs * BAR_PCT).toFixed(1) : 0;
+    const posPct = row.pos ? (Math.abs(row.pos.deltaVsBase) / maxAbs * BAR_PCT).toFixed(1) : 0;
+    const negVal = row.neg ? fmt.usd(row.neg.deltaVsBase) : '';
+    const posVal = row.pos ? (row.pos.deltaVsBase >= 0 ? '+' : '') + fmt.usd(row.pos.deltaVsBase) : '';
+    return `
+    <div class="tn-row">
+      <div class="tn-label">${esc(row.label)}</div>
+      <div class="tn-bars">
+        <div class="tn-half tn-left">
+          ${row.neg ? `<div class="tn-bar tn-neg" style="width:${negPct}%"><span class="tn-val">${esc(negVal)}</span></div>` : ''}
+        </div>
+        <div class="tn-spine" aria-hidden="true"></div>
+        <div class="tn-half tn-right">
+          ${row.pos ? `<div class="tn-bar tn-pos" style="width:${posPct}%"><span class="tn-val">${esc(posVal)}</span></div>` : ''}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  return `
+  <div class="tn-wrap" role="img" aria-label="Sensitivity tornado chart — bars show TIS Net delta from base case">
+    <div class="tn-axis-labels">
+      <span class="tn-axis-left">&#8592; Negative impact (↓ TIS Net)</span>
+      <span class="tn-axis-right">Positive impact (↑ TIS Net) &#8594;</span>
+    </div>
+    ${rowHtml}
+    <div class="tn-baseline-label">Base case: <b>${fmt.usd(sens.baseNet)}</b> &nbsp;&middot;&nbsp; Bars show &Delta; vs base at &plusmn;10% of each input</div>
+  </div>`;
+}
+
+function sensitivitiesSection(sens) {
+  const scenarios = [...sens.scenarios].sort((a, b) => Math.abs(b.deltaVsBase) - Math.abs(a.deltaVsBase));
   const maxAbs = Math.max(...scenarios.map(s => Math.abs(s.deltaVsBase)), 1);
 
   const rows = scenarios.map(s => {
@@ -1117,7 +1260,6 @@ function sensitivitiesSection(sens) {
     let dcls   = '';
     if (s.deltaVsBase > 0) dcls = pct > 0.6 ? 'sens-pos-strong' : 'sens-pos';
     if (s.deltaVsBase < 0) dcls = pct > 0.6 ? 'sens-neg-strong' : 'sens-neg';
-
     const sign = s.deltaVsBase >= 0 ? '+' : '';
     return `
     <tr>
@@ -1131,14 +1273,19 @@ function sensitivitiesSection(sens) {
 <section class="section" aria-labelledby="sens-heading">
   <h2 class="section-heading" id="sens-heading">Sensitivities (&plusmn;10%)</h2>
   <div class="card">
-    <div class="tbl-wrap">
+    ${tornadoChart(sens)}
+    <div class="tbl-wrap" style="border-top:1px solid var(--border)">
       <table aria-label="Sensitivities">
         <thead>
           <tr><th>Lever</th><th class="r">TIS Net</th><th class="r">&Delta; vs Base</th></tr>
         </thead>
-        <tbody>${rows}</tbody>
-        <tbody class="row-total">
-          <tr><td><b>Base case</b></td><td class="r"><b>${fmt.usd(sens.baseNet)}</b></td><td class="r">—</td></tr>
+        <tbody>
+          <tr class="row-total">
+            <td><b>Base case</b></td>
+            <td class="r"><b>${fmt.usd(sens.baseNet)}</b></td>
+            <td class="r muted">—</td>
+          </tr>
+          ${rows}
         </tbody>
       </table>
     </div>
