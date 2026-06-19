@@ -119,5 +119,68 @@ check('entered $1,400 nearest tier = Stretch', ladder.current && ladder.current.
 const ladderHiIce = buildExShipLadder({ ...trade, market: { ...trade.market, ice: { ...trade.market.ice, value: trade.market.ice.value * 1.1 } } }, (t) => computeEquityPartner(t), computeEquityPartner({ ...trade, market: { ...trade.market, ice: { ...trade.market.ice, value: trade.market.ice.value * 1.1 } } }));
 check('ladder cost base re-derives when ICE moves', ladderHiIce.costBasePerMT > exLanded);
 
+// ============================================================================================
+// Code-review fix coverage (#1 VAT apportionment, #2 validation, #3 surcharge, #4 day-count,
+// #6 ladder bounds, #7 hedge comparison)
+// ============================================================================================
+const clone = (o) => JSON.parse(JSON.stringify(o));
+function expectThrow(name, fn, frag) {
+  try { fn(); check(`${name} (expected throw)`, false); }
+  catch (e) { check(name, frag ? e.message.includes(frag) : true); }
+}
+
+// #1 — irrecoverable input VAT becomes a cost when taxableSupplyProportion < 1
+const r10 = computeEquityPartner({ ...trade, tax: { ...trade.tax, taxableSupplyProportion: 1.0 } });
+const r08 = computeEquityPartner({ ...trade, tax: { ...trade.tax, taxableSupplyProportion: 0.8 } });
+const grossVat = r10.cost.recoverableVat.grossRecoverable; // VAT lines 12 + 13
+const irr = grossVat * 0.2; // ~25,155.75
+check('#1 irrecoverable VAT reported (tsp=0.8)', approx(r08.cost.recoverableVat.irrecoverable, irr, 0.01));
+check('#1 allInCost rises by EXACTLY the irrecoverable VAT', approx(r08.cost.allInCost - r10.cost.allInCost, irr, 0.01));
+check('#1 standalone profit drops by EXACTLY the irrecoverable VAT', approx(r10.profit.standaloneProfit - r08.profit.standaloneProfit, irr, 0.01));
+check('#1 tsp=1.0 has zero irrecoverable VAT (no regression)', approx(r10.cost.recoverableVat.irrecoverable, 0, 0.001));
+check('#1 TIS net drops at tsp<1 (diluted by profit share, not full irr)', r08.profit.tisNetProfit < r10.profit.tisNetProfit);
+
+// #2 — input validation at the engine boundary (no NaN/Infinity)
+expectThrow('#2 zero deliveredQty throws', () => computeEquityPartner({ ...trade, cargo: { ...trade.cargo, deliveredQtyMT: 0 } }), 'deliveredQtyMT');
+expectThrow('#2 negative deliveredQty throws', () => computeEquityPartner({ ...trade, cargo: { ...trade.cargo, deliveredQtyMT: -100 } }), 'deliveredQtyMT');
+expectThrow('#2 missing charterDays throws (no NaN)', () => { const d = clone(trade); delete d.freight.charterDays; computeEquityPartner(d); }, 'charterDays');
+expectThrow('#2 taxableSupplyProportion>1 throws', () => computeEquityPartner({ ...trade, tax: { ...trade.tax, taxableSupplyProportion: 1.5 } }), 'taxableSupplyProportion');
+expectThrow('#2 zero landed cost throws (divisor guard)', () => {
+  const d = clone(trade);
+  d.market.ice.value = 0; d.market.fobPremium.value = 0; d.freight.tcRatePerDay = 0;
+  d.financing.creditRate = 0; d.financing.lcFeePct = 0;
+  for (const k of Object.keys(d.costLines)) d.costLines[k] = 0;
+  computeEquityPartner(d);
+}, 'ex-storage landed cost');
+
+// #3 — surcharge charges TIS for retained tonnes only (gated OFF by default)
+const sON = computeEquityPartner({ ...trade, tax: { ...trade.tax, surcharge: { ...trade.tax.surcharge, enabled: true } } });
+const expectedBorne = 0.05 * sON.price.exShipPricePerMT * sON.quantities.economic.tisRetainedTonnes;
+check('#3 TIS-borne surcharge = rate x exShip x RETAINED tonnes', approx(sON.tax.surcharge.tisBorneUsd, expectedBorne, 1));
+check('#3 TIS-borne < full statutory (partner share excluded)', sON.tax.surcharge.tisBorneUsd < sON.tax.surcharge.amountUsd);
+check('#3 tisNetAfterSurcharge = tisNet - TIS-borne (retained only)', approx(sON.profit.tisNetAfterSurcharge, sON.profit.tisNetProfit - sON.tax.surcharge.tisBorneUsd, 0.01));
+check('#3 surcharge OFF by default', computeEquityPartner(trade).tax.surcharge.enabled === false);
+
+// #4 — configurable day-count basis (Actual/365 default vs Actual/360)
+const ci365 = computeEquityPartner({ ...trade, financing: { ...trade.financing, dayCountBasis: 365 } }).cost.byId[19].amountUsd;
+const ci360 = computeEquityPartner({ ...trade, financing: { ...trade.financing, dayCountBasis: 360 } }).cost.byId[19].amountUsd;
+check('#4 Actual/360 yields higher interest than Actual/365', ci360 > ci365);
+check('#4 interest ratio matches 365/360', approx(ci360 / ci365, 365 / 360, 1e-4));
+const dNoBasis = clone(trade); delete dNoBasis.financing.dayCountBasis;
+check('#4 missing dayCountBasis defaults to 365', computeEquityPartner(dNoBasis).financing.dayCountBasis === 365);
+
+// #6 — pricing-ladder tier bounds (buildExShipLadder is in scope from the #12 block above)
+const baseR = computeEquityPartner(trade);
+const badTier = (m) => ({ ...trade, pricing: { ...trade.pricing, exShipTiers: [{ name: 'Bad', marginOfSell: m }] } });
+expectThrow('#6 tier marginOfSell=1 throws (not Infinity)', () => buildExShipLadder(badTier(1), (t) => computeEquityPartner(t), baseR), 'marginOfSell');
+expectThrow('#6 tier marginOfSell=1.2 throws (not negative)', () => buildExShipLadder(badTier(1.2), (t) => computeEquityPartner(t), baseR), 'marginOfSell');
+expectThrow('#6 tier marginOfSell=0 throws', () => buildExShipLadder(badTier(0), (t) => computeEquityPartner(t), baseR), 'marginOfSell');
+
+// #7 — hedged-vs-unhedged comparison stays apples-to-apples when over-hedged
+const rOver = computeEquityPartner({ ...trade, hedge: { ...trade.hedge, hedgedVolumeMT: trade.cargo.deliveredQtyMT } });
+check('#7 over-hedge flagged as overHedgeTonnes', rOver.hedge.overHedgeTonnes > 0);
+check('#7 over-hedge comparison stays apples-to-apples (delta ~0 at fixed=live)', Math.abs(rOver.hedge.iceCostDelta) < 1);
+check('#7 effective ICE priced on retained basis, not hedged volume', approx(rOver.hedge.effectiveIceCost, rOver.hedge.comparisonBasisTonnes * rOver.hedge.liveIce, 1));
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

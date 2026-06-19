@@ -59,14 +59,26 @@ function resolveFx(trade, market) {
   return leg.override ?? leg.value;
 }
 
+// Bounds-check a margin-of-sell tier: must be a finite number strictly within (0, 1).
+// Reject m >= 1 (Infinity/negative price) and m <= 0 (no/negative margin) with a clear error.
+function assertMarginOfSell(t) {
+  if (typeof t.marginOfSell !== 'number' || !Number.isFinite(t.marginOfSell) || t.marginOfSell <= 0 || t.marginOfSell >= 1) {
+    throw new Error(`Invalid ex-ship tier '${t.name}': marginOfSell must be within (0,1), got ${JSON.stringify(t.marginOfSell)}`);
+  }
+}
+
 // EX-SHIP ladder (USD cargo sale). Tier margin is OF SELL PRICE -> price = landed / (1 - m).
 function buildExShipLadder(trade, compute, baseResult) {
   const tiers = (trade.pricing && trade.pricing.exShipTiers) || DEFAULT_EXSHIP_TIERS;
   const conv = { ...DEFAULT_CONVERSION, ...((trade.pricing && trade.pricing.conversion) || {}) };
   const { exShipLandedPerMT } = costBases(baseResult);
+  if (!(typeof exShipLandedPerMT === 'number' && Number.isFinite(exShipLandedPerMT) && exShipLandedPerMT > 0)) {
+    throw new Error(`Invalid ladder cost base: ex-ship landed cost must be > 0, got ${exShipLandedPerMT}`);
+  }
   const fx = resolveFx(trade, conv.fxMarketForDepot);
 
   const rows = tiers.map((t) => {
+    assertMarginOfSell(t);
     // Round the suggested price to the cent FIRST, then run THAT price through the engine, so the
     // displayed price reproduces the displayed profit exactly (auditable WYSIWYG).
     const price = round(exShipLandedPerMT / (1 - t.marginOfSell), 2);
@@ -137,6 +149,12 @@ function buildDepotLadder(trade, compute, baseResult) {
   const conv = { ...DEFAULT_CONVERSION, ...((trade.pricing && trade.pricing.conversion) || {}) };
   const { depotLandedPerMT } = costBases(baseResult);
   const fx = resolveFx(trade, conv.fxMarketForDepot);
+  if (!(typeof fx === 'number' && Number.isFinite(fx) && fx > 0)) {
+    throw new Error(`Invalid depot FX rate ('${conv.fxMarketForDepot}'): must be > 0, got ${fx}`);
+  }
+  if (!(typeof conv.litresPerMT === 'number' && Number.isFinite(conv.litresPerMT) && conv.litresPerMT > 0)) {
+    throw new Error(`Invalid pricing.conversion.litresPerMT: must be > 0, got ${conv.litresPerMT}`);
+  }
   const depotLandedNgnPerL = (depotLandedPerMT * fx) / conv.litresPerMT;
 
   // The downstream-naira P&L needs the full-depot-resale flow (currently a stub).

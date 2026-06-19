@@ -31,9 +31,10 @@ function buildFinancing(trade, cargoValue) {
 
   const rate = f.creditRate;
   const days = f.financingDays;
+  const dayCountBasis = f.dayCountBasis ?? 365; // Actual/365 (default) vs Actual/360 — configurable
   const lcFee = f.lcFeePct * lc; // cost line 18
-  const creditInterest = (lc * rate * days) / 365; // cost line 19
-  const wcInterest = (wc * rate * days) / 365; // cost line 20
+  const creditInterest = (lc * rate * days) / dayCountBasis; // cost line 19
+  const wcInterest = (wc * rate * days) / dayCountBasis; // cost line 20
 
   return {
     pct: { bondPct, equityPct, partnerPct, lcPct },
@@ -48,6 +49,7 @@ function buildFinancing(trade, cargoValue) {
     wcInterest,
     creditRate: rate,
     financingDays: days,
+    dayCountBasis,
     capitalLockupDays: f.capitalLockupDays,
     advanceRate: f.advanceRate,
     check: {

@@ -38,7 +38,8 @@
     "wcSublimit": 500000,
     "advanceRate": 0.75,
     "lcPctOfCargo": 0.75,
-    "status": "EXAMPLE (dummy rates)"
+    "dayCountBasis": 365,
+    "status": "EXAMPLE (dummy rates; dayCountBasis Actual/365, configurable to 360)"
   },
   "sell": {
     "exShipPricePerMT": {

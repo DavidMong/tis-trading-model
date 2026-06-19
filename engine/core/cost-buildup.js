@@ -161,13 +161,17 @@ function buildCostBuildup(trade, ctx) {
   lines.sort((a, b) => a.id - b.id);
   const byId = Object.fromEntries(lines.map((l) => [l.id, l]));
 
-  // Recoverable VAT (timing only) — apportioned by taxableSupplyProportion (s.155(4) proviso (a)).
+  // Input VAT apportionment (s.155(4) proviso (a)): only the taxable-supply proportion is recoverable.
   const recoverableLines = lines.filter((l) => l.recoverable);
   const grossRecoverable = recoverableLines.reduce((s, l) => s + l.amountUsd, 0);
   const recoverableVat = round(grossRecoverable * tax.taxableSupplyProportion, 2);
+  // The NON-recoverable proportion of input VAT is irrecoverable -> it is a real COST.
+  const irrecoverableVat = round(grossRecoverable * (1 - tax.taxableSupplyProportion), 2);
 
-  // Landed cost EXCLUDES recoverable VAT.
-  const allInCost = round(lines.filter((l) => !l.recoverable).reduce((s, l) => s + l.amountUsd, 0), 2);
+  // Landed cost EXCLUDES the recoverable proportion of input VAT (timing only) but INCLUDES the
+  // irrecoverable proportion (a genuine cost when taxableSupplyProportion < 1).
+  const nonRecoverable = lines.filter((l) => !l.recoverable).reduce((s, l) => s + l.amountUsd, 0);
+  const allInCost = round(nonRecoverable + irrecoverableVat, 2);
   const landedCostPerMT = allInCost / deliveredQty;
 
   return {
@@ -180,6 +184,7 @@ function buildCostBuildup(trade, ctx) {
       taxableSupplyProportion: tax.taxableSupplyProportion,
       grossRecoverable: round(grossRecoverable, 2),
       recoverable: recoverableVat,
+      irrecoverable: irrecoverableVat, // added to landed cost (s.155(4) proviso (a))
     },
     allInCost,
     landedCostPerMT,

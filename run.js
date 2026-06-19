@@ -101,9 +101,10 @@ function printReport(res, trade, flags) {
   L('\n3. RECOVERABLE VAT  (cash-flow TIMING only — does NOT affect profit; s.155(4))');
   L(hr());
   for (const l of rv.lines) L(`  line ${pad(l.id, 3)} ${pad(l.label, 36)} ${padL(usd(l.amount), 16)}`);
-  L(`  Gross recoverable                       ${padL(usd(rv.grossRecoverable), 16)}`);
+  L(`  Gross input VAT                         ${padL(usd(rv.grossRecoverable), 16)}`);
   L(`  x taxableSupplyProportion (${pct(rv.taxableSupplyProportion)})         ${padL('', 16)}`);
   L(`  = Recoverable VAT (reclaimed / WC timing)${padL(usd(rv.recoverable), 16)}`);
+  if (rv.irrecoverable > 0) L(`  Irrecoverable VAT -> ADDED TO LANDED COST${padL(usd(rv.irrecoverable), 16)}   (s.155(4) proviso (a))`);
 
   // 4. Tax block
   L('\n4. TAX BLOCK  (authority: tax-reference.md vs Nigeria Tax Act 2025)');
@@ -116,7 +117,7 @@ function printReport(res, trade, flags) {
   const sc = res.tax.surcharge;
   L(`\n  Fossil-fuel surcharge (s.158-161): ${sc.enabled ? 'ENABLED' : 'OFF (default)'}   status: ${sc.status}`);
   L(`      rate ${pct(sc.rate)}  base: ${sc.baseDescription}  ${sc.baseAmount != null ? '(' + usd(sc.baseAmount) + ')' : ''}`);
-  L(`      incidence: ${sc.incidence}   amount: ${usd(sc.amountUsd)}`);
+  L(`      incidence: ${sc.incidence}   full statutory: ${usd(sc.amountUsd)}   TIS-borne (retained tonnes only): ${usd(sc.tisBorneUsd)}`);
   L(`      ${sc.legalRef}`);
 
   // 5. Quantities — paper vs economic
@@ -164,7 +165,8 @@ function printReport(res, trade, flags) {
   const h = res.hedge;
   L('\n9. HEDGE — ICE Gasoil swap  (hedged vs unhedged)');
   L(hr());
-  L(`  Route: ${h.route}   lots: ${h.lots} (${mt(h.hedgedTonnes)})   unhedged: ${mt(h.unhedgedTonnes)}`);
+  L(`  Route: ${h.route}   lots: ${h.lots} (${mt(h.hedgedTonnes)})   unhedged: ${mt(h.unhedgedTonnes)}   basis: ${mt(h.comparisonBasisTonnes)} retained`);
+  if (h.overHedgeTonnes > 0) L(`  Over-hedge (speculative, excluded from physical comparison): ${mt(h.overHedgeTonnes)}`);
   L(`  Fixed price ${usd(h.fixedPrice)}/MT  vs live ICE ${usd(h.liveIce)}/MT   notional ${usd(h.notional)}`);
   L(`  Effective ICE cost (hedged) ${usd(h.effectiveIceCost)}   |   unhedged ${usd(h.unhedgedIceCost)}   |   delta ${usd(h.iceCostDelta)}`);
   L(`  Swap fee ${usd(h.swapFee)}   bank-provided margin ${usd(h.bankProvidedMargin)}   extra financing cost ${usd(h.extraFinancingCost)}`);
@@ -202,6 +204,7 @@ function printReport(res, trade, flags) {
   L('   - Marine 0.125%, alloc security 0.029%   INDICATIVE (commercial).');
   L('   - Hedge fee/margin/fixedPrice   PLACEHOLDER (verify before live hedge).');
   L('   - creditRate, lcFeePct, charter/demurrage days, FX   INDICATIVE / overridable.');
+  L(`   - day-count basis    Actual/${res.financing.dayCountBasis} (configurable; CONFIRM vs facility — many USD facilities use 360).`);
   L(hr('='));
 }
 

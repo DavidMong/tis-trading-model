@@ -24,20 +24,28 @@ function buildHedge(trade, ctx) {
   const desired = h.hedgedVolumeMT != null ? h.hedgedVolumeMT : retained;
   const { lots, tonnes: hedgedTonnes } = roundToLots(desired, 100);
   const fixedPrice = h.fixedPrice != null ? h.fixedPrice : liveIce; // PLACEHOLDER ~ locked ICE
-  const unhedgedTonnes = round(Math.max(retained - hedgedTonnes, 0), 4);
 
-  const notional = hedgedTonnes * fixedPrice;
-  const swapFee = h.feePerMT * hedgedTonnes; // per-MT fee, both routes
+  // CANONICAL hedged-vs-unhedged comparison: both sides are priced on the SAME volume basis — the
+  // physical exposure (TIS retained tonnes). Any hedge beyond retained is a separate speculative
+  // position (overHedge) and is NOT folded into the physical-cost comparison, so the delta stays
+  // apples-to-apples. (The FX hedge will mirror this pattern.)
+  const hedgedPhysical = Math.min(hedgedTonnes, retained); // hedged portion of the physical exposure
+  const overHedgeTonnes = round(Math.max(hedgedTonnes - retained, 0), 4); // speculative excess
+  const unhedgedTonnes = round(Math.max(retained - hedgedPhysical, 0), 4);
 
-  const effectiveIceCost = hedgedTonnes * fixedPrice + unhedgedTonnes * liveIce;
-  const unhedgedIceCost = retained * liveIce;
+  const notional = hedgedTonnes * fixedPrice; // swap traded on the full hedged volume
+  const swapFee = h.feePerMT * hedgedTonnes; // per-MT fee on the full hedged volume, both routes
+
+  const effectiveIceCost = hedgedPhysical * fixedPrice + unhedgedTonnes * liveIce; // on retained basis
+  const unhedgedIceCost = retained * liveIce; // same retained basis
 
   const route = { type: h.route, initialMargin: 0, bankProvidedMargin: 0, marginInterest: 0, thirdPartyFee: 0, bankSpread: 0 };
   if (h.route === 'bank_book') {
     route.bankSpread = (h.bankSpreadPerMT || 0) * hedgedTonnes;
   } else if (h.route === 'third_party') {
     const initialMargin = h.initialMarginPct * notional; // bank-provided, NOT partner equity
-    const marginInterest = (initialMargin * trade.financing.creditRate * trade.financing.financingDays) / 365;
+    const dayCountBasis = trade.financing.dayCountBasis ?? 365; // mirror financing.js (Actual/365|360)
+    const marginInterest = (initialMargin * trade.financing.creditRate * trade.financing.financingDays) / dayCountBasis;
     route.initialMargin = round(initialMargin, 2);
     route.bankProvidedMargin = round(initialMargin, 2);
     route.marginInterest = round(marginInterest, 2);
@@ -52,7 +60,10 @@ function buildHedge(trade, ctx) {
     route: h.route,
     lots,
     hedgedTonnes,
+    hedgedPhysical: round(hedgedPhysical, 4),
+    overHedgeTonnes,
     unhedgedTonnes,
+    comparisonBasisTonnes: round(retained, 4),
     fixedPrice,
     liveIce,
     notional: round(notional, 2),

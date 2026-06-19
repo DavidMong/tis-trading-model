@@ -5,6 +5,24 @@ const { buildFinancing } = require('../core/financing');
 const { buildCostBuildup } = require('../core/cost-buildup');
 const { buildTaxBlock } = require('../core/tax');
 const { buildHedge } = require('../core/hedge');
+const { num, positive, nonNegative, proportion, computedPositive } = require('../core/validate');
+
+// Validate required numeric inputs at the engine boundary — fail loud, never emit NaN/Infinity.
+function validateTrade(trade, deliveredQty) {
+  positive(deliveredQty, 'cargo.deliveredQtyMT');
+  num(trade.market.ice.value, 'market.ice.value');
+  num(trade.market.fobPremium.value, 'market.fobPremium.value');
+  num(trade.freight.tcRatePerDay, 'freight.tcRatePerDay');
+  nonNegative(trade.freight.charterDays, 'freight.charterDays');
+  nonNegative(trade.freight.demurrageDays, 'freight.demurrageDays');
+  num(trade.financing.creditRate, 'financing.creditRate');
+  num(trade.financing.lcFeePct, 'financing.lcFeePct');
+  positive(trade.financing.financingDays, 'financing.financingDays');
+  nonNegative(trade.financing.wcSublimit, 'financing.wcSublimit');
+  num(trade.tax.vatRate, 'tax.vatRate');
+  proportion(trade.tax.taxableSupplyProportion, 'tax.taxableSupplyProportion');
+  proportion(trade.partner.profitSharePct, 'partner.profitSharePct');
+}
 
 // Equity-partner flow. TIS is the only constant entity; the partner is generic per trade.
 //
@@ -28,6 +46,7 @@ const { buildHedge } = require('../core/hedge');
 
 function computeEquityPartner(trade, opts = {}) {
   const deliveredQty = opts.deliveredQtyOverride ?? trade.cargo.deliveredQtyMT;
+  validateTrade(trade, deliveredQty);
 
   // 1. Cargo FOB value (derived)
   const unitFob = trade.market.ice.value + trade.market.fobPremium.value;
@@ -62,8 +81,9 @@ function computeEquityPartner(trade, opts = {}) {
   }
 
   // 6. Quantities — economic (exact, drives all P&L) vs paper (documentary)
+  computedPositive(exStorageLandedPerMT, 'ex-storage landed cost / MT'); // guard the divisor below
   const partnerPrincipal = financing.partnerFunding; // 25% incl. bond
-  const productAllocationPct = trade.partner.productAllocationPct ?? 1.0;
+  const productAllocationPct = proportion(trade.partner.productAllocationPct ?? 1.0, 'partner.productAllocationPct');
   const principalAsProduct = partnerPrincipal * productAllocationPct;
   const principalAsCash = partnerPrincipal - principalAsProduct;
   const partnerTonnesEcon = principalAsProduct / exStorageLandedPerMT; // exact
@@ -83,20 +103,22 @@ function computeEquityPartner(trade, opts = {}) {
   const partnerCashProfitShare = profitSharePct * adjustedProfit;
   const tisNetProfit = adjustedProfit - partnerCashProfitShare;
 
-  // 8. Tax block + surcharge incidence (needs ex-ship for the surcharge retail base)
-  const taxBlock = buildTaxBlock(trade, { exShipPricePerMT, deliveredQty }, cost);
+  // 8. Tax block + surcharge incidence. TIS bears surcharge on its RETAINED tonnes only (the
+  //    partner's in-kind product share is not TIS's cost) — see tax.js surcharge.tisBorneUsd.
+  const taxBlock = buildTaxBlock(trade, { exShipPricePerMT, deliveredQty, tisRetainedTonnes }, cost);
   let tisNetAfterSurcharge = tisNetProfit;
   if (taxBlock.surcharge.enabled && taxBlock.surcharge.incidence === 'cost') {
-    tisNetAfterSurcharge = tisNetProfit - taxBlock.surcharge.amountUsd;
+    tisNetAfterSurcharge = tisNetProfit - taxBlock.surcharge.tisBorneUsd;
   }
 
   // 9. Hedge
   const hedge = buildHedge(trade, { tisRetainedTonnes });
 
   // 10. TIS-side annualised return (NOT a partner metric). On cargo value, annualised by lockup.
-  const tisAnnualisedReturnOnCargo = financing.capitalLockupDays
-    ? (tisNetProfit / cargoValue) * (365 / financing.capitalLockupDays)
-    : null;
+  const tisAnnualisedReturnOnCargo =
+    financing.capitalLockupDays && cargoValue > 0
+      ? (tisNetProfit / cargoValue) * (365 / financing.capitalLockupDays)
+      : null;
 
   return {
     meta: { ...trade.meta, parties: trade.parties, deliveredQty },

@@ -42,9 +42,16 @@ function buildTaxBlock(trade, ctx, costBuildup) {
   const recoverableVat = costBuildup.recoverableVat;
 
   // Fossil-fuel surcharge (Chapter Seven, s.158-161) — gated until Gazette commencement (s.160).
+  // amountUsd = full statutory surcharge on the whole cargo supplied (legal liability view).
+  // tisBorneUsd = the portion TIS actually bears under incidence=cost = surcharge on TIS RETAINED
+  //   tonnes only; the partner's in-kind product share is NOT TIS's cost.
   const sc = tax.surcharge;
   const retailBase = ctx.exShipPricePerMT != null ? ctx.exShipPricePerMT * ctx.deliveredQty : null;
   const amount = sc.enabled && retailBase != null ? sc.rate * retailBase : 0;
+  const tisBorne =
+    sc.enabled && ctx.exShipPricePerMT != null && ctx.tisRetainedTonnes != null
+      ? sc.rate * ctx.exShipPricePerMT * ctx.tisRetainedTonnes
+      : 0;
 
   const surcharge = {
     enabled: sc.enabled,
@@ -53,7 +60,8 @@ function buildTaxBlock(trade, ctx, costBuildup) {
     baseDescription: 'retail price of chargeable fossil-fuel products (s.159(2))',
     baseAmount: retailBase != null ? round(retailBase, 2) : null,
     incidence: sc.incidence, // 'cost' | 'pass_through'
-    amountUsd: round(amount, 2),
+    amountUsd: round(amount, 2), // full statutory surcharge on the whole cargo
+    tisBorneUsd: round(tisBorne, 2), // what TIS bears under incidence=cost (retained tonnes only)
     status: sc.commencementGazetted ? 'OK' : 'PENDING (not yet gazetted — s.160)',
     legalRef: 'Nigeria Tax Act 2025 s.158-161; gasoil NOT exempt (s.161)',
     note: 'Default OFF. Enable with --with-surcharge once a Gazette commencement date exists.',
