@@ -1,0 +1,123 @@
+{
+  "meta": {
+    "tradeId": "TIS-SAMPLE-EQUITY-PARTNER-001",
+    "tradeName": "SAMPLE equity-partner ex-ship gasoil — fixed USD (REGRESSION FIXTURE, dummy data)",
+    "flow": "equity-partner",
+    "entity": "TIS Global Trading",
+    "createdAt": "2026-01-01",
+    "note": "Sanitised regression fixture — SAME STRUCTURE as the real Profogas trade (equity-partner / USD / fixed price / 25% equity / partner split) but with DUMMY values. Tracked in git so the structural regression (computeTrade == computeEquityPartner) runs on a clean clone without exposing real data."
+  },
+  "parties": {
+    "partner": "Example Partner Ltd",
+    "supplier": "Example Supplier Co",
+    "facility": "Example Bank USD Facility",
+    "bank": "Example Bank",
+    "inspector": "Example Inspector"
+  },
+  "market": {
+    "ice": { "value": 800, "unit": "USD/MT", "source": "dummy", "asOf": "2026-01-01", "feedHook": null, "status": "EXAMPLE (dummy mark)" },
+    "fobPremium": { "value": 100, "unit": "USD/MT", "source": "dummy" }
+  },
+  "cargo": {
+    "nominalMT": 10000,
+    "sellersOptionPct": 0.05,
+    "deliveredQtyMT": 10000,
+    "deliveredQtyUpsideMT": 10500
+  },
+  "freight": {
+    "tcRatePerDay": 40000,
+    "charterDays": 25,
+    "demurrageDays": 0,
+    "status": "EXAMPLE (dummy fixture)"
+  },
+  "financing": {
+    "creditRate": 0.10,
+    "lcFeePct": 0.01,
+    "financingDays": 30,
+    "capitalLockupDays": 45,
+    "wcSublimit": 500000,
+    "advanceRate": 0.75,
+    "lcPctOfCargo": 0.75,
+    "dayCountBasis": 365,
+    "status": "EXAMPLE (dummy rates)"
+  },
+  "sell": {
+    "exShipPricePerMT": {
+      "value": 1230,
+      "status": "FIXED (dummy USD buyer price)",
+      "note": "Fixed dummy price, decoupled from cost — mirrors the real trade's fixed-price structure."
+    }
+  },
+  "fx": {
+    "nafem": { "value": 1500, "unit": "NGN/USD", "source": "dummy", "asOf": "2026-01-01", "override": null, "status": "EXAMPLE" },
+    "parallel": { "value": 1600, "unit": "NGN/USD", "source": "dummy", "asOf": "2026-01-01", "override": null, "status": "EXAMPLE" }
+  },
+  "partner": {
+    "role": "equity partner",
+    "equityProvider": "partner",
+    "mode": "combination",
+    "bondPct": 0.05,
+    "equityPct": 0.20,
+    "totalFundingPct": 0.25,
+    "productAllocationPct": 1.0,
+    "profitSharePct": 0.35,
+    "note": "DUMMY split (partner 35% / TIS 65%), mirrors the real trade's combination mode."
+  },
+  "hedge": {
+    "iceHedged": false,
+    "route": "bank_book",
+    "hedgedVolumeMT": null,
+    "fixedPrice": null,
+    "feePerMT": 1.5,
+    "initialMarginPct": 0.10,
+    "thirdPartyFee": 0,
+    "bankSpreadPerMT": 0.5,
+    "status": "PLACEHOLDER — confirm with bank/broker"
+  },
+  "fxHedge": { "fxHedged": false, "hedgeRatio": 1.0, "forwardRate": null, "benchmark": "NAFEM forward", "route": "bank_book", "feePerUsd": 0.004, "spreadPerUsd": 0.002, "initialMarginPct": 0.05, "tenorDays": 30, "brokerFee": 0, "status": "PLACEHOLDER — confirm with bank/broker (default OFF; equity-partner flow ignores FX hedge)" },
+  "tax": {
+    "vatRate": 0.075,
+    "taxableSupplyProportion": 1.0,
+    "whtFreightRate": 0.05,
+    "surcharge": { "enabled": false, "rate": 0.05, "commencementGazetted": false, "incidence": "cost" }
+  },
+  "servicesBucket": [15, 16, 24],
+  "pricing": {
+    "exShipTiers": [
+      { "name": "Floor", "marginOfSell": 0.03 },
+      { "name": "Conservative", "marginOfSell": 0.06 },
+      { "name": "Target", "marginOfSell": 0.10 },
+      { "name": "Stretch", "marginOfSell": 0.15 },
+      { "name": "Premium", "marginOfSell": 0.20 }
+    ],
+    "depotTiers": [
+      { "name": "Floor", "spreadNgnPerL": 50 },
+      { "name": "Conservative", "spreadNgnPerL": 90 },
+      { "name": "Recommended", "spreadNgnPerL": 135 },
+      { "name": "Stretch", "spreadNgnPerL": 170 },
+      { "name": "Premium", "spreadNgnPerL": 220 }
+    ],
+    "conversion": { "litresPerMT": 1183, "fxMarketForDepot": "parallel", "status": "INDICATIVE (litresPerMT density ~0.845)" }
+  },
+  "depot": { "enabled": false },
+  "costLines": {
+    "npaCargoDuesPerMT": 1.50,
+    "portDAs": 40000,
+    "nimasaCabotagePct": 0.02,
+    "nimasaFreightLevyPct": 0.03,
+    "spomoCvffPct": 0.02,
+    "ncsDocs": 1000,
+    "marineIccPct": 0.00125,
+    "sgsInspection": 10000,
+    "portAgency": 8000,
+    "allocSecurityPct": 0.00029,
+    "bankCharges": 2500,
+    "overhead": 5000,
+    "contingency": 20000,
+    "collateralManager": 8000,
+    "throughput": 0,
+    "storageRental": 0,
+    "evaporationPct": 0.00125,
+    "tankInsurancePct": 0.0005
+  }
+}
