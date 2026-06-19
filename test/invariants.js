@@ -182,5 +182,77 @@ check('#7 over-hedge flagged as overHedgeTonnes', rOver.hedge.overHedgeTonnes > 
 check('#7 over-hedge comparison stays apples-to-apples (delta ~0 at fixed=live)', Math.abs(rOver.hedge.iceCostDelta) < 1);
 check('#7 effective ICE priced on retained basis, not hedged volume', approx(rOver.hedge.effectiveIceCost, rOver.hedge.comparisonBasisTonnes * rOver.hedge.liveIce, 1));
 
+// ============================================================================================
+// FX engine + depot channel (unified computeTrade flow)
+// ============================================================================================
+const { computeTrade } = require('../engine/flows/trade');
+const { runSensitivities } = require('../engine/core/sensitivities');
+const depotOnly = require('../trades/sample-depot-only.json');
+const bothChannels = require('../trades/sample-both-channels.json');
+const exshipTis = require('../trades/sample-exship-tis.json');
+
+// FX1 — REGRESSION: computeTrade reproduces computeEquityPartner exactly on the Profogas trade.
+const ctP = computeTrade(trade);
+check('FX1 computeTrade == computeEquityPartner: standalone', approx(ctP.profit.standaloneProfit, r.profit.standaloneProfit, 0.01));
+check('FX1 computeTrade == computeEquityPartner: marginForegone', approx(ctP.profit.marginForegone, r.profit.marginForegone, 0.01));
+check('FX1 computeTrade == computeEquityPartner: TIS net', approx(ctP.profit.tisNetProfit, r.profit.tisNetProfit, 0.01));
+check('FX1 computeTrade == computeEquityPartner: partner tonnes', approx(ctP.quantities.economic.partnerTonnes, r.quantities.economic.partnerTonnes, 0.01));
+
+// FX2 — USD mode is an FX no-op: no naira share, and a parallel bump does not move P&L.
+const exTis = computeTrade(exshipTis);
+check('FX2 USD mode: naira share = 0', exTis.fx.nairaShare === 0);
+check('FX2 USD mode: parallel payment bump does not change TIS net',
+  approx(computeTrade({ ...exshipTis, fx: { ...exshipTis.fx, paymentBumpPct: 0.1 } }).profit.tisNetProfit, exTis.profit.tisNetProfit, 0.01));
+
+// FX3 — PARALLEL drives P&L; NAFEM is reference only.
+const dBase = computeTrade(depotOnly);
+const nafemBumped = computeTrade({ ...depotOnly, fx: { ...depotOnly.fx, nafem: { ...depotOnly.fx.nafem, value: depotOnly.fx.nafem.value * 1.5 } } });
+check('FX3 NAFEM is reference only (bump NAFEM 50% -> TIS net unchanged)', approx(nafemBumped.profit.tisNetProfit, dBase.profit.tisNetProfit, 0.01));
+const parBumped = computeTrade({ ...depotOnly, fx: { ...depotOnly.fx, parallel: { ...depotOnly.fx.parallel, value: depotOnly.fx.parallel.value * 1.1 } } });
+check('FX3 PARALLEL drives P&L (bump parallel 10% -> TIS net changes)', Math.abs(parBumped.profit.tisNetProfit - dBase.profit.tisNetProfit) > 1);
+
+// FX4 — depot landed cost > ex-ship landed cost (storage included only for depot).
+check('FX4 depot landed > ex-ship landed', dBase.price.depotLandedPerMT > dBase.price.exShipLandedPerMT);
+check('FX4 ex-ship-only trade: depot landed == ex-ship landed', approx(exTis.price.depotLandedPerMT, exTis.price.exShipLandedPerMT, 0.0001));
+
+// FX5 — FX sensitivity bites ONLY naira legs.
+const usdFx = runSensitivities(exshipTis, (t) => computeTrade(t), { fxMode: 'parallel' }).scenarios.filter((s) => /FX/.test(s.lever));
+check('FX5 USD trade: FX sensitivity delta = 0', usdFx.every((s) => Math.abs(s.deltaVsBase) < 0.01));
+const depotFx = runSensitivities(depotOnly, (t) => computeTrade(t), { fxMode: 'parallel' }).scenarios.filter((s) => /FX/.test(s.lever));
+check('FX5 depot trade: FX sensitivity delta != 0', depotFx.some((s) => Math.abs(s.deltaVsBase) > 1));
+
+// FX6 — naira DEPOT COSTS are FX-exposed (parallel payment bump moves naira storage USD).
+const stUsd = (res) => res.cost.lines.filter((l) => l.category === 'storage' && l.currency === 'NGN').reduce((s, l) => s + l.amountUsd, 0);
+const stBase = stUsd(dBase);
+const stBumped = stUsd(computeTrade({ ...depotOnly, fx: { ...depotOnly.fx, paymentBumpPct: 0.1 } }));
+check('FX6 naira depot costs FX-exposed (weaker naira -> lower USD cost)', stBase > 0 && stBumped < stBase);
+
+// FX7 — depot reconciliations tie; depot-only TIS-funded => standalone = adjusted = TIS net.
+check('FX7 depot reconciliation ties', dBase.profit.reconciliation.ok === true);
+check('FX7 TIS self-funded: standalone = adjusted = TIS net',
+  approx(dBase.profit.standaloneProfit, dBase.profit.tisNetProfit, 0.01) && approx(dBase.profit.adjustedProfit, dBase.profit.tisNetProfit, 0.01));
+check('FX7 TIS self-funded: partner tonnes = 0', dBase.quantities.economic.partnerTonnes === 0);
+check('FX7 TIS self-funded: annualised return on TIS equity', dBase.annualReturnBaseLabel.includes('TIS equity'));
+
+// FX8 — both-channels pooling + configurable equity ratio (advanceRate 0.80) re-flows.
+const both = computeTrade(bothChannels);
+check('FX8 both channels pool into one P&L (rev - cost = standalone)',
+  approx(both.profit.standaloneProfit, both.revenue.combinedUSD - both.cost.allInCost, 0.02));
+check('FX8 equity ratio re-flow: LC = 80% of cargo', approx(both.financing.lc, 0.8 * both.cargoValue, 1));
+check('FX8 equity ratio re-flow: partner funding = 20% of cargo', approx(both.financing.partnerFunding, 0.2 * both.cargoValue, 1));
+check('FX8 day-count Actual/360 used', both.financing.dayCountBasis === 360);
+
+// FX9 — margin-foregone benchmark = EX-SHIP price (both channels); depot-only partner falls back.
+check('FX9 margin-foregone benchmark = ex-ship price (both channels)',
+  approx(both.profit.benchmarkPriceUSD, bothChannels.sell.exShipPricePerMT.value, 0.01));
+const depotPartner = computeTrade({ ...depotOnly, partner: { ...depotOnly.partner, equityProvider: 'partner', profitSharePct: 0.3, productAllocationPct: 1.0 } });
+check('FX9 depot-only partner: benchmark falls back to depot realized price',
+  approx(depotPartner.profit.benchmarkPriceUSD, depotPartner.price.depotPriceUSDperMT, 0.01));
+
+// FX10 — validation throws on bad funding stack / channel split.
+expectThrow('FX10 funding stack not summing to 1 throws', () => computeTrade({ ...bothChannels, partner: { ...bothChannels.partner, equityPct: 0.3 } }), 'sum to 1.0');
+expectThrow('FX10 channel split not summing to 1 throws', () => computeTrade({ ...depotOnly, channels: { exShipPct: 0.5, depotPct: 0.4 } }), 'channels');
+expectThrow('FX10 invalid currencyMode throws', () => computeTrade({ ...exshipTis, sell: { ...exshipTis.sell, currencyMode: 'EUR' } }), 'currencyMode');
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

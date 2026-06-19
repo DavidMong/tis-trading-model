@@ -23,7 +23,22 @@ function buildCostBuildup(trade, ctx) {
   const { cargoValue, deliveredQty, financing } = ctx;
   const c = trade.costLines;
   const tax = trade.tax;
-  const depot = !!(trade.depot && trade.depot.enabled);
+  // Storage is active for DEPOT volume only. Channel-driven (ctx.depotTonnes) with a legacy
+  // trade.depot.enabled fallback. Depot operational costs (throughput, tank rental) are naira-paid
+  // and converted to USD-equivalent at the PARALLEL payment rate, carrying their own FX exposure.
+  const depotTonnes = ctx.depotTonnes || 0;
+  const storageActive = depotTonnes > 0 || !!(trade.depot && trade.depot.enabled);
+  const storageQty = depotTonnes > 0 ? depotTonnes : storageActive ? deliveredQty : 0;
+  const unitFob = cargoValue / deliveredQty;
+  const depotCargoValue = unitFob * storageQty;
+  const parPay = ctx.parallelPayment;
+  const ngnStorageToUsd = (ngn) => {
+    if (!storageActive || !ngn) return 0;
+    if (!(typeof parPay === 'number' && Number.isFinite(parPay) && parPay > 0)) {
+      throw new Error(`buildCostBuildup: parallelPayment must be > 0 to convert naira depot costs, got ${parPay}`);
+    }
+    return ngn / parPay;
+  };
 
   // Derived freight (3, 4) and freight base
   const tcHire = trade.freight.tcRatePerDay * trade.freight.charterDays; // 3
@@ -34,8 +49,8 @@ function buildCostBuildup(trade, ctx) {
     id,
     label,
     category,
-    { base = null, rate = null, amount = null, currency = 'USD', recoverable = false, status = 'OK', legalRef = null }
-  ) => ({ id, label, category, base, rate, currency, amountUsd: round(amount, 2), recoverable, status, legalRef });
+    { base = null, rate = null, amount = null, currency = 'USD', recoverable = false, status = 'OK', legalRef = null, ngnAmount = null }
+  ) => ({ id, label, category, base, rate, currency, amountUsd: round(amount, 2), ngnAmount: ngnAmount == null ? null : round(ngnAmount, 2), recoverable, status, legalRef });
 
   const lines = [];
 
@@ -135,16 +150,27 @@ function buildCostBuildup(trade, ctx) {
   lines.push(L(23, 'Contingency', 'flat', { amount: c.contingency }));
   lines.push(L(24, 'Collateral manager', 'flat', { amount: c.collateralManager }));
 
-  // 25-28 storage (depot legs only; =0 otherwise). Evaporation/tank insurance base = cargo value (INFERRED).
-  lines.push(L(25, 'Throughput', 'storage', { amount: depot ? c.throughput : 0 }));
-  lines.push(L(26, 'Storage rental', 'storage', { amount: depot ? c.storageRental : 0 }));
+  // 25-28 storage (depot volume only; =0 otherwise).
+  // 25 throughput, 26 tank/storage rental: NAIRA-paid -> converted to USD at parallel (FX-exposed).
+  // 27 evaporation, 28 tank insurance: USD, % of depot cargo value (INFERRED base).
+  const throughputNgn = storageActive ? (c.throughputNgnPerMT || 0) * storageQty : 0;
+  const rentalNgn = storageActive ? c.storageRentalNgn || 0 : 0;
+  lines.push(L(25, 'Throughput', 'storage', {
+    rate: c.throughputNgnPerMT, base: storageActive ? storageQty : 0, currency: storageActive ? 'NGN' : 'USD',
+    amount: ngnStorageToUsd(throughputNgn), ngnAmount: storageActive ? throughputNgn : null,
+    status: storageActive ? 'NGN->USD @ parallel (FX-exposed)' : 'OK',
+  }));
+  lines.push(L(26, 'Storage rental', 'storage', {
+    currency: storageActive ? 'NGN' : 'USD', amount: ngnStorageToUsd(rentalNgn), ngnAmount: storageActive ? rentalNgn : null,
+    status: storageActive ? 'NGN->USD @ parallel (FX-exposed)' : 'OK',
+  }));
   lines.push(L(27, 'Evaporation 0.125%', 'storage', {
-    rate: c.evaporationPct, base: depot ? cargoValue : 0, amount: depot ? c.evaporationPct * cargoValue : 0,
-    status: depot ? 'INFERRED base' : 'OK',
+    rate: c.evaporationPct, base: storageActive ? depotCargoValue : 0, amount: storageActive ? c.evaporationPct * depotCargoValue : 0,
+    status: storageActive ? 'INFERRED base' : 'OK',
   }));
   lines.push(L(28, 'Tank insurance 0.05%', 'storage', {
-    rate: c.tankInsurancePct, base: depot ? cargoValue : 0, amount: depot ? c.tankInsurancePct * cargoValue : 0,
-    status: depot ? 'INFERRED base' : 'OK',
+    rate: c.tankInsurancePct, base: storageActive ? depotCargoValue : 0, amount: storageActive ? c.tankInsurancePct * depotCargoValue : 0,
+    status: storageActive ? 'INFERRED base' : 'OK',
   }));
 
   // 13 VAT services — base = configurable servicesBucket (named line ids). INFERRED composition.
@@ -170,9 +196,17 @@ function buildCostBuildup(trade, ctx) {
 
   // Landed cost EXCLUDES the recoverable proportion of input VAT (timing only) but INCLUDES the
   // irrecoverable proportion (a genuine cost when taxableSupplyProportion < 1).
-  const nonRecoverable = lines.filter((l) => !l.recoverable).reduce((s, l) => s + l.amountUsd, 0);
-  const allInCost = round(nonRecoverable + irrecoverableVat, 2);
-  const landedCostPerMT = allInCost / deliveredQty;
+  // Split base (cargo/freight/levies/financing) from storage so we can expose two landed bases:
+  //   ex-ship landed (base, EXCLUDES storage) and depot landed (base + storage / depot tonnes).
+  const storageTotal = round(lines.filter((l) => l.category === 'storage').reduce((s, l) => s + l.amountUsd, 0), 2);
+  const baseNonRecoverable = lines
+    .filter((l) => !l.recoverable && l.category !== 'storage')
+    .reduce((s, l) => s + l.amountUsd, 0);
+  const baseAllIn = round(baseNonRecoverable + irrecoverableVat, 2);
+  const allInCost = round(baseAllIn + storageTotal, 2);
+  const landedCostPerMT = allInCost / deliveredQty; // kept for computeEquityPartner compatibility
+  const exShipLandedPerMT = baseAllIn / deliveredQty; // EXCLUDES storage
+  const depotLandedPerMT = depotTonnes > 0 ? exShipLandedPerMT + storageTotal / depotTonnes : exShipLandedPerMT;
 
   return {
     lines,
@@ -188,6 +222,12 @@ function buildCostBuildup(trade, ctx) {
     },
     allInCost,
     landedCostPerMT,
+    baseAllIn,
+    storageTotal,
+    exShipLandedPerMT, // base landed, EXCLUDES storage
+    depotLandedPerMT, // base + storage / depot tonnes (INCLUDES storage)
+    depotTonnes,
+    storageActive,
   };
 }
 

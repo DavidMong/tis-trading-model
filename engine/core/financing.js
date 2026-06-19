@@ -22,6 +22,14 @@ function buildFinancing(trade, cargoValue) {
   const partnerPct = p.totalFundingPct ?? bondPct + equityPct; // 25%
   const lcPct = f.lcPctOfCargo ?? 0.75;
 
+  // Equity ratio is fully configurable; the funding stack must close to 100% of cargo value.
+  // A change in bank terms (e.g. advanceRate 0.75 -> 0.80) re-flows equity, LC, interest and returns.
+  if (Math.abs(bondPct + equityPct + lcPct - 1) > 1e-9) {
+    throw new Error(
+      `Invalid funding stack: bondPct (${bondPct}) + equityPct (${equityPct}) + lcPctOfCargo (${lcPct}) must sum to 1.0, got ${bondPct + equityPct + lcPct}`
+    );
+  }
+
   const performanceBond = bondPct * cargoValue; // first-loss, to supplier
   const equity = equityPct * cargoValue;
   const partnerFunding = partnerPct * cargoValue; // returnable principal (bond + equity)

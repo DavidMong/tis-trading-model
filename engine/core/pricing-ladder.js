@@ -42,10 +42,18 @@ function runAtPrice(trade, compute, pricePerMT) {
 }
 
 // Derive the two cost bases from ONE verified engine run (no recomputation of cost math).
+// Prefer the engine-exposed bases (unified trade flow); fall back for the equity-partner result shape.
 function costBases(baseResult) {
   const qty = baseResult.meta.deliveredQty;
+  if (baseResult.price && typeof baseResult.price.exShipLandedPerMT === 'number') {
+    return {
+      qty,
+      exShipLandedPerMT: baseResult.price.exShipLandedPerMT,
+      depotLandedPerMT: baseResult.price.depotLandedPerMT ?? baseResult.price.exShipLandedPerMT,
+    };
+  }
   const allIn = baseResult.cost.allInCost;
-  const storage = baseResult.storageTotal;
+  const storage = baseResult.storageTotal || 0;
   return {
     qty,
     exShipLandedPerMT: (allIn - storage) / qty, // EXCLUDES storage
@@ -142,7 +150,9 @@ function currentPriceContext(trade, exShipLandedPerMT, tiers, fx, conv) {
 // DEPOT ladder (naira downstream resale). Tier = ABSOLUTE NGN/L spread over ALL-IN depot landed cost.
 // Applies ONLY when a depot leg exists. P&L per tier comes from the depot flow when it is built.
 function buildDepotLadder(trade, compute, baseResult) {
-  if (!(trade.depot && trade.depot.enabled)) {
+  // Active when the trade has a depot channel (unified flow) or the legacy depot.enabled flag.
+  const hasDepot = (baseResult.channels && baseResult.channels.depotTonnes > 0) || (trade.depot && trade.depot.enabled);
+  if (!hasDepot) {
     return { leg: 'depot', applicable: false, note: 'No depot leg in this trade — depot ladder not applicable.' };
   }
   const tiers = (trade.pricing && trade.pricing.depotTiers) || DEFAULT_DEPOT_TIERS;
@@ -157,17 +167,20 @@ function buildDepotLadder(trade, compute, baseResult) {
   }
   const depotLandedNgnPerL = (depotLandedPerMT * fx) / conv.litresPerMT;
 
-  // The downstream-naira P&L needs the full-depot-resale flow (currently a stub).
-  const depotFlowBuilt = trade.meta.flow === 'full-depot-resale' && typeof compute === 'function' && !compute.isStub;
+  // P&L per tier runs the verified engine at the tier's NGN/L price (when the unified flow exposes
+  // a depot channel). No duplicated math — tisNet/adjusted come straight from compute().
+  const depotFlowLive = !!(baseResult.channels && baseResult.channels.depotTonnes > 0) && typeof compute === 'function';
 
   const rows = tiers.map((t) => {
     const priceNgnPerL = depotLandedNgnPerL + t.spreadNgnPerL;
     const priceUsdPerMT = (priceNgnPerL * conv.litresPerMT) / fx;
     let tisNetProfit = null;
     let adjustedProfit = null;
-    let pnlStatus = 'PENDING (full-depot-resale flow not built)';
-    if (depotFlowBuilt) {
-      const r = runAtPrice(trade, compute, priceUsdPerMT);
+    let pnlStatus = 'PENDING (no depot channel in this trade)';
+    if (depotFlowLive) {
+      const tt = clone(trade);
+      tt.sell = { ...tt.sell, depotPriceNgnPerL: { value: round(priceNgnPerL, 6), status: 'SUGGESTED (ladder)' } };
+      const r = compute(tt);
       tisNetProfit = r.profit.tisNetProfit;
       adjustedProfit = r.profit.adjustedProfit;
       pnlStatus = 'engine';

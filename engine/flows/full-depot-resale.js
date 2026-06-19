@@ -1,15 +1,12 @@
 'use strict';
 
-// Full depot-resale flow — STUB (not built).
-// Planned: cargo discharged to depot then resold ex-storage.
-// Enables depot (trade.depot.enabled = true) so storage cost lines 25-28 become active and
-// ex-storage landed cost > ex-ship landed cost. Adds the "depot sold at cost" downside sensitivity.
-// Reuses the same core: financing, cost-buildup, tax, hedge, sensitivities.
+// Full depot-resale flow. Now implemented on the unified engine (engine/flows/trade.js).
+// A depot trade simply sets channels.depotPct > 0 (and typically equityProvider 'TIS', currencyMode 'NGN').
+// Kept as a named entry point so trade.meta.flow = 'full-depot-resale' routes here.
+const { computeTrade } = require('./trade');
 
-function computeFullDepotResale() {
-  throw new Error(
-    "full-depot-resale flow not implemented yet (stub). Planned: enable depot; storage lines 25-28 active; ex-storage landed > ex-ship; depot-sold-at-cost downside."
-  );
+function computeFullDepotResale(trade, opts) {
+  return computeTrade(trade, opts);
 }
 
 module.exports = { computeFullDepotResale };

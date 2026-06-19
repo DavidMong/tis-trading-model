@@ -116,6 +116,36 @@ profit exactly (auditable WYSIWYG).
 - Re-derives automatically when landed cost moves (ICE/FOB/freight/FX). The trader's entered price is
   highlighted and classified to the nearest tier.
 
+## Unified trade model (`engine/flows/trade.js`, `flow: "trade"`) — five independent dimensions
+
+`computeEquityPartner` is kept untouched as the verified Profogas path (`flow: "equity-partner"`).
+`computeTrade` is the unified flow reusing the same core modules; it reproduces `computeEquityPartner`
+**exactly** for {ex-ship, partner, USD, 25%} (asserted: FX1). `straight-exship` / `full-depot-resale`
+route into it. The engine is USD-internal; the FX layer converts naira legs at the boundary.
+
+1. **Sale channels** — `channels.exShipPct` + `channels.depotPct` (validated sum = 1). Proceeds pool:
+   `standalone = combinedRevenue − combinedCost` (generalizes the baseline revenue−cost identity exactly).
+2. **Equity provider** — `partner.equityProvider ∈ {partner, TIS}`. `partner` runs the in-kind / margin-
+   foregone / profit-share waterfall; `TIS` self-funded → `standalone = adjusted = TIS net`, partnerTonnes 0,
+   annualised return on **TIS equity** (vs cargo value, INDICATIVE, when partner-funded).
+3. **Equity ratio** — `financing.lcPctOfCargo` + `partner.bondPct` + `partner.equityPct`, **validated to
+   sum to 1.0** (throws otherwise). Default 0.75/0.05/0.20. Change advanceRate → equity/LC/interest/returns re-flow.
+4. **Currency** — `sell.currencyMode ∈ {USD, NGN, split}` (+ `splitUsdPct`) on the **ex-ship** leg; depot
+   is always ₦/L. **PARALLEL drives all P&L; NAFEM is reference/reconciliation only** (asserted: FX3). FX risk:
+   naira receivable fixed at pricing-parallel, revalued at payment-parallel; `fx.paymentBumpPct` (±10% sensitivity)
+   bites only naira legs (asserted: FX2/FX5). `fx.fxIncidence` default `TIS`.
+5. **Depot channel** — priced ₦/L → USD via parallel × `litresPerMT`. Margin vs **all-in depot landed cost**
+   (`depotLanded = exShipLanded + storage/depotTonnes`, > ex-ship landed: FX4). Storage lines go live for depot
+   volume; **throughput + tank rental are naira-paid and FX-exposed on the cost side** (asserted: FX6); evaporation
+   + tank insurance are USD (% of depot cargo value). Depot ₦/L ladder + ex-ship-vs-depot comparison go live.
+
+**Margin-foregone benchmark = EX-SHIP price** (partner's in-kind product is lifted ex-ship at the tank farm,
+so TIS keeps the depot premium it earns by taking storage/holding/FX risk). **Edge case:** a depot-only trade
+(no ex-ship channel) falls back to the depot realized (ex-storage) price as the benchmark (asserted: FX9).
+
+Sample trades: `sample-depot-only` (depot/TIS/NGN), `sample-both-channels` (both/partner/split, advanceRate 0.80),
+`sample-exship-tis` (ex-ship/TIS/USD), plus `profogas-dangote-001` (the unchanged verified baseline).
+
 ## Status-flag taxonomy (carried into every report)
 
 `OK` · `INDICATIVE` (overridable assumption) · `CONFIRM` (needs external confirmation) ·

@@ -7,6 +7,7 @@ const { parseArgs } = require('node:util');
 const { computeEquityPartner } = require('./engine/flows/equity-partner');
 const { computeStraightExship } = require('./engine/flows/straight-exship');
 const { computeFullDepotResale } = require('./engine/flows/full-depot-resale');
+const { computeTrade } = require('./engine/flows/trade');
 const { runSensitivities } = require('./engine/core/sensitivities');
 const { buildHedge } = require('./engine/core/hedge');
 const { chooseRate } = require('./engine/core/fx');
@@ -16,6 +17,7 @@ const FLOWS = {
   'equity-partner': computeEquityPartner,
   'straight-exship': computeStraightExship,
   'full-depot-resale': computeFullDepotResale,
+  trade: computeTrade,
 };
 
 // ---------------------------------------------------------------- formatting
@@ -208,6 +210,125 @@ function printReport(res, trade, flags) {
   L(hr('='));
 }
 
+// ---------------------------------------------------------------- unified trade report
+const ngn = (x) => (x == null ? 'n/a' : `₦${Number(x).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+
+function printTradeReport(res, trade, flags) {
+  const L = (s = '') => console.log(s);
+  const f = res.financing;
+  L(hr('='));
+  L('TIS GLOBAL TRADING — UNIFIED TRADE MODEL REPORT');
+  L(res.meta.tradeName);
+  L(`Trade ${res.meta.tradeId}   |   Flow: ${res.meta.flow}   |   Equity provider: ${res.equityProvider}`);
+  L(`Partner ${res.meta.parties.partner}  |  Supplier ${res.meta.parties.supplier}  |  Facility ${res.meta.parties.facility}`);
+  L(`Delivered qty: ${mt(res.meta.deliveredQty)}${flags.upside ? '   (UPSIDE case)' : ''}`);
+  L(hr('='));
+
+  // Channels
+  L('\n1. SALE CHANNELS');
+  L(hr());
+  L(`  Ex-ship  ${pct(res.channels.exShipPct)}  =>  ${mt(res.channels.exShipTonnes)}`);
+  L(`  Ex-depot ${pct(res.channels.depotPct)}  =>  ${mt(res.channels.depotTonnes)}`);
+
+  // Funding stack (configurable equity ratio)
+  L('\n2. FUNDING STACK  (of cargo FOB value — configurable equity ratio)');
+  L(hr());
+  L(`  Cargo (FOB) value               ${padL(usd(res.cargoValue), 20)}`);
+  L(`  Performance bond  ${pct(f.pct.bondPct)}            ${padL(usd(f.performanceBond), 18)}`);
+  L(`  Equity            ${pct(f.pct.equityPct)}            ${padL(usd(f.equity), 18)}  (provider: ${res.equityProvider})`);
+  L(`  Bank LC           ${pct(f.pct.lcPct)}            ${padL(usd(f.lc), 18)}`);
+  L(`  Funding-stack check: ${(f.check.fundingStackPctOfCargo * 100).toFixed(2)}%  ${f.check.fundingStackPctOfCargo === 1 ? 'OK' : 'MISMATCH'}`);
+
+  // Cost build-up (compact: total + key bases)
+  L('\n3. COST BUILD-UP');
+  L(hr());
+  L(`  ${pad('#', 3)}${pad('Line', 30)}${pad('Cat', 17)}${padL('Amount (USD)', 16)}  Flag`);
+  for (const l of res.cost.lines) {
+    const flag = l.recoverable ? 'RECOVERABLE' : (l.status === 'OK' ? '' : l.status);
+    const ngnNote = l.ngnAmount != null ? `  (${ngn(l.ngnAmount)})` : '';
+    L(`  ${pad(l.id, 3)}${pad(l.label, 30)}${pad(l.category, 17)}${padL(usd(l.amountUsd), 16)}  ${flag}${ngnNote}`);
+  }
+  L(hr());
+  L(`  Base all-in (ex-ship, excl storage) ${padL(usd(res.cost.baseAllIn), 18)}  -> ex-ship landed ${usd(res.price.exShipLandedPerMT)}/MT`);
+  L(`  Storage total (depot volume)        ${padL(usd(res.cost.storageTotal), 18)}  -> depot landed   ${usd(res.price.depotLandedPerMT)}/MT`);
+  L(`  ALL-IN COMBINED COST                ${padL(usd(res.cost.allInCost), 18)}`);
+  if (res.price.depotLandedPerMT > res.price.exShipLandedPerMT) L(`  (depot landed > ex-ship landed by ${usd(res.price.depotLandedPerMT - res.price.exShipLandedPerMT)}/MT — storage/holding)`);
+
+  // FX block
+  const fx = res.fx;
+  L('\n4. FX  (PARALLEL drives P&L; NAFEM reference only)');
+  L(hr());
+  L(`  Currency mode: ${fx.currencyMode}  (USD share ${pct(fx.usdShare)} / naira share ${pct(fx.nairaShare)})   fxIncidence: ${fx.fxIncidence}`);
+  L(`  PARALLEL (pricing) ${fx.rates.parallelPricing} NGN/USD   payment ${fx.rates.parallelPayment} (bump ${pct(fx.rates.paymentBumpPct)})   [${fx.rates.parallelSource || 'n/a'}, ${fx.rates.parallelAsOf || 'n/a'}]`);
+  L(`  NAFEM (reference)  ${fx.rates.nafemReference} NGN/USD  — reconciliation only, never in P&L`);
+  L(`  Naira revenue ${ngn(fx.nairaRevenue.ngn)}  =>  parallel ${usd(fx.nairaRevenue.usdAtParallel)}  |  at NAFEM ref ${usd(fx.nairaRevenue.usdAtNafemReference)}`);
+  L(`  Naira cost    ${ngn(fx.nairaCost.ngn)}  =>  parallel ${usd(fx.nairaCost.usdAtParallel)}  |  at NAFEM ref ${usd(fx.nairaCost.usdAtNafemReference)}`);
+  L(`  Net naira exposure (USD): ${usd(fx.netNairaExposureUsd)}   NAFEM reconciliation gap: ${usd(fx.nafemReconciliationGapUsd)}`);
+
+  // Revenue & price
+  L('\n5. REVENUE & PRICE');
+  L(hr());
+  L(`  Ex-ship revenue ${padL(usd(res.revenue.exShipUSD), 18)}   ex-ship price ${res.price.exShipPricePerMT != null ? usd(res.price.exShipPricePerMT) + '/MT' : 'n/a'}`);
+  L(`  Depot revenue   ${padL(usd(res.revenue.depotUSD), 18)}   depot price   ${res.price.depotPriceNgnPerL != null ? ngn(res.price.depotPriceNgnPerL) + '/L = ' + usd(res.price.depotPriceUSDperMT) + '/MT' : 'n/a'}`);
+  L(`  COMBINED revenue${padL(usd(res.revenue.combinedUSD), 18)}   avg realized ${usd(res.price.avgRealizedPriceUSDperMT)}/MT`);
+  if (res.price.depotPremiumPerMT != null) L(`  Depot premium over ex-ship: ${usd(res.price.depotPremiumPerMT)}/MT`);
+
+  // Quantities (partner only)
+  const q = res.quantities;
+  if (res.equityProvider === 'partner') {
+    L('\n6. QUANTITIES  (economic drives P&L; paper documentary)');
+    L(hr());
+    L(`  Partner tonnes (in-kind): ${mt(q.economic.partnerTonnes)}   TIS retained: ${mt(q.economic.tisRetainedTonnes)}`);
+    if (q.paper) L(`  Paper: partner ${mt(q.paper.partnerPaper)} / TIS ${mt(q.paper.tisPaper)}   true-up ${usd(q.paper.cashTrueUp)}`);
+  }
+
+  // Profit waterfall
+  const p = res.profit;
+  L('\n7. PROFIT WATERFALL  (channels pooled into ONE P&L)');
+  L(hr());
+  L(`  Standalone profit (revenue - cost)         ${padL(usd(p.standaloneProfit), 18)}`);
+  if (res.equityProvider === 'partner') {
+    L(`  - Margin foregone  (benchmark: ${p.benchmarkBasis})  ${padL(usd(p.marginForegone), 18)}`);
+    L(`  = Adjusted profit                          ${padL(usd(p.adjustedProfit), 18)}`);
+    L(`  - Partner cash profit share (${pct(p.profitSharePct)})       ${padL(usd(p.partnerCashProfitShare), 18)}`);
+    L(`  = TIS net profit                           ${padL(usd(p.tisNetProfit), 18)}`);
+  } else {
+    L(`  (TIS self-funded: standalone = adjusted = TIS net)`);
+    L(`  = TIS net profit                           ${padL(usd(p.tisNetProfit), 18)}`);
+  }
+  if (p.tisNetAfterSurcharge !== p.tisNetProfit) L(`    TIS net after surcharge incidence        ${padL(usd(p.tisNetAfterSurcharge), 18)}`);
+  L(`  reconciliation: ${p.reconciliation.ok ? 'OK' : 'MISMATCH'}  (rev-cost ${usd(p.reconciliation.revenueLessCost)} = standalone ${usd(p.reconciliation.standalone)})`);
+  L(`  TIS annualised return: ${pct(res.tisAnnualisedReturn)}  on ${res.annualReturnBaseLabel} (${usd(res.annualReturnBase)})`);
+
+  // Partner deliverables / TIS note
+  L('\n8. EQUITY PROVIDER');
+  L(hr());
+  if (res.equityProvider === 'partner') {
+    const pd = res.partnerDelivers;
+    L(`  Partner: ${res.meta.parties.partner} (TIS-internal view)`);
+    L(`  (1) Product received ${mt(pd.productReceived.tonnes)} valued at ex-ship landed ${usd(pd.productReceived.valuedAtExShipLandedCost)}`);
+    L(`  (2) Cash received: profit share ${usd(pd.cashReceived.profitShare)}` + (pd.cashReceived.principalCashPortion > 0 ? ` + principal cash ${usd(pd.cashReceived.principalCashPortion)}` : ''));
+    L(`  Principal tie-out: ${usd(pd.principalTie.owed)} = product ${usd(pd.principalTie.returnedProductValue)} + cash ${usd(pd.principalTie.returnedCash)}  ${pd.principalTie.ok ? 'OK' : 'MISMATCH'}`);
+  } else {
+    L(`  ${res.partnerDelivers.note}`);
+  }
+
+  // Hedge
+  const h = res.hedge;
+  L('\n9. HEDGE (ICE swap)');
+  L(hr());
+  L(`  Route ${h.route}  lots ${h.lots} (${mt(h.hedgedTonnes)})  basis ${mt(h.comparisonBasisTonnes)} retained  effective ${usd(h.effectiveIceCost)} vs unhedged ${usd(h.unhedgedIceCost)} (delta ${usd(h.iceCostDelta)})`);
+  if (h.overHedgeTonnes > 0) L(`  Over-hedge (speculative, excluded from comparison): ${mt(h.overHedgeTonnes)}`);
+
+  // Sensitivities
+  L('\n10. SENSITIVITIES  (+/-10%; change in TIS net)');
+  L(hr());
+  for (const s of res.sensitivities.scenarios) L(`  ${pad(s.lever, 20)} TIS net ${padL(usd(s.tisNet), 18)}   delta ${padL(usd(s.deltaVsBase), 16)}`);
+  L(`  FX: ${res.sensitivities.fx.note}`);
+  if (res.sensitivities.depotDownside) L(`  Depot sold at cost: TIS net ${usd(res.sensitivities.depotDownside.tisNet)} (delta ${usd(res.sensitivities.depotDownside.deltaVsBase)})`);
+  L(hr('='));
+}
+
 // ---------------------------------------------------------------- comparisons
 function printFxComparison(trade) {
   console.log('\nFX COMPARISON (NAFEM vs parallel)');
@@ -348,10 +469,14 @@ function main() {
     process.exit(1);
   }
 
-  // Attach sensitivities (re-runs the same pure compute under perturbed inputs)
-  res.sensitivities = runSensitivities(trade, (t) => compute(t, opts));
+  // Unified trade flow uses the parallel-payment FX sensitivity; equity-partner keeps NAFEM (no-op),
+  // preserving the verified Profogas output byte-for-byte.
+  const isUnified = res.channels !== undefined && res.revenue !== undefined;
+  const sensOptions = isUnified ? { fxMode: 'parallel' } : {};
+  res.sensitivities = runSensitivities(trade, (t) => compute(t, opts), sensOptions);
 
-  printReport(res, trade, flags);
+  if (isUnified) printTradeReport(res, trade, flags);
+  else printReport(res, trade, flags);
   if (flags['compare-fx']) printFxComparison(trade);
   if (flags['compare-hedge']) printHedgeComparison(trade, res);
   if (flags.ladder) printLadder(buildLadder(trade, (t) => compute(t, opts), res), trade);
