@@ -146,6 +146,23 @@ so TIS keeps the depot premium it earns by taking storage/holding/FX risk). **Ed
 Sample trades: `sample-depot-only` (depot/TIS/NGN), `sample-both-channels` (both/partner/split, advanceRate 0.80),
 `sample-exship-tis` (ex-ship/TIS/USD), plus `profogas-dangote-001` (the unchanged verified baseline).
 
+## Hedge toggles — ICE + FX (`engine/core/hedge.js`, `engine/core/fx-hedge.js`)
+
+Two **independent** per-trade toggles, both default **OFF**: `hedge.iceHedged` and `fxHedge.fxHedged`.
+- **ON → drives realized P&L:** the net hedge impact flows into `standalone → adjusted → TIS net`
+  (shared via the partner split when partner-funded). ICE: `−(iceCostDelta + all-in hedge cost)`;
+  FX: `+(forward-vs-parallel delta on the hedged naira) − hedge cost`.
+- **OFF → no P&L effect** (leg floats at parallel/live, zero hedge cost) — current behavior exactly.
+- **Comparison:** `hedgeComparison` always shows the opposite toggle state (hedged vs unhedged TIS net),
+  computed by re-running the engine with the toggle flipped, **recursion-guarded** via `opts.skipHedgeCompare`.
+- **FX hedge** locks a configurable portion of the **net naira exposure** at a named-benchmark forward
+  (NAFEM/NDF); unhedged remainder floats at parallel. Dual route (bank_book spread / third_party
+  bank-provided margin + broker fee), apples-to-apples on the net-exposure basis (over-hedge excluded).
+- **BASIS RISK (explicit):** the hedge settles against the benchmark, not parallel, so realized P&L carries
+  the benchmark↔parallel basis as a surfaced residual (`fxHedge.basis.residualBasisUsd` + ⚠ note). The hedge
+  never implies full parallel cover. All hedge params are PLACEHOLDER — confirm with bank/broker.
+- Profogas runs on `computeEquityPartner` (toggles n/a) → byte-for-byte unchanged.
+
 ## Status-flag taxonomy (carried into every report)
 
 `OK` · `INDICATIVE` (overridable assumption) · `CONFIRM` (needs external confirmation) ·

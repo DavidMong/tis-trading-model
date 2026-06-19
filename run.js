@@ -313,12 +313,27 @@ function printTradeReport(res, trade, flags) {
     L(`  ${res.partnerDelivers.note}`);
   }
 
-  // Hedge
+  // Hedges (two independent toggles; each shows the opposite scenario)
   const h = res.hedge;
-  L('\n9. HEDGE (ICE swap)');
+  const fh = res.fxHedge;
+  const hc = res.hedgeComparison;
+  L('\n9. HEDGES  (toggle ON drives realized P&L; opposite scenario shown for comparison)');
   L(hr());
-  L(`  Route ${h.route}  lots ${h.lots} (${mt(h.hedgedTonnes)})  basis ${mt(h.comparisonBasisTonnes)} retained  effective ${usd(h.effectiveIceCost)} vs unhedged ${usd(h.unhedgedIceCost)} (delta ${usd(h.iceCostDelta)})`);
-  if (h.overHedgeTonnes > 0) L(`  Over-hedge (speculative, excluded from comparison): ${mt(h.overHedgeTonnes)}`);
+  L(`  ICE swap [${res.hedges.iceHedged ? 'ON' : 'OFF'}]  route ${h.route}  lots ${h.lots} (${mt(h.hedgedTonnes)})  basis ${mt(h.comparisonBasisTonnes)} retained`);
+  L(`     effective ${usd(h.effectiveIceCost)} vs unhedged ${usd(h.unhedgedIceCost)} (delta ${usd(h.iceCostDelta)})   realized P&L impact ${usd(res.hedges.iceHedgeNetImpact)}`);
+  if (h.overHedgeTonnes > 0) L(`     over-hedge (speculative, excluded): ${mt(h.overHedgeTonnes)}`);
+  if (hc) L(`     TIS net: hedged ${usd(hc.ice.hedgedTisNet)}  vs  unhedged ${usd(hc.ice.unhedgedTisNet)}   (hedging worth ${usd(hc.ice.hedgeWorthItVsUnhedged)})`);
+  L(`  FX hedge [${res.hedges.fxHedged ? 'ON' : 'OFF'}]  route ${fh.routeEconomics.type}  benchmark ${fh.benchmark}  exposure ${ngn(fh.exposureNgn)}`);
+  if (fh.hasExposure) {
+    L(`     hedged ${ngn(fh.hedgedNgn)} @ forward ${fh.forwardRate} -> ${usd(fh.hedgedUsd)}  vs floating @ parallel ${fh.parallelPayment} -> ${usd(fh.floatingUsd)}   realized P&L impact ${usd(res.hedges.fxHedgeNetImpact)}`);
+    if (fh.overHedgeNgn > 0) L(`     over-hedge (speculative, excluded): ${ngn(fh.overHedgeNgn)}`);
+    L(`     ⚠ BASIS RISK: ${fh.basis.note}`);
+    L(`        benchmark-vs-parallel gap ${fh.basis.gapNgnPerUsd} NGN/USD  ->  residual basis ${usd(fh.basis.residualBasisUsd)} (uncovered)`);
+    if (hc) L(`     TIS net: hedged ${usd(hc.fx.hedgedTisNet)}  vs  unhedged ${usd(hc.fx.unhedgedTisNet)}   (hedging worth ${usd(hc.fx.hedgeWorthItVsUnhedged)})`);
+  } else {
+    L(`     no naira exposure in this trade — FX hedge n/a (no-op).`);
+  }
+  L(`  All hedge params are PLACEHOLDER — confirm with bank/broker.`);
 
   // Sensitivities
   L('\n10. SENSITIVITIES  (+/-10%; change in TIS net)');

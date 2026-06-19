@@ -254,5 +254,60 @@ expectThrow('FX10 funding stack not summing to 1 throws', () => computeTrade({ .
 expectThrow('FX10 channel split not summing to 1 throws', () => computeTrade({ ...depotOnly, channels: { exShipPct: 0.5, depotPct: 0.4 } }), 'channels');
 expectThrow('FX10 invalid currencyMode throws', () => computeTrade({ ...exshipTis, sell: { ...exshipTis.sell, currencyMode: 'EUR' } }), 'currencyMode');
 
+// ============================================================================================
+// FX hedge + ICE hedge toggles (realized-P&L, comparison, basis risk)
+// ============================================================================================
+const bOff = computeTrade(bothChannels); // sample has both toggles OFF by default
+
+// HX1 — toggles OFF = no-op (realized P&L == floating).
+check('HX1 toggles OFF: no ICE/FX P&L impact', bOff.hedges.iceHedgeNetImpact === 0 && bOff.hedges.fxHedgeNetImpact === 0);
+check('HX1 toggles OFF: standalone == revenue - cost', approx(bOff.profit.standaloneProfit, bOff.revenue.combinedUSD - bOff.cost.allInCost, 0.02));
+
+// HX2 — ICE-ON drives realized P&L: impact = -(iceCostDelta + all-in hedge cost); base-case = hedge cost.
+const iceOn = computeTrade({ ...bothChannels, hedge: { ...bothChannels.hedge, iceHedged: true } });
+check('HX2 ICE-ON impact = -(iceCostDelta + hedge cost)', approx(iceOn.hedges.iceHedgeNetImpact, -(iceOn.hedge.iceCostDelta + iceOn.hedge.extraFinancingCost), 0.02));
+check('HX2 ICE-ON: standalone = float + ICE impact', approx(iceOn.profit.standaloneProfit, bOff.profit.standaloneProfit + iceOn.hedges.iceHedgeNetImpact, 0.02));
+check('HX2 ICE-ON: TIS net < OFF (cost of hedging)', iceOn.profit.tisNetProfit < bOff.profit.tisNetProfit);
+
+// HX3 — FX-ON drives realized P&L: hedged naira at forward, unhedged floats at parallel.
+const fxOn = computeTrade({ ...bothChannels, fxHedge: { ...bothChannels.fxHedge, fxHedged: true } });
+check('HX3 FX-ON impact = fxRealizedDelta - hedge cost', approx(fxOn.hedges.fxHedgeNetImpact, fxOn.fxHedge.fxRealizedDeltaUsd - fxOn.fxHedge.extraFinancingCost, 0.02));
+check('HX3 hedged portion locks at FORWARD rate', approx(fxOn.fxHedge.hedgedUsd, fxOn.fxHedge.hedgedNgn / fxOn.fxHedge.forwardRate + fxOn.fxHedge.unhedgedNgn / fxOn.fxHedge.parallelPayment, 0.5));
+check('HX3 floating USD = net naira / parallel', approx(fxOn.fxHedge.floatingUsd, fxOn.fxHedge.exposureNgn / fxOn.fxHedge.parallelPayment, 0.5));
+const fxHalf = computeTrade({ ...bothChannels, fxHedge: { ...bothChannels.fxHedge, fxHedged: true, hedgeRatio: 0.5 } });
+check('HX3 hedgeRatio 0.5: unhedged half floats at parallel', approx(fxHalf.fxHedge.unhedgedNgn, 0.5 * fxHalf.fxHedge.exposureNgn, 1));
+
+// HX4 — basis residual surfaced; non-zero when benchmark != parallel; ~0 when equal.
+check('HX4 basis gap = forward - parallel', approx(fxOn.fxHedge.basis.gapNgnPerUsd, fxOn.fxHedge.forwardRate - fxOn.fxHedge.parallelPricing, 0.01));
+check('HX4 basis residual non-zero (benchmark != parallel)', Math.abs(fxOn.fxHedge.basis.residualBasisUsd) > 1);
+check('HX4 basis note flags incomplete parallel cover', /does NOT fully cover parallel/.test(fxOn.fxHedge.basis.note));
+const par = computeTrade(bothChannels).fx.rates.parallelPricing;
+const fxNoBasis = computeTrade({ ...bothChannels, fxHedge: { ...bothChannels.fxHedge, fxHedged: true, forwardRate: par } });
+check('HX4 basis residual ~0 when benchmark == parallel', Math.abs(fxNoBasis.fxHedge.basis.residualBasisUsd) < 0.5);
+
+// HX5 — route A (bank_book) vs B (third_party) cost difference; bank-provided margin only on B.
+const fxA = computeTrade({ ...bothChannels, fxHedge: { ...bothChannels.fxHedge, fxHedged: true, route: 'bank_book' } });
+const fxB = computeTrade({ ...bothChannels, fxHedge: { ...bothChannels.fxHedge, fxHedged: true, route: 'third_party' } });
+check('HX5 FX route A vs B extra cost differs', Math.abs(fxA.fxHedge.extraFinancingCost - fxB.fxHedge.extraFinancingCost) > 0.5);
+check('HX5 FX third_party margin is bank-provided (A has none)', fxB.fxHedge.bankProvidedMargin > 0 && fxA.fxHedge.bankProvidedMargin === 0);
+
+// HX6 — apples-to-apples: over-hedge excess flagged, hedged capped at exposure.
+const fxOver = computeTrade({ ...bothChannels, fxHedge: { ...bothChannels.fxHedge, fxHedged: true, hedgeRatio: 1.5 } });
+check('HX6 FX over-hedge flagged, hedged capped at exposure', fxOver.fxHedge.overHedgeNgn > 0 && approx(fxOver.fxHedge.hedgedNgn, fxOver.fxHedge.exposureNgn, 1));
+
+// HX7 — comparison shows opposite scenario; recursion guard works.
+check('HX7 comparison shows opposite ICE state', bOff.hedgeComparison.ice.state === 'OFF' && typeof bOff.hedgeComparison.ice.hedgedTisNet === 'number');
+check('HX7 comparison shows opposite FX state', bOff.hedgeComparison.fx.state === 'OFF' && typeof bOff.hedgeComparison.fx.hedgedTisNet === 'number');
+check('HX7 recursion guard: skipHedgeCompare -> no comparison', computeTrade(bothChannels, { skipHedgeCompare: true }).hedgeComparison === null);
+
+// HX8 — USD trade: FX hedge n/a (no naira exposure) -> no-op even when toggled ON.
+const exFxOn = computeTrade({ ...exshipTis, fxHedge: { ...exshipTis.fxHedge, fxHedged: true } });
+check('HX8 USD trade: FX hedge no-op (no exposure)', exFxOn.fxHedge.hasExposure === false && exFxOn.hedges.fxHedgeNetImpact === 0);
+check('HX8 USD trade: FX-ON TIS net == OFF', approx(exFxOn.profit.tisNetProfit, computeTrade(exshipTis).profit.tisNetProfit, 0.01));
+
+// HX9 — reconciliation still holds with both hedges ON.
+const bothOn = computeTrade({ ...bothChannels, hedge: { ...bothChannels.hedge, iceHedged: true }, fxHedge: { ...bothChannels.fxHedge, fxHedged: true } });
+check('HX9 reconciliation holds with ICE+FX both ON', bothOn.profit.reconciliation.ok === true);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

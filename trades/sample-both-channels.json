@@ -1,0 +1,67 @@
+{
+  "meta": {
+    "tradeId": "TIS-SAMPLE-BOTH-001",
+    "tradeName": "SAMPLE both channels — partner, split currency (EXAMPLE, dummy data)",
+    "flow": "trade",
+    "entity": "TIS Global Trading",
+    "createdAt": "2026-01-01",
+    "note": "Sanitised example: ex-ship 60% + depot 40% / partner / split (60% USD, 40% NGN). All values DUMMY."
+  },
+  "parties": {
+    "partner": "Example Partner Ltd",
+    "supplier": "Example Supplier Co",
+    "facility": "Example Bank USD Facility",
+    "bank": "Example Bank",
+    "inspector": "Example Inspector"
+  },
+  "market": {
+    "ice": { "value": 820, "unit": "USD/MT", "source": "dummy", "asOf": "2026-01-01", "feedHook": null, "status": "EXAMPLE" },
+    "fobPremium": { "value": 110, "unit": "USD/MT", "source": "dummy" }
+  },
+  "cargo": { "nominalMT": 12000, "sellersOptionPct": 0.05, "deliveredQtyMT": 12000, "deliveredQtyUpsideMT": 12600 },
+  "freight": { "tcRatePerDay": 42000, "charterDays": 28, "demurrageDays": 3, "status": "EXAMPLE" },
+  "financing": {
+    "creditRate": 0.11, "lcFeePct": 0.012, "financingDays": 35, "capitalLockupDays": 48,
+    "wcSublimit": 700000, "advanceRate": 0.80, "lcPctOfCargo": 0.80, "dayCountBasis": 360, "status": "EXAMPLE (advanceRate 0.80 -> equity 15% + bond 5%)"
+  },
+  "channels": { "exShipPct": 0.6, "depotPct": 0.4 },
+  "sell": {
+    "currencyMode": "split",
+    "splitUsdPct": 0.6,
+    "exShipPricePerMT": { "value": 1300, "status": "EXAMPLE — fixed USD" },
+    "depotPriceNgnPerL": { "value": 1850, "status": "EXAMPLE — confirm downstream price" }
+  },
+  "fx": {
+    "nafem": { "value": 1500, "unit": "NGN/USD", "source": "NAFEM official (dummy)", "asOf": "2026-01-01", "override": null, "status": "EXAMPLE" },
+    "parallel": { "value": 1620, "unit": "NGN/USD", "source": "parallel market (dummy)", "asOf": "2026-01-01", "override": null, "status": "EXAMPLE" },
+    "fxIncidence": "TIS",
+    "paymentBumpPct": 0
+  },
+  "partner": {
+    "equityProvider": "partner", "role": "equity partner", "mode": "combination",
+    "bondPct": 0.05, "equityPct": 0.15, "totalFundingPct": 0.20, "productAllocationPct": 1.0, "profitSharePct": 0.30,
+    "note": "advanceRate 0.80 -> partner funding 20% (bond 5% + equity 15%). DUMMY split."
+  },
+  "hedge": { "iceHedged": false, "route": "third_party", "hedgedVolumeMT": null, "fixedPrice": null, "feePerMT": 1.5, "initialMarginPct": 0.10, "thirdPartyFee": 5000, "bankSpreadPerMT": 0.5, "status": "PLACEHOLDER — confirm with bank/broker" },
+  "fxHedge": { "fxHedged": false, "hedgeRatio": 1.0, "forwardRate": 1550, "benchmark": "NAFEM forward", "route": "bank_book", "feePerUsd": 0.004, "spreadPerUsd": 0.002, "initialMarginPct": 0.05, "tenorDays": 35, "brokerFee": 3000, "status": "PLACEHOLDER — confirm with bank/broker" },
+  "tax": { "vatRate": 0.075, "taxableSupplyProportion": 1.0, "whtFreightRate": 0.05, "surcharge": { "enabled": false, "rate": 0.05, "commencementGazetted": false, "incidence": "cost" } },
+  "servicesBucket": [15, 16, 24],
+  "pricing": {
+    "exShipTiers": [
+      { "name": "Floor", "marginOfSell": 0.03 }, { "name": "Conservative", "marginOfSell": 0.06 },
+      { "name": "Target", "marginOfSell": 0.10 }, { "name": "Stretch", "marginOfSell": 0.15 }, { "name": "Premium", "marginOfSell": 0.20 }
+    ],
+    "depotTiers": [
+      { "name": "Floor", "spreadNgnPerL": 50 }, { "name": "Conservative", "spreadNgnPerL": 90 },
+      { "name": "Recommended", "spreadNgnPerL": 135 }, { "name": "Stretch", "spreadNgnPerL": 170 }, { "name": "Premium", "spreadNgnPerL": 220 }
+    ],
+    "conversion": { "litresPerMT": 1183, "fxMarketForDepot": "parallel", "status": "INDICATIVE (density ~0.845)" }
+  },
+  "depot": { "enabled": true },
+  "costLines": {
+    "npaCargoDuesPerMT": 1.50, "portDAs": 42000, "nimasaCabotagePct": 0.02, "nimasaFreightLevyPct": 0.03,
+    "spomoCvffPct": 0.02, "ncsDocs": 1000, "marineIccPct": 0.00125, "sgsInspection": 11000, "portAgency": 9000,
+    "allocSecurityPct": 0.00029, "bankCharges": 2800, "overhead": 5500, "contingency": 22000, "collateralManager": 9000,
+    "throughputNgnPerMT": 4200, "storageRentalNgn": 40000000, "evaporationPct": 0.00125, "tankInsurancePct": 0.0005
+  }
+}

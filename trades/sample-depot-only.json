@@ -1,0 +1,62 @@
+{
+  "meta": {
+    "tradeId": "TIS-SAMPLE-DEPOT-001",
+    "tradeName": "SAMPLE depot-only resale — TIS self-funded, NGN (EXAMPLE, dummy data)",
+    "flow": "full-depot-resale",
+    "entity": "TIS Global Trading",
+    "createdAt": "2026-01-01",
+    "note": "Sanitised example: depot-only / no-partner / naira. All values DUMMY."
+  },
+  "parties": {
+    "partner": "n/a (TIS self-funded)",
+    "supplier": "Example Supplier Co",
+    "facility": "Example Bank USD Facility",
+    "bank": "Example Bank",
+    "inspector": "Example Inspector"
+  },
+  "market": {
+    "ice": { "value": 800, "unit": "USD/MT", "source": "dummy", "asOf": "2026-01-01", "feedHook": null, "status": "EXAMPLE" },
+    "fobPremium": { "value": 100, "unit": "USD/MT", "source": "dummy" }
+  },
+  "cargo": { "nominalMT": 10000, "sellersOptionPct": 0.05, "deliveredQtyMT": 10000, "deliveredQtyUpsideMT": 10500 },
+  "freight": { "tcRatePerDay": 40000, "charterDays": 25, "demurrageDays": 0, "status": "EXAMPLE" },
+  "financing": {
+    "creditRate": 0.10, "lcFeePct": 0.01, "financingDays": 30, "capitalLockupDays": 45,
+    "wcSublimit": 500000, "advanceRate": 0.75, "lcPctOfCargo": 0.75, "dayCountBasis": 365, "status": "EXAMPLE"
+  },
+  "channels": { "exShipPct": 0.0, "depotPct": 1.0 },
+  "sell": {
+    "currencyMode": "NGN",
+    "exShipPricePerMT": { "value": null, "status": "n/a (no ex-ship channel)" },
+    "depotPriceNgnPerL": { "value": 1800, "status": "EXAMPLE — confirm downstream price" }
+  },
+  "fx": {
+    "nafem": { "value": 1500, "unit": "NGN/USD", "source": "NAFEM official (dummy)", "asOf": "2026-01-01", "override": null, "status": "EXAMPLE" },
+    "parallel": { "value": 1600, "unit": "NGN/USD", "source": "parallel market (dummy)", "asOf": "2026-01-01", "override": null, "status": "EXAMPLE" },
+    "fxIncidence": "TIS",
+    "paymentBumpPct": 0
+  },
+  "partner": { "equityProvider": "TIS", "bondPct": 0.05, "equityPct": 0.20, "totalFundingPct": 0.25 },
+  "hedge": { "iceHedged": false, "route": "bank_book", "hedgedVolumeMT": null, "fixedPrice": null, "feePerMT": 1.5, "initialMarginPct": 0.10, "thirdPartyFee": 0, "bankSpreadPerMT": 0.5, "status": "PLACEHOLDER — confirm with bank/broker" },
+  "fxHedge": { "fxHedged": false, "hedgeRatio": 1.0, "forwardRate": 1530, "benchmark": "offshore NDF", "route": "third_party", "feePerUsd": 0.004, "spreadPerUsd": 0.002, "initialMarginPct": 0.05, "tenorDays": 30, "brokerFee": 2500, "status": "PLACEHOLDER — confirm with bank/broker" },
+  "tax": { "vatRate": 0.075, "taxableSupplyProportion": 1.0, "whtFreightRate": 0.05, "surcharge": { "enabled": false, "rate": 0.05, "commencementGazetted": false, "incidence": "cost" } },
+  "servicesBucket": [15, 16, 24],
+  "pricing": {
+    "exShipTiers": [
+      { "name": "Floor", "marginOfSell": 0.03 }, { "name": "Conservative", "marginOfSell": 0.06 },
+      { "name": "Target", "marginOfSell": 0.10 }, { "name": "Stretch", "marginOfSell": 0.15 }, { "name": "Premium", "marginOfSell": 0.20 }
+    ],
+    "depotTiers": [
+      { "name": "Floor", "spreadNgnPerL": 50 }, { "name": "Conservative", "spreadNgnPerL": 90 },
+      { "name": "Recommended", "spreadNgnPerL": 135 }, { "name": "Stretch", "spreadNgnPerL": 170 }, { "name": "Premium", "spreadNgnPerL": 220 }
+    ],
+    "conversion": { "litresPerMT": 1183, "fxMarketForDepot": "parallel", "status": "INDICATIVE (density ~0.845)" }
+  },
+  "depot": { "enabled": true },
+  "costLines": {
+    "npaCargoDuesPerMT": 1.50, "portDAs": 40000, "nimasaCabotagePct": 0.02, "nimasaFreightLevyPct": 0.03,
+    "spomoCvffPct": 0.02, "ncsDocs": 1000, "marineIccPct": 0.00125, "sgsInspection": 10000, "portAgency": 8000,
+    "allocSecurityPct": 0.00029, "bankCharges": 2500, "overhead": 5000, "contingency": 20000, "collateralManager": 8000,
+    "throughputNgnPerMT": 4000, "storageRentalNgn": 50000000, "evaporationPct": 0.00125, "tankInsurancePct": 0.0005
+  }
+}

@@ -1,6 +1,7 @@
 # Real trade data — never commit (contains margins, partner terms, prices)
 trades/*.json
-!trades/sample-trade.json
+# Sanitized examples (dummy data) ARE tracked — needed by the verify harness
+!trades/sample-*.json
 
 # Secrets & local config
 .env

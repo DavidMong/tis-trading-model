@@ -6,6 +6,7 @@ const { buildCostBuildup } = require('../core/cost-buildup');
 const { buildTaxBlock } = require('../core/tax');
 const { buildHedge } = require('../core/hedge');
 const { resolveFxRates, exShipCurrencyShares } = require('../core/fx');
+const { buildFxHedge } = require('../core/fx-hedge');
 const { num, positive, nonNegative, proportion, oneOf, sumToOne, computedPositive } = require('../core/validate');
 
 // UNIFIED, fully-configurable trade flow. Five INDEPENDENT dimensions — every combination computes:
@@ -104,60 +105,99 @@ function computeTrade(trade, opts = {}) {
     depotRevenueUSD = depotTonnes * depotPriceUSDperMT;
   }
 
+  // Naira cost (storage, naira-paid) -> needed for net exposure + FX exposure block + FX hedge.
+  const nairaCostLines = cost.lines.filter((l) => l.category === 'storage' && l.currency === 'NGN');
+  const nairaCostUsd = round(nairaCostLines.reduce((s, l) => s + l.amountUsd, 0), 2);
+  const nairaCostNgn = round(nairaCostLines.reduce((s, l) => s + (l.ngnAmount || 0), 0), 2);
+  const totalNairaRevenueNgn = round(exShipNairaNgn + depotRevenueNgn, 2);
+  const netNairaNgn = totalNairaRevenueNgn - nairaCostNgn;
+  const nairaRevenueUsd = round((fx.parallelPayment ? exShipNairaNgn / fx.parallelPayment : 0) + depotRevenueUSD, 2);
+
+  // FLOATING (unhedged) baseline: all naira at parallel payment, ICE at marked.
   const combinedRevenue = exShipRevenueUSD + depotRevenueUSD;
   const combinedCost = cost.allInCost; // baseAllIn + storageTotal
-  const standaloneProfit = combinedRevenue - combinedCost;
+  const standaloneFloat = combinedRevenue - combinedCost;
   const avgRealizedPriceUSDperMT = combinedRevenue / deliveredQty;
 
-  // 5. Equity provider: partner (split waterfall) vs TIS (self-funded)
+  // 5. Equity provider — partner tonnes / retained (independent of standalone; needed before hedges).
   const equityProvider = (trade.partner && trade.partner.equityProvider) || 'partner';
-  let partnerTonnes = 0;
-  let marginForegone = 0;
-  let adjustedProfit = standaloneProfit;
-  let profitSharePct = 0;
-  let partnerCashProfitShare = 0;
-  let tisNetProfit = standaloneProfit;
   let partnerPrincipal = 0;
   let principalAsProduct = 0;
   let principalAsCash = 0;
+  let partnerTonnes = 0;
+  let profitSharePct = 0;
   let benchmarkPriceUSD = null;
   let benchmarkBasis = null;
-
   if (equityProvider === 'partner') {
     partnerPrincipal = financing.partnerFunding;
     const productAllocationPct = proportion(trade.partner.productAllocationPct ?? 1.0, 'partner.productAllocationPct');
     principalAsProduct = partnerPrincipal * productAllocationPct;
     principalAsCash = partnerPrincipal - principalAsProduct;
     partnerTonnes = principalAsProduct / exShipLandedPerMT; // in-kind valued at EX-SHIP landed
-    // Benchmark = ex-ship price; depot-only falls back to depot realized (ex-storage) price.
     if (exShipTonnes > 0) { benchmarkPriceUSD = exShipPriceUSD; benchmarkBasis = 'ex-ship price'; }
     else { benchmarkPriceUSD = depotPriceUSDperMT; benchmarkBasis = 'depot realized price (ex-ship channel absent)'; }
-    marginForegone = partnerTonnes * (benchmarkPriceUSD - exShipLandedPerMT);
-    adjustedProfit = standaloneProfit - marginForegone;
     profitSharePct = trade.partner.profitSharePct;
-    partnerCashProfitShare = profitSharePct * adjustedProfit;
-    tisNetProfit = adjustedProfit - partnerCashProfitShare;
   }
   const tisRetainedTonnes = deliveredQty - partnerTonnes;
 
-  // 6. Tax + surcharge (surcharge base = avg realized retail; TIS bears retained-tonnes share)
+  // 6. Hedges — two INDEPENDENT toggles. buildHedge is unchanged (shared with computeEquityPartner).
+  const iceHedged = !!(trade.hedge && trade.hedge.iceHedged);
+  const fxHedged = !!(trade.fxHedge && trade.fxHedge.fxHedged);
+  const hedge = buildHedge(trade, { tisRetainedTonnes });
+  const fxHedge = buildFxHedge(trade, { netNairaNgn, parallelPricing: fx.parallelPricing, parallelPayment: fx.parallelPayment });
+
+  // Realized hedge impacts on standalone — only when the toggle is ON.
+  //   ICE ON  : lock retained ICE at fixed (iceCostDelta) + all-in hedge cost -> reduces profit.
+  //   FX  ON  : hedged naira at forward vs parallel (fxRealizedDeltaUsd, +/-) - hedge cost.
+  const iceHedgeAllInCost = round(hedge.iceCostDelta + hedge.extraFinancingCost, 2);
+  const iceHedgeNetImpact = iceHedged ? round(-iceHedgeAllInCost, 2) : 0;
+  const fxHedgeNetImpact = fxHedged ? round(fxHedge.fxRealizedDeltaUsd - fxHedge.extraFinancingCost, 2) : 0;
+
+  // 7. Profit waterfall on the REALIZED (post-hedge) standalone.
+  const standaloneProfit = round(standaloneFloat + iceHedgeNetImpact + fxHedgeNetImpact, 2);
+  let marginForegone = 0;
+  let adjustedProfit = standaloneProfit;
+  let partnerCashProfitShare = 0;
+  let tisNetProfit = standaloneProfit;
+  if (equityProvider === 'partner') {
+    marginForegone = partnerTonnes * (benchmarkPriceUSD - exShipLandedPerMT);
+    adjustedProfit = standaloneProfit - marginForegone;
+    partnerCashProfitShare = profitSharePct * adjustedProfit;
+    tisNetProfit = adjustedProfit - partnerCashProfitShare;
+  }
+
+  // 8. Tax + surcharge (surcharge base = avg realized retail; TIS bears retained-tonnes share)
   const taxBlock = buildTaxBlock(trade, { exShipPricePerMT: avgRealizedPriceUSDperMT, deliveredQty, tisRetainedTonnes }, cost);
   let tisNetAfterSurcharge = tisNetProfit;
   if (taxBlock.surcharge.enabled && taxBlock.surcharge.incidence === 'cost') {
     tisNetAfterSurcharge = tisNetProfit - taxBlock.surcharge.tisBorneUsd;
   }
 
-  // 7. Hedge (canonical apples-to-apples retained-tonnes basis)
-  const hedge = buildHedge(trade, { tisRetainedTonnes });
-
-  // 8. FX exposure block (naira revenue + naira cost; NAFEM reconciliation; never in P&L)
-  const nairaCostLines = cost.lines.filter((l) => l.category === 'storage' && l.currency === 'NGN');
-  const nairaCostUsd = round(nairaCostLines.reduce((s, l) => s + l.amountUsd, 0), 2);
-  const nairaCostNgn = round(nairaCostLines.reduce((s, l) => s + (l.ngnAmount || 0), 0), 2);
-  const totalNairaRevenueNgn = round(exShipNairaNgn + depotRevenueNgn, 2);
-  const nairaRevenueUsd = round(
-    (fx.parallelPayment ? exShipNairaNgn / fx.parallelPayment : 0) + depotRevenueUSD, 2
-  );
+  // 9. Hedge comparison — always show the OPPOSITE toggle state (recursion-guarded).
+  let hedgeComparison = null;
+  if (!opts.skipHedgeCompare) {
+    const flip = (extra) => computeTrade({ ...trade, ...extra }, { ...opts, skipHedgeCompare: true }).profit.tisNetProfit;
+    const iceOpp = flip({ hedge: { ...(trade.hedge || {}), iceHedged: !iceHedged } });
+    const fxOpp = flip({ fxHedge: { ...(trade.fxHedge || {}), fxHedged: !fxHedged } });
+    hedgeComparison = {
+      ice: {
+        state: iceHedged ? 'ON' : 'OFF',
+        tisNetThisState: money(tisNetProfit),
+        tisNetOppositeState: money(iceOpp),
+        hedgedTisNet: money(iceHedged ? tisNetProfit : iceOpp),
+        unhedgedTisNet: money(iceHedged ? iceOpp : tisNetProfit),
+        hedgeWorthItVsUnhedged: money((iceHedged ? tisNetProfit : iceOpp) - (iceHedged ? iceOpp : tisNetProfit)),
+      },
+      fx: {
+        state: fxHedged ? 'ON' : 'OFF',
+        tisNetThisState: money(tisNetProfit),
+        tisNetOppositeState: money(fxOpp),
+        hedgedTisNet: money(fxHedged ? tisNetProfit : fxOpp),
+        unhedgedTisNet: money(fxHedged ? fxOpp : tisNetProfit),
+        hedgeWorthItVsUnhedged: money((fxHedged ? tisNetProfit : fxOpp) - (fxHedged ? fxOpp : tisNetProfit)),
+      },
+    };
+  }
   const nafem = fx.nafemReference;
   const fxBlock = {
     currencyMode: exShares.mode,
@@ -250,13 +290,21 @@ function computeTrade(trade, opts = {}) {
       tisNetProfit: money(tisNetProfit),
       tisNetAfterSurcharge: money(tisNetAfterSurcharge),
       reconciliation: {
-        identity: 'combinedRevenue - combinedCost = standalone;  marginForegone + adjusted = standalone',
-        revenueLessCost: money(combinedRevenue - combinedCost),
+        identity: '(revenue - cost) + hedge impacts = standalone;  marginForegone + adjusted = standalone',
+        revenueLessCost: money(standaloneFloat),
+        iceHedgeNetImpact: money(iceHedgeNetImpact),
+        fxHedgeNetImpact: money(fxHedgeNetImpact),
         standalone: money(standaloneProfit),
         marginForegonePlusAdjusted: money(marginForegone + adjustedProfit),
-        ok: Math.abs(combinedRevenue - combinedCost - standaloneProfit) < 0.01 &&
+        ok: Math.abs(standaloneFloat + iceHedgeNetImpact + fxHedgeNetImpact - standaloneProfit) < 0.01 &&
             Math.abs(marginForegone + adjustedProfit - standaloneProfit) < 0.01,
       },
+    },
+    hedges: {
+      iceHedged,
+      fxHedged,
+      iceHedgeNetImpact: money(iceHedgeNetImpact),
+      fxHedgeNetImpact: money(fxHedgeNetImpact),
     },
     partnerDelivers: equityProvider === 'partner' ? {
       note: 'TIS-internal view: only what TIS delivers. No partner-side upside / net-return interpretation.',
@@ -272,6 +320,8 @@ function computeTrade(trade, opts = {}) {
     fx: fxBlock,
     tax: taxBlock,
     hedge,
+    fxHedge,
+    hedgeComparison,
     tisAnnualisedReturn,
     annualReturnBase: annualReturnBase != null ? money(annualReturnBase) : null,
     annualReturnBaseLabel,
