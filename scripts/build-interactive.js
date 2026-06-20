@@ -195,7 +195,7 @@ body { display: flex; flex-direction: column; }
 .pip-ok   { background: #10b981; }
 .pip-conf { background: #f59e0b; }
 .pip-ind  { background: #94a3b8; }
-.pip-ph   { background: #f97316; }
+.pip-ph   { background: #f59e0b; }
 .pip-none { width: 0; }
 
 /* Inputs */
@@ -216,11 +216,11 @@ body { display: flex; flex-direction: column; }
 }
 .si:focus {
   outline: none;
-  border-color: var(--red);
-  box-shadow: 0 0 0 2px rgba(212,29,29,.10);
+  border-color: var(--ink);
+  box-shadow: 0 0 0 2px rgba(36,35,49,.10);
 }
 .si:hover:not(:focus) { border-color: #9ca3af; background: #fafafa; }
-.si.ph { border-color: #fdba74; background: #fffbf0; color: #9a3412; }
+.si.ph { border-color: #fdba74; background: #fffbf0; color: #92400e; }
 
 .ss {
   font-family: var(--f-body);
@@ -234,7 +234,7 @@ body { display: flex; flex-direction: column; }
   box-sizing: border-box;
   cursor: pointer;
 }
-.ss:focus { outline: none; border-color: var(--red); }
+.ss:focus { outline: none; border-color: var(--ink); }
 .sr {
   font-family: var(--f-body);
   font-size: 12px;
@@ -262,7 +262,7 @@ body { display: flex; flex-direction: column; }
   outline: none;
   padding: 1px 0;
 }
-.tgl-wrap:focus-visible .tgl-track { box-shadow: 0 0 0 2px rgba(212,29,29,.30); }
+.tgl-wrap:focus-visible .tgl-track { box-shadow: 0 0 0 2px rgba(36,35,49,.25); }
 .tgl-track {
   flex-shrink: 0;
   width: 34px; height: 18px;
@@ -271,7 +271,7 @@ body { display: flex; flex-direction: column; }
   position: relative;
   transition: background .18s;
 }
-.tgl-track.on { background: var(--red); }
+.tgl-track.on { background: var(--ink); }
 /* Hedge toggles ON → green (active = safe/good state) */
 .tgl-wrap[data-type="hedge"] .tgl-track.on { background: #10b981; }
 .tgl-wrap[data-type="hedge"]:focus-visible .tgl-track { box-shadow: 0 0 0 2px rgba(16,185,129,.30); }
@@ -305,7 +305,7 @@ body { display: flex; flex-direction: column; }
   background: #fff7ed;
   border: 1px solid #fdba74;
   border-radius: 5px;
-  color: #9a3412;
+  color: #92400e;
   font-family: var(--f-body);
   font-size: 11px;
   padding: 7px 10px;
@@ -470,7 +470,7 @@ body { display: flex; flex-direction: column; }
   background: #fff7ed;
   border: 1px solid #fdba74;
   border-radius: 5px;
-  color: #9a3412;
+  color: #92400e;
   font-family: var(--f-body);
   font-size: 11px;
   padding: 8px 12px;
@@ -793,11 +793,11 @@ body { display: flex; flex-direction: column; }
 .btn-new:hover { background:var(--bg); color:var(--ink); }
 
 .btn-save {
-  padding:5px 12px; background:var(--red); border:none; border-radius:4px;
+  padding:5px 12px; background:var(--ink); border:none; border-radius:4px;
   font-family:var(--f-body); font-size:11px; font-weight:600; color:#fff;
   cursor:pointer; transition:background .12s; white-space:nowrap;
 }
-.btn-save:hover { background:#b91c1c; }
+.btn-save:hover { background:#3a3545; }
 
 .btn-saveas {
   padding:5px 9px; background:none; border:1px solid var(--border);
@@ -820,7 +820,7 @@ body { display: flex; flex-direction: column; }
   padding:5px 6px; cursor:pointer; min-width:0; max-width:100%; overflow:hidden;
   text-overflow:ellipsis; box-sizing:border-box;
 }
-.lib-select:focus { outline:none; border-color:var(--red); }
+.lib-select:focus { outline:none; border-color:var(--ink); }
 
 /* ── House defaults button + banner (Costs tab) ──────────────────────────── */
 .btn-defaults {
@@ -843,6 +843,22 @@ body { display: flex; flex-direction: column; }
   letter-spacing:.08em; text-transform:uppercase; color:#94a3b8;
   vertical-align:middle;
 }
+
+/* ── C4: PLACEHOLDER badge → amber caution family (overrides reportCss blue) ── */
+:root { --placeholder-c: #92400e; --placeholder-bg: #fef3c7; }
+/* Double-class selector (spec 0-2-0) overrides reportCss single-class; !important to
+   defeat any undetected cascade conflict from the static-server cache environment */
+.bdg.bdg-placeholder { color: #92400e !important; background: #fef3c7; }
+
+/* ── C1: Expected negative figures → slate/neutral, not alarm-red ─────────── */
+/* .neg is used for expected structural negatives (hedge cost, sensitivity deltas).
+   .loss is for actual P&L losses (TIS Net negative at a pricing tier). */
+.neg { color: #717c89; }
+.loss { color: #991b1b; }
+.sens-neg        { background: var(--heat-neg); color: #4b5563; font-weight: 600; }
+.sens-neg-strong { background: var(--heat-neg-strong); color: #374151; font-weight: 700; }
+.tn-neg .tn-val { color: #4b5563; }
+.tn-neg-val     { color: #717c89; }
 
 /* ── Toast ───────────────────────────────────────────────────────────────── */
 .tis-toast {
@@ -1689,7 +1705,7 @@ function renderLadder(trade, res, ladder) {
       <td class="r">\${fmtPct(tier.marginPctOfSell)}</td>
       <td class="r">\${fmtPct(tier.markupPctOnCost)}</td>
       <td class="r">\${fmtUsd(tier.spreadPerMT)}/MT</td>
-      <td class="r \${tier.tisNetProfit >= 0 ? 'pos' : 'neg'}">\${fmtUsd(tier.tisNetProfit)}</td>
+      <td class="r \${tier.tisNetProfit >= 0 ? 'pos' : 'loss'}">\${fmtUsd(tier.tisNetProfit)}</td>
     </tr>\`;
   }).join('');
 
@@ -1701,7 +1717,7 @@ function renderLadder(trade, res, ladder) {
       <td class="r">\${fmtNum(tier.ngnPricePerL || tier.priceNgnPerL || 0, 2)} ₦/L</td>
       <td class="r">\${fmtPct(tier.marginPctOfSell)}</td>
       <td class="r">\${fmtPct(tier.markupPctOnCost)}</td>
-      <td class="r \${tier.tisNetProfit >= 0 ? 'pos' : 'neg'}">\${fmtUsd(tier.tisNetProfit)}</td>
+      <td class="r \${tier.tisNetProfit >= 0 ? 'pos' : 'loss'}">\${fmtUsd(tier.tisNetProfit)}</td>
     </tr>\`).join('');
     depotSection = \`<h3 style="font-family:var(--f-display);font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--slate);margin:16px 20px 8px">Depot ₦/L Ladder</h3>
     <div class="tbl-wrap"><table>
