@@ -35,9 +35,17 @@ const DEFAULT_CONVERSION = { litresPerMT: 1183, fxMarketForDepot: 'parallel' };
 const clone = (o) => JSON.parse(JSON.stringify(o));
 
 // Re-run the verified engine at a given ex-ship USD price.
+// LEGACY trades price from sell.exShipPricePerMT. NATIVE per-leg trades price from revenueLegs and
+// IGNORE sell.exShipPricePerMT, so we must also reprice the ex-ship USD leg(s) — the $/MT ladder
+// governs the USD ex-ship sale. Legacy trades (no revenueLegs) are untouched: identical results.
 function runAtPrice(trade, compute, pricePerMT) {
   const t = clone(trade);
-  t.sell.exShipPricePerMT = { value: round(pricePerMT, 6), status: 'SUGGESTED (ladder)' };
+  const v = round(pricePerMT, 6);
+  t.sell.exShipPricePerMT = { value: v, status: 'SUGGESTED (ladder)' };
+  if (Array.isArray(t.revenueLegs) && t.revenueLegs.length) {
+    t.revenueLegs = t.revenueLegs.map((l) =>
+      (l.channel === 'ex-ship' && l.pricingUnit === 'USD_PER_MT') ? { ...l, price: v } : l);
+  }
   return compute(t);
 }
 
@@ -179,7 +187,12 @@ function buildDepotLadder(trade, compute, baseResult) {
     let pnlStatus = 'PENDING (no depot channel in this trade)';
     if (depotFlowLive) {
       const tt = clone(trade);
-      tt.sell = { ...tt.sell, depotPriceNgnPerL: { value: round(priceNgnPerL, 6), status: 'SUGGESTED (ladder)' } };
+      const v = round(priceNgnPerL, 6);
+      tt.sell = { ...tt.sell, depotPriceNgnPerL: { value: v, status: 'SUGGESTED (ladder)' } };
+      // Native per-leg trades price from revenueLegs — reprice the depot leg(s) (always ₦/L) too.
+      if (Array.isArray(tt.revenueLegs) && tt.revenueLegs.length) {
+        tt.revenueLegs = tt.revenueLegs.map((l) => (l.channel === 'depot') ? { ...l, price: v } : l);
+      }
       const r = compute(tt);
       tisNetProfit = r.profit.tisNetProfit;
       adjustedProfit = r.profit.adjustedProfit;

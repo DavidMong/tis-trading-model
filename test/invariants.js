@@ -396,6 +396,44 @@ expectThrow('PL5 leg tonnage must sum to delivered quantity', () => computeTrade
 expectThrow('PL5 missing/non-positive leg price throws (positive, per leg)', () => computeTrade({ ...bothChannels, revenueLegs: [{ channel: 'ex-ship', pricingUnit: 'USD_PER_MT', tonnes: 12000, price: 0 }] }), 'price');
 expectThrow('PL5 invalid leg channel throws', () => computeTrade({ ...bothChannels, revenueLegs: [{ channel: 'wholesale', pricingUnit: 'USD_PER_MT', tonnes: 12000, price: 1300 }] }), 'channel');
 
+// PL6 — LADDER per-tier P&L must VARY across tiers for a NATIVE per-leg trade. Regression guard:
+// native trades price from revenueLegs and ignore sell.exShipPricePerMT, so the ladder must reprice
+// the relevant leg per tier. Before the fix every tier returned the same leg-priced net (all equal).
+const { buildLadder } = require('../engine/core/pricing-ladder');
+const fnCT = (t) => computeTrade(t, { skipHedgeCompare: true });
+
+// (a) Native ex-ship USD trade — $/MT ladder.
+const nativeEx = { ...trade, revenueLegs: [{ channel: 'ex-ship', pricingUnit: 'USD_PER_MT', tonnes: trade.cargo.deliveredQtyMT, price: 1230 }] };
+const ladEx = buildLadder(nativeEx, fnCT, computeTrade(nativeEx, { skipHedgeCompare: true })).exShip;
+const exNets = ladEx.tiers.map((t) => t.tisNetProfit);
+check('PL6 native ex-ship ladder: per-tier TIS net VARIES (not all equal)', new Set(exNets.map((n) => Math.round(n))).size === exNets.length);
+check('PL6 native ex-ship ladder: TIS net strictly increases with tier price', exNets.every((n, i) => i === 0 || n > exNets[i - 1]));
+// WYSIWYG: each tier net equals a direct engine run with the ex-ship USD leg repriced to the tier price.
+check('PL6 native ex-ship ladder: tier net == direct engine run at repriced leg (no duplicated math)',
+  ladEx.tiers.every((t) => {
+    const direct = computeTrade({ ...nativeEx, revenueLegs: nativeEx.revenueLegs.map((l) => ({ ...l, price: t.pricePerMT })) }, { skipHedgeCompare: true });
+    return approx(t.tisNetProfit, direct.profit.tisNetProfit, 0.5);
+  }));
+// Native all-USD ladder reproduces the LEGACY ladder exactly (fix changed nothing for the equivalent trade).
+const ladLegacyEx = buildExShipLadder(trade, (t) => computeEquityPartner(t), r);
+check('PL6 native all-USD ladder nets == legacy ladder nets (byte-for-byte)',
+  ladEx.tiers.every((t, i) => approx(t.tisNetProfit, ladLegacyEx.tiers[i].tisNetProfit, 0.5)));
+
+// (b) Native depot trade — ₦/L ladder reprices the depot leg per tier.
+const nativeDepot = { ...trade, depot: { enabled: true }, revenueLegs: [
+  { channel: 'ex-ship', pricingUnit: 'USD_PER_MT', tonnes: 5000, price: 1230 },
+  { channel: 'depot', pricingUnit: 'NGN_PER_L', tonnes: 5000, price: 1400 },
+] };
+const ladDep = buildLadder(nativeDepot, fnCT, computeTrade(nativeDepot, { skipHedgeCompare: true })).depot;
+const depNets = ladDep.tiers.map((t) => t.tisNetProfit);
+check('PL6 native depot ladder applicable + per-tier TIS net present', ladDep.applicable === true && depNets.every((n) => n != null));
+check('PL6 native depot ladder: per-tier TIS net VARIES (not all equal)', new Set(depNets.map((n) => Math.round(n))).size === depNets.length);
+check('PL6 native depot ladder: tier net == direct engine run at repriced depot leg',
+  ladDep.tiers.every((t) => {
+    const direct = computeTrade({ ...nativeDepot, revenueLegs: nativeDepot.revenueLegs.map((l) => (l.channel === 'depot' ? { ...l, price: t.priceNgnPerL } : l)) }, { skipHedgeCompare: true });
+    return approx(t.tisNetProfit, direct.profit.tisNetProfit, 0.5);
+  }));
+
 // ============================================================================================
 // Config-driven cost/tax lines (policy-change-proofing) — type/rate/base editable via config only.
 // ============================================================================================
