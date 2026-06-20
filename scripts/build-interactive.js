@@ -386,8 +386,9 @@ body { display: flex; flex-direction: column; }
   flex-shrink: 0;
 }
 
-/* ── Hedge cards (structural overflow fix) ──────────────────────── */
-.hedge-cards { display: flex; flex-direction: column; gap: 12px; }
+/* ── Hedge cards: side by side, each card heights independently ─── */
+.hedge-cards { display: flex; flex-direction: row; gap: 16px; align-items: flex-start; }
+.hedge-cards .h-card { flex: 1; min-width: 0; }
 .h-card {
   background: var(--white);
   border: 1px solid var(--border);
@@ -433,8 +434,23 @@ body { display: flex; flex-direction: column; }
   overflow: hidden;
   transition: max-height .3s ease;
 }
-.h-card.on .h-detail { max-height: 700px; }
+.h-card.on .h-detail { max-height: 1000px; }
 .h-detail-inner { padding: 14px 18px; border-bottom: 1px solid var(--border); }
+/* Fix info-row layout in interactive card contexts (hedge detail + partner two-col) */
+.h-detail .info-row,
+.two-col-grid .info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.h-detail .info-row span,
+.two-col-grid .info-row span { color: var(--slate); flex-shrink: 0; }
+.h-detail .info-row b,
+.two-col-grid .info-row b { font-variant-numeric: tabular-nums; text-align: right; word-break: break-word; }
 .h-lock-warn {
   background: #fff7ed;
   border: 1px solid #fdba74;
@@ -596,8 +612,16 @@ body { display: flex; flex-direction: column; }
 .kpi-flash { animation: kpi-flash .3s ease-out; }
 
 /* ── Two-col cards inside results ───────────────────────────────── */
-.two-col-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-.two-col-card { background: var(--white); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; }
+.two-col-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+.two-col-grid > div { min-width: 0; }
+.two-col-card { background: var(--white); border: 1px solid var(--border); border-radius: 10px; padding: 20px 24px; }
+
+/* ── Route segmented control (on hedge card header) ─────────────── */
+.route-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 5px; overflow: hidden; flex-shrink: 0; }
+.seg-btn { padding: 3px 9px; font-family: var(--f-body); font-size: 10px; font-weight: 600; background: none; border: none; border-right: 1px solid var(--border); cursor: pointer; color: var(--slate); white-space: nowrap; transition: background .12s, color .12s; line-height: 1.4; }
+.seg-btn:last-child { border-right: none; }
+.seg-btn:hover { background: var(--bg); color: var(--ink); }
+.seg-btn.seg-active { background: var(--ink); color: #fff; }
 
 /* ── Responsive: drawer at < 1000px ────────────────────────────── */
 @media (max-width: 1000px) {
@@ -615,6 +639,8 @@ body { display: flex; flex-direction: column; }
   .drawer-btn { display: flex !important; }
   .results { padding: 16px 14px 48px; }
   .two-col-grid { grid-template-columns: 1fr; }
+  .hedge-cards { flex-direction: column; }
+  .hedge-cards .h-card { min-width: unset; }
 }
 `;
 }
@@ -1540,17 +1566,27 @@ function renderPartner(trade, res) {
 </section>\`;
 }
 
-// ── 5. Hedge Analysis (two independent full-width stacked cards) ───────────
+// ── 5. Hedge Analysis (two side-by-side cards, independent heights) ──────
 function renderHedge(trade, res) {
-  const h   = res.hedge;
-  const fxh = res.fxHedge;
-  const hc  = res.hedgeComparison;
-  const iceOn = !!(trade.hedge && trade.hedge.iceHedged);
-  const fxOn  = !!(trade.fxHedge && trade.fxHedge.fxHedged);
+  const h       = res.hedge;
+  const fxh     = res.fxHedge;
+  const hc      = res.hedgeComparison;
+  const iceOn   = !!(trade.hedge && trade.hedge.iceHedged);
+  const fxOn    = !!(trade.fxHedge && trade.fxHedge.fxHedged);
+  const iceRoute = (trade.hedge && trade.hedge.route) || 'bank_book';
+  const fxRoute  = (trade.fxHedge && trade.fxHedge.route) || 'bank_book';
 
-  // ICE hedge: null fixedPrice = no lock-in
   const iceNullFixed = iceOn && (trade.hedge.fixedPrice == null);
   const fxNullFwd    = fxOn  && (trade.fxHedge.forwardRate == null);
+
+  // Route segmented control rendered inline on each card header
+  function routeSeg(selectId, current) {
+    const bb = current === 'bank_book';
+    return \`<div class="route-seg">
+      <button class="seg-btn\${bb ? ' seg-active' : ''}" onclick="setHedgeRoute('\${selectId}','bank_book')">Bank book</button>
+      <button class="seg-btn\${!bb ? ' seg-active' : ''}" onclick="setHedgeRoute('\${selectId}','third_party')">3rd party</button>
+    </div>\`;
+  }
 
   function cmpBlock(comp) {
     if (!comp) return '<div class="h-cmp"><span class="muted" style="font-size:11px">Comparison not available</span></div>';
@@ -1563,40 +1599,58 @@ function renderHedge(trade, res) {
     </div>\`;
   }
 
-  const iceDetail = iceNullFixed
-    ? \`<div class="h-lock-warn">⚠ Fixed price not set — hedge prices at live ICE (<b>\${fmtUsd(trade.market.ice.value)}/MT</b>). No lock-in effect. Set a fixed price in the Hedge tab before live trading.</div>\`
-    : '';
+  // ICE rows — route-aware: third_party shows notional/margin/financing; bank_book shows spread
+  const hedgedTonnes     = h.hedgedTonnes || 0;
+  const priceForNotional = h.fixedPrice || trade.market.ice.value || 0;
+  const iceNotional      = hedgedTonnes * priceForNotional;
+
+  const iceRouteRows = iceRoute === 'third_party'
+    ? \`\${infoRow('Notional (hedged × price)', fmtUsd(iceNotional))}
+       \${infoRow('Margin posted (' + fmtPct(trade.hedge.initialMarginPct || 0.10) + ')', fmtUsd(h.bankProvidedMargin) + ' ' + badge('PLACEHOLDER'))}
+       \${infoRow('Margin financing cost', fmtUsd(h.extraFinancingCost))}\`
+    : infoRow('Bank spread', fmtUsd((trade.hedge.bankSpreadPerMT || 0) * hedgedTonnes) + ' total');
+
   const iceRows = \`
-    \${infoRow('Route', h.route || '—')}
-    \${infoRow('Lots / Hedged MT', \`\${h.lots ?? '—'} lots (\${fmtNum(h.hedgedTonnes, 0)} MT)\`)}
+    \${infoRow('Lots / Hedged MT', \`\${h.lots ?? '—'} lots (\${fmtNum(hedgedTonnes, 0)} MT)\`)}
     \${infoRow('Retained basis', fmtMt(h.comparisonBasisTonnes, 2) + ' TIS retained')}
     \${infoRow('Fixed price', fmtUsd(h.fixedPrice) + '/MT ' + (trade.hedge.fixedPrice == null ? badge('PLACEHOLDER') : ''))}
     \${infoRow('Live ICE', fmtUsd(h.liveIce || trade.market.ice.value) + '/MT')}
     \${infoRow('ICE cost delta', fmtUsdSign(h.iceCostDelta) + (iceOn ? '' : ' (OFF — not applied)'))}
     \${infoRow('Swap fee', fmtUsd(h.swapFee) + ' ' + badge('PLACEHOLDER'))}
-    \${infoRow('Bank margin', fmtUsd(h.bankProvidedMargin))}
-    \${infoRow('Extra financing', fmtUsd(h.extraFinancingCost))}
+    \${iceRouteRows}
   \`;
+  const iceDetail = iceNullFixed
+    ? \`<div class="h-lock-warn">⚠ Fixed price not set — hedge prices at live ICE (<b>\${fmtUsd(trade.market.ice.value)}/MT</b>). No lock-in effect. Set a fixed price in the Hedge tab.</div>\`
+    : '';
 
-  const fxDetail = fxh.noHedgeReason
-    ? infoRow('Note', fxh.noHedgeReason)
-    : (fxNullFwd
-        ? \`<div class="h-lock-warn">⚠ Forward rate not set — FX hedge prices at parallel pricing rate (<b>\${fmtNum(res.fx.rates.parallelPricing, 0)} ₦/USD</b>). No lock-in effect. Set a forward rate in the Hedge tab.</div>\`
-        : '') + \`
-    \${infoRow('Net ₦ exposure', fmtNum(fxh.exposureNgn, 0) + ' ₦')}
-    \${infoRow('Hedge ratio', fmtPct(fxh.hedgeRatio || 0))}
-    \${infoRow('Forward rate', fxh.forwardRate ? fmtNum(fxh.forwardRate, 0) + ' ₦/USD' : badge('PLACEHOLDER'))}
-    \${infoRow('FX realized delta', fmtUsdSign(fxh.fxRealizedDeltaUsd || 0) + (fxOn ? '' : ' (OFF)'))}
-    \${infoRow('FX hedge cost', fmtUsd(fxh.extraFinancingCost || 0))}
-    \${fxh.basis ? infoRow('Basis risk (benchmark vs parallel)', fmtNum(fxh.basis.gapNgnPerUsd, 2) + ' ₦/USD residual') : ''}
-  \`;
+  // FX rows
+  let fxRows;
+  if (fxh.noHedgeReason) {
+    fxRows = infoRow('Note', fxh.noHedgeReason);
+  } else {
+    fxRows = \`
+      \${infoRow('Net ₦ exposure', fmtNum(fxh.exposureNgn, 0) + ' ₦')}
+      \${infoRow('Hedge ratio', fmtPct(fxh.hedgeRatio || 0))}
+      \${infoRow('Forward rate', fxh.forwardRate ? fmtNum(fxh.forwardRate, 0) + ' ₦/USD' : badge('PLACEHOLDER'))}
+      \${infoRow('FX realized delta', fmtUsdSign(fxh.fxRealizedDeltaUsd || 0) + (fxOn ? '' : ' (OFF)'))}
+      \${infoRow('FX hedge cost', fmtUsd(fxh.extraFinancingCost || 0))}
+      \${fxh.basis ? infoRow('Basis risk (benchmark vs parallel)', fmtNum(fxh.basis.gapNgnPerUsd, 2) + ' ₦/USD residual') : ''}
+    \`;
+  }
+  const fxWarning = (!fxh.noHedgeReason && fxNullFwd)
+    ? \`<div class="h-lock-warn">⚠ Forward rate not set — FX hedge prices at parallel pricing rate (<b>\${fmtNum(res.fx.rates.parallelPricing, 0)} ₦/USD</b>). No lock-in effect. Set a forward rate in the Hedge tab.</div>\`
+    : '';
 
-  function card(title, on, detail, detailExtra, comp) {
+  // card(title, on, routeCtrl, detail, detailExtra, comp) — no forced equal height
+  function card(title, on, routeCtrl, detail, detailExtra, comp) {
     const pillCls = on ? 'h-pill on' : 'h-pill';
     return \`<div class="h-card\${on ? ' on' : ''}">
       <div class="h-card-hdr">
         <span class="h-card-title">\${esc(title)}</span>
-        <span class="\${pillCls}" style="margin-left:12px"><span class="h-pill-dot"></span>\${on ? 'Active' : 'Off'}</span>
+        <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
+          \${routeCtrl}
+          <span class="\${pillCls}"><span class="h-pill-dot"></span>\${on ? 'Active' : 'Off'}</span>
+        </div>
       </div>
       <div class="h-detail">
         <div class="h-detail-inner">
@@ -1611,8 +1665,8 @@ function renderHedge(trade, res) {
   return \`<section class="section" aria-labelledby="hedge-h">
   <h2 class="section-heading" id="hedge-h">Hedge Analysis</h2>
   <div class="hedge-cards">
-    \${card('ICE Gasoil Swap',        iceOn, iceRows, iceDetail, hc?.ice)}
-    \${card('FX Hedge (Naira Exposure)', fxOn, fxDetail, fxNullFwd ? '' : '', hc?.fx)}
+    \${card('ICE Gasoil Swap',           iceOn, routeSeg('sel-ice-route', iceRoute), iceRows, iceDetail, hc?.ice)}
+    \${card('FX Hedge (Naira Exposure)', fxOn,  routeSeg('sel-fx-route',  fxRoute),  fxRows,  fxWarning, hc?.fx)}
   </div>
 </section>\`;
 }
@@ -1873,6 +1927,12 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     if (panel) panel.classList.add('active');
   });
 });
+
+// ── Hedge route switcher (called from route-seg buttons on cards) ──────────
+window.setHedgeRoute = function(selectId, route) {
+  const el = document.getElementById(selectId);
+  if (el) { el.value = route; onInputChange(selectId); }
+};
 
 // ── Disclosure toggles ─────────────────────────────────────────────────────
 window.toggleDisc = function(btn) {
