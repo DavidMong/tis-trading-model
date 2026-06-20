@@ -17,6 +17,15 @@ const engineBundle = fs.readFileSync(path.join(OUT, 'engine.bundle.js'), 'utf8')
 
 // ── 2. Read sample trade as initial state ────────────────────────────────────
 const initialTrade = JSON.parse(fs.readFileSync(path.join(ROOT, 'trades', 'sample-equity-partner.json'), 'utf8'));
+const isSampleFlag = /REGRESSION|FIXTURE|dummy|test|sample/i.test(initialTrade.meta.tradeName || '');
+
+// ── 2a. Favicon data URI (TIS mark, red #d41d1d, 32×32 logical square) ───────
+const faviconDataUri = 'data:image/svg+xml,' + encodeURIComponent([
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 76 38">',
+  '<text x="-0.65" y="36.55" font-family="Helvetica Neue,Helvetica,Arial,sans-serif"',
+  ' font-weight="700" font-size="50" fill="#d41d1d">TIS</text>',
+  '</svg>',
+].join(''));
 
 // ── 3. Read logo SVG ─────────────────────────────────────────────────────────
 const logoSvgRaw = fs.readFileSync(path.join(ROOT, 'assets', 'tis-logo-2.svg'), 'utf8');
@@ -743,6 +752,79 @@ body { display: flex; flex-direction: column; }
 .tn-wrap            { padding: 24px 24px 8px; }
 .tn-row             { margin-bottom: 8px; }
 .tn-baseline-label  { padding: 12px 0 8px; margin-top: 12px; }
+
+/* ════ NEW-FEATURE STYLES ════════════════════════════════════════════════════ */
+
+/* ── Text inputs share .si but don't need spinner removal ─────────────────── */
+.si[type="text"] { -webkit-appearance: auto; appearance: auto; }
+
+/* ── Sidebar footer: 2-row layout ────────────────────────────────────────── */
+.sb-footer { flex-shrink:0; border-top:1.5px solid var(--border); background:var(--white); }
+.sb-footer-row1 { display:flex; align-items:center; gap:8px; padding:10px 16px; border-bottom:1px solid var(--border); }
+.sb-footer-row2 { display:flex; align-items:center; gap:6px; padding:8px 16px; }
+
+.btn-new {
+  flex:1; padding:6px 10px; background:none; border:1px solid var(--border);
+  border-radius:4px; font-family:var(--f-body); font-size:11px; color:var(--slate);
+  cursor:pointer; transition:background .12s, color .12s;
+}
+.btn-new:hover { background:var(--bg); color:var(--ink); }
+
+.btn-save {
+  padding:6px 14px; background:var(--red); border:none; border-radius:4px;
+  font-family:var(--f-body); font-size:11px; font-weight:600; color:#fff;
+  cursor:pointer; transition:background .12s; white-space:nowrap;
+}
+.btn-save:hover { background:#b91c1c; }
+
+.btn-lib {
+  padding:5px 9px; background:none; border:1px solid var(--border); border-radius:4px;
+  font-family:var(--f-body); font-size:12px; color:var(--slate); cursor:pointer;
+  flex-shrink:0; transition:background .12s, color .12s, border-color .12s;
+}
+.btn-lib:hover { background:var(--bg); color:var(--ink); }
+.btn-lib-del:hover { background:#fef2f2; color:var(--red); border-color:#fca5a5; }
+
+.lib-select {
+  flex:1; font-family:var(--f-body); font-size:11px; color:var(--ink);
+  background:var(--white); border:1px solid var(--border); border-radius:4px;
+  padding:5px 6px; cursor:pointer; min-width:0;
+}
+.lib-select:focus { outline:none; border-color:var(--red); }
+
+/* ── House defaults button + banner (Costs tab) ──────────────────────────── */
+.btn-defaults {
+  width:100%; padding:7px 10px; background:none; border:1px solid var(--border);
+  border-radius:4px; font-family:var(--f-body); font-size:11px; color:var(--slate);
+  cursor:pointer; text-align:left; transition:background .12s, color .12s;
+}
+.btn-defaults:hover { background:var(--bg); color:var(--ink); }
+.defaults-note { font-family:var(--f-body); font-size:10px; color:#94a3b8; line-height:1.5; margin-top:5px; }
+.costs-tab-banner {
+  padding:8px 16px 7px; background:#f8fafc; border-bottom:1px solid var(--border);
+  font-family:var(--f-body); font-size:10px; color:#94a3b8; line-height:1.5;
+}
+
+/* ── Per-trade chip in section title ─────────────────────────────────────── */
+.per-trade-tag {
+  display:inline-block; margin-left:6px; padding:1px 5px;
+  background:var(--bg); border:1px solid var(--border); border-radius:3px;
+  font-family:var(--f-display); font-size:7.5px; font-weight:700;
+  letter-spacing:.08em; text-transform:uppercase; color:#94a3b8;
+  vertical-align:middle;
+}
+
+/* ── Toast ───────────────────────────────────────────────────────────────── */
+.tis-toast {
+  position:fixed; bottom:20px; left:50%;
+  transform:translateX(-50%) translateY(60px);
+  background:var(--ink); color:#fff;
+  font-family:var(--f-body); font-size:12px;
+  padding:8px 18px; border-radius:6px;
+  z-index:9999; transition:transform .22s ease, opacity .22s ease;
+  opacity:0; pointer-events:none; white-space:nowrap; box-shadow:0 4px 12px rgba(0,0,0,.18);
+}
+.tis-toast.visible { transform:translateX(-50%) translateY(0); opacity:1; }
 `;
 }
 
@@ -777,6 +859,10 @@ function si(id, opts, sel) {
 }
 function ro(id, val) {
   return `<div id="${id}" class="sr">${esc(String(val ?? ''))}</div>`;
+}
+function ti(id, val, placeholder) {
+  const ph = placeholder ? ` placeholder="${esc(placeholder)}"` : '';
+  return `<input type="text" id="${id}" class="si" value="${esc(val ?? '')}"${ph}>`;
 }
 function tog(id, label, active, type) {
   const typeAttr = type ? ` data-type="${type}"` : '';
@@ -823,7 +909,14 @@ const iceOn         = !!(hg.iceHedged);
 const fxOn          = !!(fxhg.fxHedged);
 
 // ── Tab: Deal ────────────────────────────────────────────────────────────────
+const shortTitleRaw = t.meta.tradeName.replace(/\s*\([^)]*(?:REGRESSION|FIXTURE|dummy|test|sample)[^)]*\)/gi, '').trim();
 const tabDeal = `
+${sec('Trade Identity <span class="per-trade-tag">per-trade</span>', [
+  ir('inp-trade-name',    'Trade name',  ti('inp-trade-name',    shortTitleRaw,                   'e.g. Profogas Dangote 001'), ''),
+  ir('inp-partner-name',  'Partner',     ti('inp-partner-name',  (t.parties||{}).partner  || '', 'Partner name'), ''),
+  ir('inp-supplier-name', 'Supplier',    ti('inp-supplier-name', (t.parties||{}).supplier || '', 'Supplier name'), ''),
+  ir('inp-inspector-name','Inspector',   ti('inp-inspector-name',(t.parties||{}).inspector|| '', 'Inspector name'), ''),
+].join(''))}
 ${sec('Pricing <span class="live-badge">Live</span>', [
   ir('inp-ice',       'ICE LSGO $/MT',      ni('inp-ice',       t.market.ice.value,           0.01, 0),     t.market.ice.status, true),
   ir('inp-fob',       'FOB Premium $/MT',    ni('inp-fob',       t.market.fobPremium.value,    0.01),        '', true),
@@ -898,6 +991,7 @@ ${sec('Tax Rates', [
 
 // ── Tab: Costs ───────────────────────────────────────────────────────────────
 const tabCosts = `
+<div class="costs-tab-banner">House defaults — rates &amp; fees that persist across new trades</div>
 ${sec('Port & Cargo Dues', [
   ir('inp-npa-per-mt', 'NPA cargo dues $/MT', ni('inp-npa-per-mt', cl.npaCargoDuesPerMT, 0.1, 0), 'OK'),
   ir('inp-port-das',   'Port DAs $',          ni('inp-port-das',   cl.portDAs, 1000, 0),           'OK'),
@@ -930,6 +1024,10 @@ ${sec('Storage (depot active)', [
 ].join(''))}
 </div>
 <div id="storage-off-note" class="sb-sec" style="color:#94a3b8;font-family:var(--f-body);font-size:11px"${depotActive ? ' hidden' : ''}>Storage inputs activate when a depot channel is enabled (Ex-ship Channel &lt; 100% in Deal tab).</div>
+<div class="sb-sec">
+  <button class="btn-defaults" onclick="saveAsDefaults()">↓ Save current rates as house defaults</button>
+  <div class="defaults-note">Saves cost lines, tax rates &amp; hedge bank terms — applied automatically on New Trade.</div>
+</div>
 `;
 
 // ── Tab: Hedge ───────────────────────────────────────────────────────────────
@@ -978,14 +1076,23 @@ const sidebarHtml = `<aside class="sidebar" id="sidebar">
     <div class="tab-panel" id="tab-hedge">${tabHedge}</div>
   </div>
   <div class="sb-footer">
-    <button class="btn-reset" onclick="resetToDefaults()">Reset defaults</button>
-    <span class="mod-badge" id="modified-badge" hidden>Modified</span>
+    <div class="sb-footer-row1">
+      <button class="btn-new" onclick="newTrade()" title="Clear per-trade fields, keep house defaults">New Trade</button>
+      <button class="btn-save" onclick="saveTrade()" title="Save all inputs under the trade name">Save</button>
+      <span class="mod-badge" id="modified-badge" hidden>Modified</span>
+    </div>
+    <div class="sb-footer-row2">
+      <select id="sel-saved-trades" class="lib-select"><option value="">— saved trades —</option></select>
+      <button class="btn-lib" onclick="loadSelectedTrade()" title="Load selected trade">↓</button>
+      <button class="btn-lib btn-lib-del" onclick="deleteSelectedTrade()" title="Delete selected trade">✕</button>
+    </div>
   </div>
 </aside>`;
 
 // ── 8. Header HTML ───────────────────────────────────────────────────────────
-const shortTitle = esc(t.meta.tradeName.replace(/\s*\([^)]*(?:REGRESSION|FIXTURE|dummy|test|sample)[^)]*\)/gi, '').trim());
-const fixtureBadge = `<span style="display:inline-block;margin-left:10px;padding:2px 7px;font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;background:rgba(212,29,29,.20);color:#fca5a5;border:1px solid rgba(212,29,29,.35);border-radius:3px;vertical-align:middle">Fixture</span>`;
+const shortTitle = esc(shortTitleRaw);
+// Fixture badge: always present in DOM, visibility driven by _isSample JS state
+const fixtureBadgeHtml = `<span id="hdr-fixture-badge" style="display:${isSampleFlag ? 'inline-block' : 'none'};margin-left:10px;padding:2px 7px;font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;background:rgba(212,29,29,.20);color:#fca5a5;border:1px solid rgba(212,29,29,.35);border-radius:3px;vertical-align:middle">Fixture</span>`;
 
 // ── 9. Assemble CSS ──────────────────────────────────────────────────────────
 let sharedCss;
@@ -999,6 +1106,7 @@ const html = `<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${esc(t.meta.tradeId)} — TIS Global Trading (Interactive)</title>
+<link rel="icon" type="image/svg+xml" href="${faviconDataUri}">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
@@ -1013,8 +1121,8 @@ ${sharedCss}
   <div class="header-inner">
     <div class="header-logo" role="img" aria-label="TIS Global Trading">${logo}</div>
     <div class="header-trade">
-      <h1 class="trade-name">${shortTitle}</h1>
-      <p class="trade-id">${esc(t.meta.tradeId)}${fixtureBadge}</p>
+      <h1 class="trade-name" id="hdr-trade-name">${shortTitle}</h1>
+      <p class="trade-id">${esc(t.meta.tradeId)}${fixtureBadgeHtml}</p>
     </div>
     <div class="header-kpis" role="region" aria-label="Key metrics">
       <div class="kpi-chip kpi-accent">
@@ -1036,10 +1144,10 @@ ${sharedCss}
   </div>
   <div class="header-meta-strip">
     <div class="header-meta-inner">
-      Flow: <b>${esc(t.meta.flow || 'equity-partner')}</b> &nbsp;&middot;&nbsp;
-      Partner: <b>${esc((t.parties || {}).partner || '—')}</b> &nbsp;&middot;&nbsp;
-      Supplier: ${esc((t.parties || {}).supplier || '—')} &nbsp;&middot;&nbsp;
-      Inspector: ${esc((t.parties || {}).inspector || '—')}
+      Flow: <b id="hdr-flow">${esc(t.meta.flow || 'equity-partner')}</b> &nbsp;&middot;&nbsp;
+      Partner: <b id="hdr-partner">${esc((t.parties || {}).partner || '—')}</b> &nbsp;&middot;&nbsp;
+      Supplier: <span id="hdr-supplier">${esc((t.parties || {}).supplier || '—')}</span> &nbsp;&middot;&nbsp;
+      Inspector: <span id="hdr-inspector">${esc((t.parties || {}).inspector || '—')}</span>
     </div>
   </div>
 </header>
@@ -1082,6 +1190,14 @@ ${sharedCss}
 
 // ── Initial trade (baseline for reset + modified detection) ────────────────
 const INIT = ${JSON.stringify(initialTrade)};
+const INIT_IS_SAMPLE = /REGRESSION|FIXTURE|dummy|test|sample/i.test((INIT.meta || {}).tradeName || '');
+
+// ── Shared set-value helpers (used by resetToDefaults, newTrade, loadTrade) ─
+function sv(id, v) { const el = document.getElementById(id); if (el) el.value = v; }
+function sd(id, v) { const el = document.getElementById(id); if (el) el.value = v; }
+
+// ── isSample runtime state (true = show Fixture badge) ─────────────────────
+let _isSample = INIT_IS_SAMPLE;
 
 // ── Formatters ─────────────────────────────────────────────────────────────
 function esc(s) {
@@ -1307,9 +1423,6 @@ function resetToDefaults() {
   const f = I.financing, p = I.partner, cl = I.costLines, h = I.hedge, fxh = I.fxHedge || {};
   const sur = I.tax.surcharge || {};
 
-  function sv(id, v) { const el = document.getElementById(id); if (el) el.value = v; }
-  function sd(id, v) { const el = document.getElementById(id); if (el) el.value = v; }
-
   sv('inp-ice',            I.market.ice.value);
   sv('inp-fob',            I.market.fobPremium.value);
   sv('inp-fxpar',          I.fx.parallel.value);
@@ -1373,6 +1486,12 @@ function resetToDefaults() {
   activateToggle(document.getElementById('tog-ice-hedge'), !!h.iceHedged);
   activateToggle(document.getElementById('tog-fx-hedge'),  !!fxh.fxHedged);
   activateToggle(document.getElementById('tog-surcharge'), !!(sur.enabled));
+  // Identity
+  sv('inp-trade-name',    (I.meta.tradeName||'').replace(/\s*\([^)]*(?:REGRESSION|FIXTURE|dummy|test|sample)[^)]*\)/gi,'').trim());
+  sv('inp-partner-name',  (I.parties||{}).partner   || '');
+  sv('inp-supplier-name', (I.parties||{}).supplier  || '');
+  sv('inp-inspector-name',(I.parties||{}).inspector || '');
+  _isSample = INIT_IS_SAMPLE;
   // UI state
   updateLcDisplay();
   updateDepotVisibility();
@@ -1380,6 +1499,7 @@ function resetToDefaults() {
   updateSurchargeVisibility();
   updateHedgeTab();
   updateIceRouteVisibility();
+  updateHeader();
   setModified(false);
   recompute();
 }
@@ -2069,8 +2189,224 @@ function onInputChange(id) {
   updateSurchargeVisibility();
   updateHedgeTab();
   updateIceRouteVisibility();
+  updateHeader();
   recompute();
 }
+
+// ── Per-trade vs house-defaults grouping ──────────────────────────────────
+const PER_TRADE_IDS = [
+  'inp-trade-name','inp-partner-name','inp-supplier-name','inp-inspector-name',
+  'inp-ice','inp-fob','inp-fxpar','inp-fxnafem','inp-delivered',
+  'inp-exship-price','inp-exship-pct','inp-depot-price','inp-profit-split',
+  'inp-currency-mode','inp-split-usd',
+  'inp-tc-rate','inp-charter','inp-demurrage',
+  'inp-credit-rate','inp-lc-fee','inp-fin-days','inp-lockup','inp-wc-sublimit',
+  'sel-equity-provider','inp-bond','inp-equity','inp-product-alloc',
+  'sel-surcharge-inc',
+  'inp-ice-fixed','inp-fx-forward','inp-ice-hedged-vol',
+];
+const DEFAULT_IDS = [
+  'inp-npa-per-mt','inp-port-das','inp-ncs-docs',
+  'inp-nimasa-cab','inp-nimasa-freight','inp-spomo',
+  'inp-marine-icc','inp-sgs','inp-port-agency','inp-alloc-security',
+  'inp-bank-charges','inp-overhead','inp-contingency','inp-collateral-mgr',
+  'inp-throughput','inp-storage-rental','inp-evaporation','inp-tank-insurance',
+  'inp-litres-per-mt',
+  'inp-vat-rate','inp-wht-rate','inp-taxable-prop',
+  'inp-ice-fee','inp-ice-spread','inp-ice-margin',
+  'inp-fx-ratio','inp-fx-fee','inp-fx-spread',
+  'sel-ice-route','sel-fx-route',
+];
+
+// ── Storage layer — swap methods here to move to a hosted backend ─────────
+const TISStorage = (function() {
+  const KEY_TRADES   = 'tis_saved_trades_v1';
+  const KEY_DEFAULTS = 'tis_house_defaults_v1';
+  function safeRead(key) {
+    try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch(_) { return null; }
+  }
+  function safeWrite(key, val) {
+    try { localStorage.setItem(key, JSON.stringify(val)); return true; } catch(_) { return false; }
+  }
+  return {
+    saveTrade(name, snap) {
+      const trades = safeRead(KEY_TRADES) || {};
+      trades[name] = { snap, savedAt: Date.now() };
+      safeWrite(KEY_TRADES, trades);
+    },
+    loadTrades()  { return safeRead(KEY_TRADES) || {}; },
+    loadTrade(name) { const t = this.loadTrades(); return t[name] ? t[name].snap : null; },
+    deleteTrade(name) {
+      const t = this.loadTrades(); delete t[name]; safeWrite(KEY_TRADES, t);
+    },
+    saveDefaults(snap) { safeWrite(KEY_DEFAULTS, snap); },
+    loadDefaults()     { return safeRead(KEY_DEFAULTS); },
+  };
+})();
+
+// ── Input snapshot helpers ────────────────────────────────────────────────
+function snapshotInputs(ids) {
+  const snap = {};
+  for (const id of ids) {
+    const el = document.getElementById(id);
+    if (el) snap[id] = el.value;
+  }
+  return snap;
+}
+function applyInputSnapshot(snap) {
+  if (!snap) return;
+  for (const [id, val] of Object.entries(snap)) {
+    const el = document.getElementById(id);
+    if (el && !id.startsWith('_')) el.value = val;
+  }
+}
+
+// ── Live header update ────────────────────────────────────────────────────
+function updateHeader() {
+  const nameEl = document.getElementById('inp-trade-name');
+  const name   = nameEl ? (nameEl.value.trim() || '(Unnamed Trade)') : '(Unnamed Trade)';
+  const hName  = document.getElementById('hdr-trade-name');
+  if (hName) hName.textContent = name;
+
+  const partner   = document.getElementById('inp-partner-name')?.value   || '—';
+  const supplier  = document.getElementById('inp-supplier-name')?.value  || '—';
+  const inspector = document.getElementById('inp-inspector-name')?.value || '—';
+  const hP = document.getElementById('hdr-partner');   if (hP) hP.textContent = partner;
+  const hS = document.getElementById('hdr-supplier');  if (hS) hS.textContent = supplier;
+  const hI = document.getElementById('hdr-inspector'); if (hI) hI.textContent = inspector;
+
+  const badge = document.getElementById('hdr-fixture-badge');
+  if (badge) badge.style.display = _isSample ? 'inline-block' : 'none';
+}
+
+// ── New Trade ─────────────────────────────────────────────────────────────
+function newTrade() {
+  const BLANK = [
+    'inp-trade-name','inp-partner-name','inp-supplier-name','inp-inspector-name',
+    'inp-ice','inp-fob','inp-fxpar','inp-fxnafem','inp-delivered',
+    'inp-exship-price','inp-depot-price','inp-ice-fixed','inp-fx-forward','inp-ice-hedged-vol',
+  ];
+  for (const id of BLANK) { const el = document.getElementById(id); if (el) el.value = ''; }
+
+  // Structural per-trade: reset to INIT defaults
+  const I = INIT, p = I.partner, f = I.financing;
+  sv('inp-exship-pct',    I.channels ? +(I.channels.exShipPct*100).toFixed(1) : 100);
+  sv('inp-profit-split',  +(p.profitSharePct*100).toFixed(1));
+  sd('inp-currency-mode', I.sell.currencyMode || 'USD');
+  sv('inp-split-usd',     +(((I.sell.splitUsdPct||1)*100)).toFixed(1));
+  sv('inp-tc-rate',       I.freight.tcRatePerDay);
+  sv('inp-charter',       I.freight.charterDays);
+  sv('inp-demurrage',     I.freight.demurrageDays);
+  sv('inp-credit-rate',   +(f.creditRate*100).toFixed(2));
+  sv('inp-lc-fee',        +(f.lcFeePct*100).toFixed(3));
+  sv('inp-fin-days',      f.financingDays);
+  sv('inp-lockup',        f.capitalLockupDays);
+  sv('inp-wc-sublimit',   f.wcSublimit);
+  sd('sel-equity-provider', p.equityProvider || 'partner');
+  sv('inp-bond',          +(p.bondPct*100).toFixed(2));
+  sv('inp-equity',        +(p.equityPct*100).toFixed(2));
+  sv('inp-product-alloc', +((p.productAllocationPct??1)*100).toFixed(1));
+  sd('sel-surcharge-inc', (I.tax.surcharge||{}).incidence || 'cost');
+
+  // Apply saved house defaults for cost lines, tax rates, hedge params
+  const defs = TISStorage.loadDefaults();
+  if (defs) { applyInputSnapshot(defs); }
+
+  activateToggle(document.getElementById('tog-ice-hedge'), false);
+  activateToggle(document.getElementById('tog-fx-hedge'),  false);
+  activateToggle(document.getElementById('tog-surcharge'), false);
+
+  _isSample = false;
+  updateLcDisplay(); updateDepotVisibility(); updateCurrencyVisibility();
+  updateSurchargeVisibility(); updateHedgeTab(); updateIceRouteVisibility();
+  updateHeader();
+  setModified(false);
+  recompute();
+  showToast('New trade — enter market data');
+}
+
+// ── Save trade ────────────────────────────────────────────────────────────
+function saveTrade() {
+  const nameEl = document.getElementById('inp-trade-name');
+  const name   = nameEl ? nameEl.value.trim() : '';
+  if (!name) { showToast('Enter a trade name first'); if (nameEl) nameEl.focus(); return; }
+  const snap = snapshotInputs([...PER_TRADE_IDS, ...DEFAULT_IDS]);
+  snap['_tog-ice-hedge'] = String(isOn('tog-ice-hedge'));
+  snap['_tog-fx-hedge']  = String(isOn('tog-fx-hedge'));
+  snap['_tog-surcharge'] = String(isOn('tog-surcharge'));
+  snap['_isSample']      = 'false';
+  TISStorage.saveTrade(name, snap);
+  renderSavedTradesList(name);
+  setModified(false);
+  showToast('Saved: ' + name);
+}
+
+// ── Load selected trade ───────────────────────────────────────────────────
+function loadSelectedTrade() {
+  const sel = document.getElementById('sel-saved-trades');
+  if (!sel || !sel.value) return;
+  const snap = TISStorage.loadTrade(sel.value);
+  if (!snap) return;
+  applyInputSnapshot(snap);
+  if (snap['_tog-ice-hedge'] != null) activateToggle(document.getElementById('tog-ice-hedge'), snap['_tog-ice-hedge'] === 'true');
+  if (snap['_tog-fx-hedge']  != null) activateToggle(document.getElementById('tog-fx-hedge'),  snap['_tog-fx-hedge']  === 'true');
+  if (snap['_tog-surcharge'] != null) activateToggle(document.getElementById('tog-surcharge'), snap['_tog-surcharge'] === 'true');
+  _isSample = snap['_isSample'] === 'true';
+  updateLcDisplay(); updateDepotVisibility(); updateCurrencyVisibility();
+  updateSurchargeVisibility(); updateHedgeTab(); updateIceRouteVisibility();
+  updateHeader();
+  setModified(false);
+  recompute();
+}
+
+// ── Delete selected trade ─────────────────────────────────────────────────
+function deleteSelectedTrade() {
+  const sel = document.getElementById('sel-saved-trades');
+  if (!sel || !sel.value) return;
+  const name = sel.value;
+  if (!confirm('Delete saved trade "' + name + '"?')) return;
+  TISStorage.deleteTrade(name);
+  renderSavedTradesList();
+  showToast('Deleted: ' + name);
+}
+
+// ── Save house defaults ───────────────────────────────────────────────────
+function saveAsDefaults() {
+  TISStorage.saveDefaults(snapshotInputs(DEFAULT_IDS));
+  showToast('House defaults saved');
+}
+
+// ── Render saved trades dropdown ──────────────────────────────────────────
+function renderSavedTradesList(selectName) {
+  const trades = TISStorage.loadTrades();
+  const sel    = document.getElementById('sel-saved-trades');
+  if (!sel) return;
+  const names = Object.keys(trades).sort();
+  sel.innerHTML = '<option value="">— saved trades —</option>' +
+    names.map(n => \`<option value="\${esc(n)}"\${n === selectName ? ' selected' : ''}>\${esc(n)}</option>\`).join('');
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────
+let _toastTimer;
+function showToast(msg) {
+  let el = document.getElementById('tis-toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'tis-toast'; el.className = 'tis-toast';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.classList.add('visible');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.classList.remove('visible'), 2500);
+}
+
+// ── Window exposes ────────────────────────────────────────────────────────
+window.newTrade            = newTrade;
+window.saveTrade           = saveTrade;
+window.loadSelectedTrade   = loadSelectedTrade;
+window.deleteSelectedTrade = deleteSelectedTrade;
+window.saveAsDefaults      = saveAsDefaults;
 
 // ── Boot ───────────────────────────────────────────────────────────────────
 updateLcDisplay();
@@ -2079,6 +2415,8 @@ updateCurrencyVisibility();
 updateSurchargeVisibility();
 updateHedgeTab();
 updateIceRouteVisibility();
+updateHeader();
+renderSavedTradesList();
 recompute();
 
 })();

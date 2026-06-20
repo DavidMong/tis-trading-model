@@ -188,3 +188,33 @@ calculation logic.** A policy change (rate edit, %→fixed flip, base change) is
 
 `OK` · `INDICATIVE` (overridable assumption) · `CONFIRM` (needs external confirmation) ·
 `PLACEHOLDER` (fill before live) · `PENDING` (gated, e.g. surcharge) · `RECOVERABLE` (timing only).
+
+## Interactive dashboard — real-trade features (`scripts/build-interactive.js`)
+
+### Per-trade vs house-defaults split
+
+Two named arrays in the client script control which inputs are cleared/reloaded on **New Trade**:
+
+- **`PER_TRADE_IDS`** — identity (name/partner/supplier/inspector), market prices, FX, freight,
+  financing, partner terms, toggles. Cleared on New Trade.
+- **`DEFAULT_IDS`** — cost-line rates/flat fees, tax rates, storage rates, density, hedge bank
+  terms. Persist across trades; loaded from saved house defaults on New Trade.
+
+### Storage abstraction (`TISStorage`)
+
+All persistence is routed through `TISStorage` (an IIFE in the client script). Current backend:
+**`localStorage`** (`tis_saved_trades_v1`, `tis_house_defaults_v1`). To swap to a hosted backend,
+replace only the four methods: `saveTrade`, `loadTrade`, `loadTrades`, `deleteTrade`,
+`saveDefaults`, `loadDefaults`. The rest of the UI is backend-agnostic.
+
+### Identity fields + Fixture badge
+
+Trade name, Partner, Supplier, Inspector are editable text fields in the **Trade Identity** section
+of the Deal tab. They update the header live (`updateHeader()`). The **Fixture** badge is shown only
+when `_isSample === true`; this is set from `INIT_IS_SAMPLE` (derived from the initial trade's
+`meta.tradeName`) and cleared to `false` on New Trade or when a real saved trade is loaded.
+
+### Favicon
+
+Embedded as a data URI in `<head>` — the TIS mark (`tis-logo-4.svg` viewBox, red #d41d1d) rendered
+as a minimal inline SVG. No external request; works from `file://` and `localhost` equally.
