@@ -276,6 +276,11 @@ body {
 .kpi-accent .kpi-label { color: rgba(255,255,255,.70); }
 .kpi-accent .kpi-value { color: var(--white); }
 .kpi-accent .kpi-sub  { color: rgba(255,255,255,.60); }
+/* Genuine loss (TIS net < 0) — deep-red box, never the green profit treatment (Batch C). */
+.kpi-chip.kpi-loss { background: #991b1b; border-color: #7f1d1d; }
+.kpi-loss .kpi-label { color: rgba(255,255,255,.72); }
+.kpi-loss .kpi-value { color: var(--white); }
+.kpi-loss .kpi-sub  { color: rgba(255,255,255,.62); }
 .kpi-value {
   display: block;
   font-family: var(--f-display);
@@ -486,6 +491,8 @@ tbody td.muted { color: var(--slate); }
 .wf-box.wf-adjusted   { background: #fffbeb;  border-color: #fcd34d; }
 .wf-box.wf-share      { background: #fff5f5;  border-color: #fca5a5; }
 .wf-box.wf-net        { background: #15803d;  border-color: #14532d; }
+/* TIS net negative — deep-red, overrides the green wf-net (must follow it in source). */
+.wf-box.wf-net.wf-loss { background: #991b1b; border-color: #7f1d1d; }
 .wf-box-label {
   font-family: var(--f-display);
   font-size: 10px;
@@ -809,7 +816,7 @@ function headerSection(logo, trade, res) {
       <p class="trade-id">${esc(res.meta.tradeId)}</p>
     </div>
     <div class="header-kpis" role="region" aria-label="Key metrics">
-      <div class="kpi-chip kpi-accent">
+      <div class="kpi-chip ${tisNet < 0 ? 'kpi-loss' : 'kpi-accent'}">
         <span class="kpi-label">TIS Net Profit</span>
         <span class="kpi-value">${fmt.usd(tisNet)}</span>
         <span class="kpi-sub">after partner split</span>
@@ -994,7 +1001,7 @@ function profitWaterfall(res) {
     { cls:'wf-deduct',     label:'Margin Foregone',   amount: p.marginForegone,   sub:`${fmt.mt(res.quantities.economic.partnerTonnes, 2)} partner tonnes`, prefix:'−' },
     { cls:'wf-adjusted',   label:'Adjusted Profit',   amount: p.adjustedProfit,   sub:'TIS retained tonnes share', prefix:'=' },
     { cls:'wf-share',      label:'Partner Cash Share', amount: p.partnerCashProfitShare, sub:`${fmt.pct(p.profitSharePct)} of adjusted`, prefix:'−' },
-    { cls:'wf-net',        label:'TIS Net Profit',    amount: p.tisNetProfit,     sub:`${fmt.pct(1 - p.profitSharePct)} of adjusted`, prefix:'=' },
+    { cls: p.tisNetProfit < 0 ? 'wf-net wf-loss' : 'wf-net', label:'TIS Net Profit', amount: p.tisNetProfit, sub:`${fmt.pct(1 - p.profitSharePct)} of adjusted`, prefix:'=' },
   ];
 
   const nodes = wf.map((n, i) => {

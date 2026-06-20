@@ -1242,7 +1242,7 @@ ${sharedCss}
       <p class="trade-id" id="hdr-trade-id">${esc(t.meta.tradeId)}${fixtureBadgeHtml}</p>
     </div>
     <div class="header-kpis" role="region" aria-label="Key metrics">
-      <div class="kpi-chip kpi-accent">
+      <div class="kpi-chip">
         <span class="kpi-label">TIS Net Profit</span>
         <span class="kpi-value" id="kpi-tisnet-val">—</span>
         <span class="kpi-sub"  id="kpi-tisnet-sub">after partner split</span>
@@ -1881,19 +1881,30 @@ function renderKPIs(res, hasSellPrice) {
   const mv = document.getElementById('kpi-margin-val');
   const ms = document.getElementById('kpi-margin-sub');
 
-  // P&L KPIs are pending until a sell price is entered — show calm placeholders, no fake numbers.
+  // Colour the TIS Net chip by sign: green only for a positive net; deep-red for a genuine
+  // loss; neutral when pending (no value). Green is never used for a real negative (Batch C).
+  const netChip = kv ? kv.closest('.kpi-chip') : null;
+  function setNetChip(state) {
+    if (!netChip) return;
+    netChip.classList.toggle('kpi-accent', state === 'pos');
+    netChip.classList.toggle('kpi-loss',   state === 'loss');
+  }
+
+  // P&L KPIs are pending until every leg has a price — show calm placeholders, no fake numbers.
   if (hasSellPrice === false) {
+    setNetChip('neutral');
     if (kv) kv.textContent = '—';
-    if (ks) ks.textContent = 'enter sell price for P&L';
+    if (ks) ks.textContent = 'enter leg prices for P&L';
     if (av) av.textContent = '—';
-    if (as_) as_.textContent = 'enter sell price';
+    if (as_) as_.textContent = 'enter leg prices';
     if (mv) mv.textContent = '—';
-    if (ms) ms.textContent = 'enter sell price';
+    if (ms) ms.textContent = 'enter leg prices';
     return;
   }
 
   const p   = res.profit;
   const tisNet = p.tisNetProfit;
+  setNetChip(tisNet < 0 ? 'loss' : 'pos');
   if (kv) { kv.textContent = fmtUsd(tisNet); kv.classList.add('kpi-flash'); setTimeout(() => kv.classList.remove('kpi-flash'), 350); }
   if (ks) ks.textContent = res.equityProvider === 'TIS' ? 'self-funded (no partner)' : 'after partner split';
 
@@ -1933,7 +1944,7 @@ function renderWaterfall(res) {
       <div class="wf-arrow">›</div>
       \${box('wf-deduct',    'ALL-IN COST','−',res.cost.allInCost,     'Incl. irrecoverable VAT')}
       <div class="wf-arrow">›</div>
-      \${box('wf-net',       'TIS NET PROFIT','=', p.tisNetProfit,     'Self-funded — no partner')}
+      \${box(p.tisNetProfit < 0 ? 'wf-net wf-loss' : 'wf-net', 'TIS NET PROFIT','=', p.tisNetProfit,     'Self-funded — no partner')}
     \`;
   } else {
     wfBoxes = \`
@@ -1945,7 +1956,7 @@ function renderWaterfall(res) {
       <div class="wf-arrow">›</div>
       \${box('wf-share',     'PARTNER CASH SHARE','−',p.partnerCashProfitShare, fmtPct(p.profitSharePct)+' of adjusted')}
       <div class="wf-arrow">›</div>
-      \${box('wf-net',       'TIS NET PROFIT','=',    p.tisNetProfit,     fmtPct(1-p.profitSharePct)+' of adjusted')}
+      \${box(p.tisNetProfit < 0 ? 'wf-net wf-loss' : 'wf-net', 'TIS NET PROFIT','=',    p.tisNetProfit,     fmtPct(1-p.profitSharePct)+' of adjusted')}
     \`;
   }
 
@@ -2486,6 +2497,10 @@ function clearResults() {
   [['kpi-tisnet-val','—'],['kpi-annret-val','—'],['kpi-margin-val','—'],
    ['kpi-tisnet-sub','—'],['kpi-annret-sub','—'],['kpi-margin-sub','—']]
     .forEach(([id,t]) => { const el = document.getElementById(id); if (el) el.textContent = t; });
+  // No value → neutral chip (never the green profit box).
+  const nv = document.getElementById('kpi-tisnet-val');
+  const nc = nv ? nv.closest('.kpi-chip') : null;
+  if (nc) { nc.classList.remove('kpi-accent','kpi-loss'); }
 }
 function showEmptyState() {
   clearResults();
