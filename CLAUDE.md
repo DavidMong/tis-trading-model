@@ -249,6 +249,20 @@ Key behaviours:
 the browser JS string, breaking single-quoted strings. Never use `\n` in string literals within the
 client JS block — use concatenation or omit newlines entirely.
 
+### Browser tab title
+
+`updateHeader()` (called on load, New Trade, rename, identity edits, and load-snapshot) sets
+`document.title`:
+- Sample fixture (`_isSample === true`) → `${INIT.meta.tradeId} — TIS Global Trading (Interactive)`
+- Unnamed / New Trade → `New Trade — TIS Global Trading`
+- Named real trade → `${name} — TIS Global Trading`
+
+### Hedge input text color — `.si.ph` rule
+
+`.si.ph` gives amber border/background to signal "unconfirmed default / placeholder not yet confirmed
+by the user." The `color` property is intentionally absent — text values inside placeholder fields
+must always read in ink (#242331) per the C5 rule; the border/background hint is sufficient.
+
 ### Empty state / stale-results prevention
 
 `recompute()` gates on `inp-delivered` being non-empty before calling the engine. If blank (New Trade

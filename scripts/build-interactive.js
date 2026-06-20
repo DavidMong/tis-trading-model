@@ -221,7 +221,7 @@ body { display: flex; flex-direction: column; }
   box-shadow: 0 0 0 2px rgba(36,35,49,.10);
 }
 .si:hover:not(:focus) { border-color: #9ca3af; background: #fafafa; }
-.si.ph { border-color: #fdba74; background: #fffbf0; color: #92400e; }
+.si.ph { border-color: #fdba74; background: #fffbf0; }
 
 .ss {
   font-family: var(--f-body);
@@ -2375,6 +2375,15 @@ function updateHeader() {
   const name   = nameEl ? (nameEl.value.trim() || '(Unnamed Trade)') : '(Unnamed Trade)';
   const hName  = document.getElementById('hdr-trade-name');
   if (hName) hName.textContent = name;
+
+  // Sync browser tab title — sample fixture keeps its id; real/new trades use trade name
+  if (_isSample) {
+    document.title = INIT.meta.tradeId + ' — TIS Global Trading (Interactive)';
+  } else if (name === '(Unnamed Trade)') {
+    document.title = 'New Trade — TIS Global Trading';
+  } else {
+    document.title = name + ' — TIS Global Trading';
+  }
 
   const partner   = document.getElementById('inp-partner-name')?.value.trim()   || '';
   const supplier  = document.getElementById('inp-supplier-name')?.value.trim()  || '';
