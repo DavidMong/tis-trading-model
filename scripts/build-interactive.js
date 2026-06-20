@@ -642,6 +642,93 @@ body { display: flex; flex-direction: column; }
   .hedge-cards { flex-direction: column; }
   .hedge-cards .h-card { min-width: unset; }
 }
+
+/* ════ SPACING SYSTEM — coherent rhythm across every interactive section ════
+
+   Base unit: 4px.  Named steps used below:
+     xs=4  sm=8  md=12  lg=16  xl=20  2xl=24  3xl=28  4xl=32
+   All padding/gap/margin values snap to this grid.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 1. Header: symmetric band, proportionate KPI chips ─────────────────── */
+/* Override reportCss 24px/20px asymmetry so logo/title/chips share center  */
+.header-inner { padding: 20px 32px; }
+.kpi-chip     { padding: 10px 16px; min-width: 126px; }
+
+/* ── 2. Section headings: breathe above cards ────────────────────────────── */
+.section-heading { margin-bottom: 14px; }
+
+/* ── 3. Sidebar: 4px-grid alignment throughout ───────────────────────────── */
+.sb-sec         { padding: 12px 16px; }
+.sb-sec-title   { margin-bottom: 10px; }
+.tier-div       { padding: 6px 16px; }
+.disc-btn       { padding: 8px 16px; }
+.sb-footer      { padding: 10px 16px; }
+.ir             { margin-bottom: 8px; }
+.tab-btn        { padding: 12px 0; }
+.tgl-set        { gap: 10px; }
+
+/* ── 4. Waterfall: more room in the row; proper reconcile text flow ──────── */
+.wf-row { padding: 24px 24px 8px; }
+/* Override reportCss padding on the shared wf-box class */
+.wf-box { padding: 18px 16px; }
+/* reportCss uses display:flex+gap on .wf-reconcile but content is inline;
+   override to block so text wraps naturally with consistent line spacing   */
+.wf-reconcile { display: block; padding: 12px 24px; line-height: 1.7; }
+
+/* ── 5. Cost Build-Up totals: standard card padding, row breathing ───────── */
+.cost-totals      { padding: 14px 24px; gap: 8px; }
+.cost-total-row   { padding: 2px 0; }
+
+/* ── 6. Partner Deliverables — all three missing style definitions ────────── */
+/* .info-block separates logical groups within each column                   */
+.info-block            { margin-bottom: 16px; }
+.info-block:last-child { margin-bottom: 0; }
+
+/* .info-sub is the sub-heading for each group ("(1) Product Received" etc.) */
+.info-sub {
+  font-family: var(--f-display);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--slate);
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* .tie-out-box is the principal reconciliation callout at the card bottom   */
+.tie-out-box {
+  margin-top: 16px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-family: var(--f-body);
+  font-size: 12px;
+  line-height: 1.5;
+  border: 1.5px solid var(--border);
+  background: var(--bg);
+  color: var(--ink-60);
+}
+.tie-out-box.tie-ok   { background: #f0fdf4; border-color: #86efac; color: #166534; }
+.tie-out-box.tie-warn { background: #fff5f5; border-color: #fca5a5; color: #991b1b; }
+.tie-out-box b        { color: inherit; font-weight: 600; }
+
+/* Info rows in partner two-col-grid and hedge detail: more vertical padding  */
+.h-detail .info-row,
+.two-col-grid .info-row { padding: 4px 0; }
+
+/* ── 7. Hedge cards: more space throughout ───────────────────────────────── */
+.hedge-cards    { gap: 20px; }
+.h-card-hdr     { padding: 14px 20px; }
+.h-detail-inner { padding: 16px 20px; }
+.h-cmp          { padding: 14px 20px; }
+.h-cmp-row      { padding: 3px 0; }
+
+/* ── 8. Sensitivities / tornado: breathing room ──────────────────────────── */
+.tn-wrap            { padding: 24px 24px 8px; }
+.tn-row             { margin-bottom: 8px; }
+.tn-baseline-label  { padding: 12px 0 8px; margin-top: 12px; }
 `;
 }
 
