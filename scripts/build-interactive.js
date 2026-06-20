@@ -948,6 +948,12 @@ body { display: flex; flex-direction: column; }
 /* Unpriced leg — calm amber cue (same language as hedge placeholders); P&L stays pending. */
 .leg-in.leg-in-pending { border-color:#f59e0b; background:#fffbeb; }
 .leg-price-flag { color:#92400e; font-weight:700; font-size:9px; letter-spacing:.04em; }
+
+/* Per-leg native-currency ladders */
+.ladder-sub { font-family:var(--f-display); font-size:10px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--slate); margin:18px 20px 8px; }
+.ladder-compare { margin:14px 20px 0; padding:10px 13px; background:#f8fafc; border:1px solid var(--border); border-radius:7px; font-family:var(--f-body); font-size:12px; color:var(--ink); line-height:1.5; }
+.ladder-compare b { font-family:var(--f-display); }
+.ladder-compare .lc-rationale { color:var(--slate); font-size:11px; }
 `;
 }
 
@@ -2021,76 +2027,117 @@ function renderWaterfall(res) {
 }
 
 // ── 2. Pricing Ladder ──────────────────────────────────────────────────────
+// Surfaces the engine's ladders, each in its NATIVE unit: an ex-ship $/MT ladder
+// (margin-of-sell tiers) and a depot ₦/L ladder (absolute-spread tiers), plus the
+// engine's cross-leg comparison. Show only the ladders relevant to the trade's legs.
 function renderLadder(trade, res, ladder) {
-  if (!ladder || !ladder.exShip) return '';
-  const exShip  = ladder.exShip;
-  const tiers   = exShip.tiers || [];
+  if (!ladder) return '';
+  const legs = (trade && trade.revenueLegs) || [];
+  const hasExShip = legs.some(l => l.channel === 'ex-ship');
+  const depotApplicable = !!(ladder.depot && ladder.depot.applicable && ladder.depot.tiers && ladder.depot.tiers.length);
+  const bothLadders = hasExShip && depotApplicable;
   const curPrice = res.price.exShipPricePerMT;
   const landed   = res.price.exShipLandedPerMT;
 
-  // Price-scale bar: floor to premium range
-  let scaleHtml = '';
-  if (tiers.length >= 2) {
-    const prices = tiers.map(t => t.pricePerMT);
-    const lo = Math.min(...prices);
-    const hi = Math.max(...prices);
-    const range = hi - lo || 1;
-    const tierPips = tiers.map((tier, i) => {
-      const pos = ((tier.pricePerMT - lo) / range * 80 + 10).toFixed(1);
-      const altCls = i % 2 === 1 ? ' alt' : '';
-      return \`<span class="ladder-tier-pip\${altCls}" style="left:\${pos}%">\${esc(tier.name)}</span>\`;
-    }).join('');
-    let tick = '';
-    if (curPrice != null && curPrice >= lo - (range*0.1) && curPrice <= hi + (range*0.1)) {
-      const pos = ((curPrice - lo) / range * 80 + 10).toFixed(1);
-      tick = \`<div class="ladder-scale-tick" style="left:\${pos}%" data-label="\${esc(fmtUsd(curPrice)+'/MT')}"></div>\`;
+  // ----- Ex-ship $/MT ladder (only when an ex-ship leg exists) -----
+  let exShipBlock = '';
+  const exShip = ladder.exShip;
+  if (hasExShip && exShip && exShip.tiers && exShip.tiers.length) {
+    const tiers = exShip.tiers;
+    let scaleHtml = '';
+    if (tiers.length >= 2) {
+      const prices = tiers.map(t => t.pricePerMT);
+      const lo = Math.min(...prices);
+      const hi = Math.max(...prices);
+      const range = hi - lo || 1;
+      const tierPips = tiers.map((tier, i) => {
+        const pos = ((tier.pricePerMT - lo) / range * 80 + 10).toFixed(1);
+        const altCls = i % 2 === 1 ? ' alt' : '';
+        return \`<span class="ladder-tier-pip\${altCls}" style="left:\${pos}%">\${esc(tier.name)}</span>\`;
+      }).join('');
+      let tick = '';
+      if (curPrice != null && curPrice >= lo - (range*0.1) && curPrice <= hi + (range*0.1)) {
+        const pos = ((curPrice - lo) / range * 80 + 10).toFixed(1);
+        tick = \`<div class="ladder-scale-tick" style="left:\${pos}%" data-label="\${esc(fmtUsd(curPrice)+'/MT')}"></div>\`;
+      }
+      scaleHtml = \`<div class="ladder-scale-wrap" style="padding-top:28px">
+        <div class="ladder-scale-bar">\${tierPips}\${tick}</div>
+      </div>\`;
     }
-    scaleHtml = \`<div class="ladder-scale-wrap" style="padding-top:28px">
-      <div class="ladder-scale-bar">\${tierPips}\${tick}</div>
-    </div>\`;
+    const tierRows = tiers.map(tier => {
+      const isCur = curPrice != null && Math.abs(tier.pricePerMT - curPrice) < 0.005;
+      return \`<tr class="\${isCur ? 'ladder-current' : ''}">
+        <td><b>\${esc(tier.name)}</b></td>
+        <td class="r">\${fmtUsd(tier.pricePerMT)}/MT</td>
+        <td class="r">\${fmtPct(tier.marginPctOfSell)}</td>
+        <td class="r">\${fmtPct(tier.markupPctOnCost)}</td>
+        <td class="r">\${fmtUsd(tier.spreadPerMT)}/MT</td>
+        <td class="r \${tier.tisNetProfit >= 0 ? 'pos' : 'loss'}">\${fmtUsd(tier.tisNetProfit)}</td>
+      </tr>\`;
+    }).join('');
+    // Label the ex-ship ladder only when a depot ladder is also shown (preserves the
+    // single-ladder look for ex-ship-only / legacy trades — no regression).
+    const subHead = bothLadders ? '<h3 class="ladder-sub">Ex-Ship $/MT Ladder</h3>' : '';
+    exShipBlock = \`\${subHead}\${scaleHtml}
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Tier</th><th class="r">Price/MT</th><th class="r">Margin of Sell</th><th class="r">Markup on Landed</th><th class="r">Spread/MT</th><th class="r">TIS Net</th></tr></thead>
+      <tbody>\${tierRows}</tbody>
+    </table></div>\`;
   }
 
-  const tierRows = tiers.map(tier => {
-    const isCur = curPrice != null && Math.abs(tier.pricePerMT - curPrice) < 0.005;
-    return \`<tr class="\${isCur ? 'ladder-current' : ''}">
-      <td><b>\${esc(tier.name)}</b></td>
-      <td class="r">\${fmtUsd(tier.pricePerMT)}/MT</td>
-      <td class="r">\${fmtPct(tier.marginPctOfSell)}</td>
-      <td class="r">\${fmtPct(tier.markupPctOnCost)}</td>
-      <td class="r">\${fmtUsd(tier.spreadPerMT)}/MT</td>
-      <td class="r \${tier.tisNetProfit >= 0 ? 'pos' : 'loss'}">\${fmtUsd(tier.tisNetProfit)}</td>
-    </tr>\`;
-  }).join('');
-
-  const depotTiers = (ladder.depot && ladder.depot.tiers) || [];
-  let depotSection = '';
-  if (depotTiers.length > 0) {
-    const depotRows = depotTiers.map(tier => \`<tr>
-      <td><b>\${esc(tier.name)}</b></td>
-      <td class="r">\${fmtNum(tier.ngnPricePerL || tier.priceNgnPerL || 0, 2)} ₦/L</td>
-      <td class="r">\${fmtPct(tier.marginPctOfSell)}</td>
-      <td class="r">\${fmtPct(tier.markupPctOnCost)}</td>
-      <td class="r \${tier.tisNetProfit >= 0 ? 'pos' : 'loss'}">\${fmtUsd(tier.tisNetProfit)}</td>
-    </tr>\`).join('');
-    depotSection = \`<h3 style="font-family:var(--f-display);font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--slate);margin:16px 20px 8px">Depot ₦/L Ladder</h3>
+  // ----- Depot ₦/L ladder (absolute-spread tiers; native naira) -----
+  let depotBlock = '';
+  if (depotApplicable) {
+    const depotRows = ladder.depot.tiers.map(tier => {
+      const net = (tier.tisNetProfit == null)
+        ? '<span class="muted">PENDING</span>'
+        : \`<span class="\${tier.tisNetProfit >= 0 ? 'pos' : 'loss'}">\${fmtUsd(tier.tisNetProfit)}</span>\`;
+      return \`<tr>
+        <td><b>\${esc(tier.name)}</b></td>
+        <td class="r">\${fmtNum(tier.priceNgnPerL, 2)} ₦/L</td>
+        <td class="r">\${fmtNum(tier.spreadNgnPerL, 0)} ₦/L</td>
+        <td class="r">\${fmtPct(tier.marginPctOfSell)}</td>
+        <td class="r">\${fmtPct(tier.markupPctOnCost)}</td>
+        <td class="r">\${net}</td>
+      </tr>\`;
+    }).join('');
+    depotBlock = \`<h3 class="ladder-sub">Depot ₦/L Ladder</h3>
     <div class="tbl-wrap"><table>
-      <thead><tr><th>Tier</th><th class="r">₦/L</th><th class="r">Margin %</th><th class="r">Markup on Landed</th><th class="r">TIS Net</th></tr></thead>
+      <thead><tr><th>Tier</th><th class="r">Price ₦/L</th><th class="r">Spread ₦/L</th><th class="r">Margin %</th><th class="r">Markup on Landed</th><th class="r">TIS Net</th></tr></thead>
       <tbody>\${depotRows}</tbody>
     </table></div>\`;
   }
 
-  const compNote = ladder.comparison && ladder.comparison.summary ? \`&nbsp;·&nbsp;\${esc(ladder.comparison.summary)}\` : '';
+  // ----- Cross-leg comparison (engine output; only when both legs exist) -----
+  let compBlock = '';
+  const cmp = ladder.comparison;
+  if (cmp && cmp.applicable && cmp.exShip && cmp.depot) {
+    const winner = cmp.depotEarnsMoreAbsolute ? 'Depot' : 'Ex-ship';
+    compBlock = \`<div class="ladder-compare">
+      <b>Cross-leg spread</b> (common ₦/L): Ex-ship <b>\${esc(cmp.exShip.tier)}</b> \${fmtNum(cmp.exShip.spreadNgnPerL, 1)} ₦/L
+      vs Depot <b>\${esc(cmp.depot.tier)}</b> \${fmtNum(cmp.depot.spreadNgnPerL, 1)} ₦/L — <b>\${winner}</b> earns the larger absolute spread.
+      <div class="lc-rationale">\${esc(cmp.rationale || '')}</div>
+    </div>\`;
+  }
+
+  // ----- Footer: landed-cost bases in native units -----
+  const footerParts = [];
+  if (hasExShip) {
+    footerParts.push(\`Ex-ship landed: <b>\${fmtUsd(landed)}/MT</b>\`);
+    if (curPrice != null) footerParts.push(\`Current price: <b>\${fmtUsd(curPrice)}/MT</b>\`);
+  }
+  if (depotApplicable && ladder.depot.costBaseNgnPerL != null) {
+    footerParts.push(\`Depot landed: <b>\${fmtNum(ladder.depot.costBaseNgnPerL, 2)} ₦/L</b>\`);
+  }
+
   return \`<section class="section" aria-labelledby="ladder-h">
   <h2 class="section-heading" id="ladder-h">Pricing Ladder <span class="muted" style="font-size:11px;font-weight:400;letter-spacing:0;text-transform:none">— advisory only</span></h2>
   <div class="card">
-    \${scaleHtml}
-    <div class="tbl-wrap"><table>
-      <thead><tr><th>Tier</th><th class="r">Price/MT</th><th class="r">Margin of Sell</th><th class="r">Markup on Landed</th><th class="r">Spread/MT</th><th class="r">TIS Net</th></tr></thead>
-      <tbody>\${tierRows}</tbody>
-    </table></div>
-    \${depotSection}
+    \${exShipBlock}
+    \${depotBlock}
+    \${compBlock}
     <div class="card-footer">
-      Ex-ship landed: <b>\${fmtUsd(landed)}/MT</b>\${curPrice != null ? \` &nbsp;·&nbsp; Current price: <b>\${fmtUsd(curPrice)}/MT</b>\` : ''}\${compNote}
+      \${footerParts.join(' &nbsp;·&nbsp; ')}
     </div>
   </div>
 </section>\`;
