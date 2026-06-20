@@ -945,6 +945,9 @@ body { display: flex; flex-direction: column; }
 .leg-total.ok   { color:#15803d; }
 .leg-total.bad  { color:#92400e; }
 .leg-total .leg-total-flag { font-weight:700; }
+/* Unpriced leg — calm amber cue (same language as hedge placeholders); P&L stays pending. */
+.leg-in.leg-in-pending { border-color:#f59e0b; background:#fffbeb; }
+.leg-price-flag { color:#92400e; font-weight:700; font-size:9px; letter-spacing:.04em; }
 `;
 }
 
@@ -1447,7 +1450,9 @@ function legRowHtml(leg, i) {
     '<option value="tonnes"' + (leg.qtyMode==='tonnes' ? ' selected':'') + '>MT</option>' +
     '<option value="pct"'    + (leg.qtyMode==='pct'    ? ' selected':'') + '>%</option>';
   var qtyVal   = isFinite(leg.qty) ? leg.qty : '';
-  var priceVal = (leg.price != null && isFinite(leg.price)) ? leg.price : '';
+  var priced   = (leg.price != null && isFinite(leg.price) && leg.price > 0);
+  var priceVal = priced ? leg.price : '';
+  var priceFlag = priced ? '' : ' <span class="leg-price-flag">· pending</span>';
   return '<div class="leg-row" data-idx="' + i + '">' +
     '<button type="button" class="leg-del" data-act="del" data-idx="' + i + '" title="Remove leg" aria-label="Remove leg">×</button>' +
     '<div class="leg-field"><span class="leg-field-lbl">Channel</span>' +
@@ -1459,8 +1464,8 @@ function legRowHtml(leg, i) {
         '<input class="leg-in" type="number" step="any" min="0" data-field="qty" data-idx="' + i + '" value="' + qtyVal + '">' +
         '<select class="leg-in" data-field="qtyMode" data-idx="' + i + '">' + qtyModeOpts + '</select>' +
       '</div></div>' +
-    '<div class="leg-field"><span class="leg-field-lbl">Price (' + legUnitLabel(leg.unit) + ')</span>' +
-      '<input class="leg-in" type="number" step="any" min="0" data-field="price" data-idx="' + i + '" value="' + priceVal + '" placeholder="' + legUnitLabel(leg.unit) + ' (optional)"></div>' +
+    '<div class="leg-field"><span class="leg-field-lbl">Price (' + legUnitLabel(leg.unit) + ')' + priceFlag + '</span>' +
+      '<input class="leg-in' + (priced ? '' : ' leg-in-pending') + '" type="number" step="any" min="0" data-field="price" data-idx="' + i + '" value="' + priceVal + '" placeholder="' + legUnitLabel(leg.unit) + ' (optional)"></div>' +
     '</div>';
 }
 
@@ -1520,6 +1525,19 @@ function onLegFieldChange(i, field, value) {
     leg.qty = (value === '' ? NaN : parseFloat(value));
   } else if (field === 'price') {
     leg.price = (value === '' ? null : parseFloat(value));
+    // Live-toggle the amber "pending" cue without re-rendering (preserve input focus).
+    var rowEl = document.querySelector('.leg-row[data-idx="' + i + '"]');
+    var inp = rowEl ? rowEl.querySelector('input[data-field="price"]') : null;
+    var pend = !(leg.price != null && isFinite(leg.price) && leg.price > 0);
+    if (inp) {
+      inp.classList.toggle('leg-in-pending', pend);
+      var lbl = inp.parentNode ? inp.parentNode.querySelector('.leg-field-lbl') : null;
+      if (lbl) {
+        var flag = lbl.querySelector('.leg-price-flag');
+        if (pend && !flag) { var sp = document.createElement('span'); sp.className = 'leg-price-flag'; sp.textContent = ' · pending'; lbl.appendChild(sp); }
+        else if (!pend && flag) { flag.remove(); }
+      }
+    }
   }
   if (rerender) renderLegEditor(); else updateLegTotal();
   return rerender;
@@ -1860,13 +1878,29 @@ function infoRow(label, value, extra) {
 }
 
 // Calm pending card shown in the waterfall slot before a sell price is entered.
-function renderPricePending() {
+// Per-leg pricing status: how many legs have a price, and which ones don't.
+function legPricingStatus(trade) {
+  var legs = (trade && trade.revenueLegs) || [];
+  var unpriced = [];
+  for (var i = 0; i < legs.length; i++) {
+    var l = legs[i];
+    if (!(isFinite(l.price) && l.price > 0)) {
+      unpriced.push((unpriced.length + 1) + '. ' + l.channel + (l.pricingUnit === 'NGN_PER_L' ? ' ₦/L' : ' $/MT'));
+    }
+  }
+  return { total: legs.length, priced: legs.length - unpriced.length, unpriced: unpriced };
+}
+
+function renderPricePending(status) {
+  var s = status || { total: 0, priced: 0, unpriced: [] };
+  var headline = s.total > 0 ? (s.priced + ' of ' + s.total + ' legs priced') : 'Add a revenue leg';
+  var awaiting = s.unpriced.length ? ' Awaiting a price for: ' + esc(s.unpriced.join('  ·  ')) + '.' : '';
   return \`<section class="section" aria-labelledby="wf-h">
   <h2 class="section-heading" id="wf-h">Profit Waterfall</h2>
   <div class="card">
     <div class="empty-state" style="padding:36px 24px">
-      <p class="empty-state-title">Enter your sell price to see P&amp;L</p>
-      <p class="empty-state-sub">The cost build-up and pricing ladder below are ready. Pick a price from the ladder, then enter it as the Ex-Ship Price to compute TIS Net Profit, ex-ship margin, partner split and sensitivities.</p>
+      <p class="empty-state-title">P&amp;L pending — \${esc(headline)}</p>
+      <p class="empty-state-sub">The cost build-up and pricing ladder below are ready. Enter a price for every revenue leg to compute TIS Net Profit, ex-ship margin, partner split and sensitivities.\${awaiting}</p>
     </div>
   </div>
 </section>\`;
@@ -2457,7 +2491,7 @@ function renderAll(trade, res, ladder, hasSellPrice) {
   if (hasSellPrice === false) {
     // No sell price yet: show price-INDEPENDENT outputs (cost build-up + pricing ladder),
     // a calm pending card where the waterfall goes, and clear the P&L-dependent sections.
-    document.getElementById('sec-waterfall').innerHTML = renderPricePending();
+    document.getElementById('sec-waterfall').innerHTML = renderPricePending(legPricingStatus(trade));
     document.getElementById('sec-ladder').innerHTML    = renderLadder(trade, res, ladder);
     document.getElementById('sec-cost').innerHTML      = renderCost(res);
     document.getElementById('sec-partner').innerHTML   = '';
