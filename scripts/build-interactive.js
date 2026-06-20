@@ -895,6 +895,56 @@ body { display: flex; flex-direction: column; }
   opacity:0; pointer-events:none; white-space:nowrap; box-shadow:0 4px 12px rgba(0,0,0,.18);
 }
 .tis-toast.visible { transform:translateX(-50%) translateY(0); opacity:1; }
+
+/* ════ Per-leg revenue editor ═════════════════════════════════════════════ */
+.leg-editor { display:flex; flex-direction:column; gap:8px; }
+.leg-row {
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap:6px 8px;
+  padding:9px 10px 10px;
+  border:1px solid var(--border);
+  border-radius:7px;
+  background:var(--white);
+  position:relative;
+}
+.leg-row .leg-field { display:flex; flex-direction:column; gap:3px; }
+.leg-row .leg-field.full { grid-column:1 / -1; }
+.leg-field-lbl {
+  font-family:var(--f-display); font-size:9px; font-weight:700;
+  letter-spacing:.07em; text-transform:uppercase; color:var(--slate);
+}
+.leg-row select.leg-in, .leg-row input.leg-in {
+  width:100%; box-sizing:border-box;
+  padding:6px 8px; font-family:var(--f-body); font-size:13px;
+  border:1px solid var(--border); border-radius:5px; background:#fff; color:var(--ink);
+}
+.leg-row select.leg-in:disabled { background:#f3f4f6; color:var(--slate); cursor:not-allowed; }
+.leg-row input.leg-in:focus, .leg-row select.leg-in:focus {
+  outline:none; border-color:var(--ink); box-shadow:0 0 0 2px rgba(36,35,49,.10);
+}
+.leg-qty-group { display:flex; gap:6px; }
+.leg-qty-group input.leg-in { flex:1; min-width:0; }
+.leg-qty-group select.leg-in { flex:0 0 64px; }
+.leg-row .leg-del {
+  position:absolute; top:6px; right:7px;
+  width:20px; height:20px; line-height:18px; text-align:center;
+  border:none; background:transparent; color:var(--slate);
+  font-size:16px; cursor:pointer; border-radius:4px;
+}
+.leg-row .leg-del:hover { background:#f3f4f6; color:#991b1b; }
+.leg-foot { display:flex; align-items:center; justify-content:space-between; margin-top:9px; gap:10px; }
+.leg-add {
+  padding:7px 13px; font-family:var(--f-display); font-size:11px; font-weight:700;
+  letter-spacing:.04em; color:var(--ink); background:var(--white);
+  border:1px dashed var(--slate); border-radius:6px; cursor:pointer;
+}
+.leg-add:hover { background:#f3f4f6; border-color:var(--ink); }
+.leg-total { font-family:var(--f-body); font-size:12px; text-align:right; line-height:1.35; }
+.leg-total b { font-family:var(--f-display); font-weight:700; }
+.leg-total.ok   { color:#15803d; }
+.leg-total.bad  { color:#92400e; }
+.leg-total .leg-total-flag { font-weight:700; }
 `;
 }
 
@@ -991,14 +1041,11 @@ ${sec('Pricing <span class="live-badge">Live</span>', [
   ir('inp-fxpar',     'FX Parallel ₦/USD',   ni('inp-fxpar',     t.fx.parallel.value,          1, 1),        t.fx.parallel.status, true),
   ir('inp-delivered', 'Delivered MT',        ni('inp-delivered', t.cargo.deliveredQtyMT,        1, 1),        '', true),
 ].join(''))}
-${sec('Sale', [
-  ir('inp-exship-price', 'Ex-Ship Price $/MT', ni('inp-exship-price', t.sell.exShipPricePerMT.value, 0.01, 0), t.sell.exShipPricePerMT.status, true)
-    + '<p class="defaults-note" style="margin-top:-2px">Optional — leave blank to see the cost build-up &amp; pricing ladder first, then price from the ladder.</p>',
-  ir('inp-exship-pct',   'Ex-ship Channel %',  ni('inp-exship-pct',   exShipPctInit, 1, 0), '', true),
-  `<div class="ir pri" id="depot-price-row"${!depotActive ? ' hidden' : ''}>
-    <label class="ir-lbl" for="inp-depot-price">${pip('INDICATIVE')}Depot Price ₦/L</label>
-    ${ni('inp-depot-price', t.sell.depotPriceNgnPerL ? t.sell.depotPriceNgnPerL.value : 1400, 1, 0)}
-  </div>`,
+${sec('Sale — Revenue Legs', [
+  '<div class="leg-editor" id="leg-editor"></div>',
+  '<div class="leg-foot"><button type="button" id="btn-add-leg" class="leg-add">+ Add leg</button>'
+    + '<div class="leg-total" id="leg-total"></div></div>',
+  '<p class="defaults-note" style="margin-top:6px">Each leg = channel + pricing unit + tonnage (or % of cargo) + price in its native unit. Depot legs are always ₦/L. Leg tonnage must sum to Delivered MT. Price is optional per leg — leave blank to price from the ladder first.</p>',
   ir('inp-profit-split', 'Partner Profit Split %', ni('inp-profit-split', pct2(p.profitSharePct), 1, 0), '', true),
 ].join(''))}
 ${sec('Toggles', `<div class="tgl-set">
@@ -1011,11 +1058,7 @@ ${tdiv('Deal Terms')}
 
 ${sec('FX & Currency', [
   ir('inp-fxnafem',       'FX NAFEM ₦/USD',   ni('inp-fxnafem', t.fx.nafem.value, 1, 1), t.fx.nafem.status),
-  ir('inp-currency-mode', 'Currency Mode',     si('inp-currency-mode', [['USD','USD (fully USD)'],['NGN','NGN (fully naira)'],['split','Split (USD+NGN)']], t.sell.currencyMode || 'USD'), ''),
-  `<div class="ir" id="split-usd-row"${(t.sell.currencyMode || 'USD') !== 'split' ? ' hidden' : ''}>
-    <label class="ir-lbl" for="inp-split-usd">${pip('')}Split USD %</label>
-    ${ni('inp-split-usd', pct2(t.sell.splitUsdPct || 1), 1, 0)}
-  </div>`,
+  '<p class="defaults-note" style="margin-top:-2px">Currency mode is derived from the revenue legs above (USD-only, naira-only, or split).</p>',
   ir('inp-taxable-prop', 'Taxable Supply Prop.', ni('inp-taxable-prop', t.tax.taxableSupplyProportion, 0.05, 0), 'INDICATIVE'),
 ].join(''))}
 ${sec('Freight', [
@@ -1092,7 +1135,7 @@ ${sec('Storage (depot active)', [
   ir('inp-litres-per-mt',  'Litres per MT (density)',ni('inp-litres-per-mt',  t.pricing.conversion.litresPerMT, 1, 100), 'INDICATIVE'),
 ].join(''))}
 </div>
-<div id="storage-off-note" class="sb-sec" style="color:#94a3b8;font-family:var(--f-body);font-size:11px"${depotActive ? ' hidden' : ''}>Storage inputs activate when a depot channel is enabled (Ex-ship Channel &lt; 100% in Deal tab).</div>
+<div id="storage-off-note" class="sb-sec" style="color:#94a3b8;font-family:var(--f-body);font-size:11px"${depotActive ? ' hidden' : ''}>Storage inputs activate when a depot revenue leg is added (Sale section, Deal tab).</div>
 <div class="sb-sec">
   <button class="btn-defaults" onclick="saveAsDefaults()">↓ Save current rates as house defaults</button>
   <div class="defaults-note">Saves cost lines, tax rates &amp; hedge bank terms — applied automatically on New Trade.</div>
@@ -1314,14 +1357,243 @@ function isOn(id) { const el = document.getElementById(id); return el ? el.datas
 function show(id, vis) { const el = document.getElementById(id); if (el) el.hidden = !vis; }
 
 // ── Collect trade from inputs ──────────────────────────────────────────────
+// ── Per-leg revenue editor ───────────────────────────────────────────────
+// Source of truth for the Sale section. Each entry:
+//   { channel:'ex-ship'|'depot', unit:'USD_PER_MT'|'NGN_PER_L', qtyMode:'tonnes'|'pct', qty:Number, price:Number|null }
+var _legs = [];
+
+function legBlank() { return { channel:'ex-ship', unit:'USD_PER_MT', qtyMode:'pct', qty:100, price:null }; }
+function legUnitLabel(unit) { return unit === 'NGN_PER_L' ? '₦/L' : '$/MT'; }
+
+// Derive editor legs from a legacy-shape trade object (channels + sell.currencyMode + prices).
+// Mirrors the engine's legacy adapter so a loaded legacy trade recomputes byte-for-byte identically.
+function legsFromLegacyTrade(tr) {
+  var legs = [];
+  var ch = tr.channels || { exShipPct: 1, depotPct: 0 };
+  var exPct = (ch.exShipPct != null ? ch.exShipPct : 1);
+  var dePct = (ch.depotPct  != null ? ch.depotPct  : (1 - exPct));
+  var sell = tr.sell || {};
+  var mode = sell.currencyMode || 'USD';
+  var usdShare = (mode === 'USD') ? 1 : (mode === 'NGN') ? 0 : (sell.splitUsdPct != null ? sell.splitUsdPct : 1);
+  var exPriceUsd = (sell.exShipPricePerMT && isFinite(sell.exShipPricePerMT.value)) ? sell.exShipPricePerMT.value : null;
+  var litres = (tr.pricing && tr.pricing.conversion && tr.pricing.conversion.litresPerMT) || 1183;
+  var parPricing = (tr.fx && tr.fx.parallel && isFinite(tr.fx.parallel.value)) ? tr.fx.parallel.value : null;
+  if (exPct > 1e-9) {
+    var exUsdPct = exPct * usdShare;
+    var exNgnPct = exPct * (1 - usdShare);
+    if (exUsdPct > 1e-9) {
+      legs.push({ channel:'ex-ship', unit:'USD_PER_MT', qtyMode:'pct', qty:+(exUsdPct*100).toFixed(4), price: exPriceUsd });
+    }
+    if (exNgnPct > 1e-9) {
+      var ngnPerL = (exPriceUsd != null && parPricing != null) ? (exPriceUsd * parPricing) / litres : null;
+      legs.push({ channel:'ex-ship', unit:'NGN_PER_L', qtyMode:'pct', qty:+(exNgnPct*100).toFixed(4), price: ngnPerL != null ? +ngnPerL.toFixed(4) : null });
+    }
+  }
+  if (dePct > 1e-9) {
+    var depPrice = (sell.depotPriceNgnPerL && isFinite(sell.depotPriceNgnPerL.value)) ? sell.depotPriceNgnPerL.value : null;
+    legs.push({ channel:'depot', unit:'NGN_PER_L', qtyMode:'pct', qty:+(dePct*100).toFixed(4), price: depPrice });
+  }
+  if (!legs.length) legs.push(legBlank());
+  return legs;
+}
+
+// Derive editor legs from any trade object: native revenueLegs win; else the legacy adapter.
+function legsFromTrade(tr) {
+  if (tr && Array.isArray(tr.revenueLegs) && tr.revenueLegs.length) {
+    return tr.revenueLegs.map(function(l) {
+      var hasTonnes = (l.tonnes != null);
+      return {
+        channel: l.channel || 'ex-ship',
+        unit: l.pricingUnit || 'USD_PER_MT',
+        qtyMode: hasTonnes ? 'tonnes' : 'pct',
+        qty: hasTonnes ? l.tonnes : (l.share != null ? +(l.share*100).toFixed(4) : 0),
+        price: (l.price != null && isFinite(l.price)) ? l.price : null,
+      };
+    });
+  }
+  return legsFromLegacyTrade(tr || {});
+}
+
+// Reconstruct legs from a saved input snapshot. New snapshots carry _legs JSON; older
+// (pre per-leg) snapshots are rebuilt from their legacy ex-ship/depot/currency fields.
+function legsFromSnapshot(snap) {
+  if (snap && snap['_legs']) { try { return JSON.parse(snap['_legs']); } catch(_) {} }
+  var exPct  = (snap['inp-exship-pct'] != null && snap['inp-exship-pct'] !== '') ? parseFloat(snap['inp-exship-pct'])/100 : 1;
+  var exPrice= (snap['inp-exship-price'] != null && snap['inp-exship-price'] !== '') ? parseFloat(snap['inp-exship-price']) : null;
+  var depPrice=(snap['inp-depot-price'] != null && snap['inp-depot-price'] !== '') ? parseFloat(snap['inp-depot-price']) : null;
+  var fakeTrade = {
+    channels: { exShipPct: exPct, depotPct: Math.round((1-exPct)*1e10)/1e10 },
+    sell: {
+      currencyMode: snap['inp-currency-mode'] || 'USD',
+      splitUsdPct: (snap['inp-split-usd'] != null && snap['inp-split-usd'] !== '') ? parseFloat(snap['inp-split-usd'])/100 : 1,
+      exShipPricePerMT: { value: exPrice },
+      depotPriceNgnPerL: depPrice != null ? { value: depPrice } : null,
+    },
+    fx: { parallel: { value: (snap['inp-fxpar'] != null ? parseFloat(snap['inp-fxpar']) : null) } },
+    pricing: { conversion: { litresPerMT: (snap['inp-litres-per-mt'] != null ? parseFloat(snap['inp-litres-per-mt']) : 1183) } },
+  };
+  return legsFromLegacyTrade(fakeTrade);
+}
+
+function legRowHtml(leg, i) {
+  var depot = leg.channel === 'depot';
+  var chanOpts =
+    '<option value="ex-ship"' + (depot ? '' : ' selected') + '>Ex-ship</option>' +
+    '<option value="depot"'   + (depot ? ' selected' : '') + '>Depot</option>';
+  var unitOpts =
+    '<option value="USD_PER_MT"' + (leg.unit==='USD_PER_MT' ? ' selected':'') + (depot ? ' disabled':'') + '>USD $/MT</option>' +
+    '<option value="NGN_PER_L"'  + (leg.unit==='NGN_PER_L'  ? ' selected':'') + '>Naira ₦/L</option>';
+  var qtyModeOpts =
+    '<option value="tonnes"' + (leg.qtyMode==='tonnes' ? ' selected':'') + '>MT</option>' +
+    '<option value="pct"'    + (leg.qtyMode==='pct'    ? ' selected':'') + '>%</option>';
+  var qtyVal   = isFinite(leg.qty) ? leg.qty : '';
+  var priceVal = (leg.price != null && isFinite(leg.price)) ? leg.price : '';
+  return '<div class="leg-row" data-idx="' + i + '">' +
+    '<button type="button" class="leg-del" data-act="del" data-idx="' + i + '" title="Remove leg" aria-label="Remove leg">×</button>' +
+    '<div class="leg-field"><span class="leg-field-lbl">Channel</span>' +
+      '<select class="leg-in" data-field="channel" data-idx="' + i + '">' + chanOpts + '</select></div>' +
+    '<div class="leg-field"><span class="leg-field-lbl">Pricing unit</span>' +
+      '<select class="leg-in" data-field="unit" data-idx="' + i + '"' + (depot ? ' disabled' : '') + '>' + unitOpts + '</select></div>' +
+    '<div class="leg-field"><span class="leg-field-lbl">Quantity</span>' +
+      '<div class="leg-qty-group">' +
+        '<input class="leg-in" type="number" step="any" min="0" data-field="qty" data-idx="' + i + '" value="' + qtyVal + '">' +
+        '<select class="leg-in" data-field="qtyMode" data-idx="' + i + '">' + qtyModeOpts + '</select>' +
+      '</div></div>' +
+    '<div class="leg-field"><span class="leg-field-lbl">Price (' + legUnitLabel(leg.unit) + ')</span>' +
+      '<input class="leg-in" type="number" step="any" min="0" data-field="price" data-idx="' + i + '" value="' + priceVal + '" placeholder="' + legUnitLabel(leg.unit) + ' (optional)"></div>' +
+    '</div>';
+}
+
+function renderLegEditor() {
+  var box = document.getElementById('leg-editor');
+  if (!box) return;
+  if (!_legs.length) _legs = [legBlank()];
+  var html = '';
+  for (var i = 0; i < _legs.length; i++) html += legRowHtml(_legs[i], i);
+  box.innerHTML = html;
+  updateLegTotal();
+}
+
+function legTonnesResolved(leg, delivered) {
+  if (!isFinite(leg.qty)) return 0;
+  return leg.qtyMode === 'pct' ? (leg.qty/100) * delivered : leg.qty;
+}
+
+function updateLegTotal() {
+  var el = document.getElementById('leg-total');
+  if (!el) return;
+  var dEl = document.getElementById('inp-delivered');
+  var delivered = dEl ? parseFloat(dEl.value) : NaN;
+  var base = (isFinite(delivered) && delivered > 0) ? delivered : 0;
+  var sum = 0;
+  for (var i = 0; i < _legs.length; i++) sum += legTonnesResolved(_legs[i], base);
+  var sumStr = sum.toLocaleString('en-US', { maximumFractionDigits: 2 });
+  if (!isFinite(delivered) || delivered <= 0) {
+    el.className = 'leg-total';
+    el.innerHTML = 'Σ legs: <b>' + sumStr + ' MT</b>';
+    return;
+  }
+  var delivStr = delivered.toLocaleString('en-US', { maximumFractionDigits: 2 });
+  var diff = sum - delivered;
+  var ok = Math.abs(diff) <= 1e-6 * Math.max(1, delivered);
+  el.className = 'leg-total ' + (ok ? 'ok' : 'bad');
+  var flag = ok
+    ? '<span class="leg-total-flag">✓ matches delivered</span>'
+    : '<span class="leg-total-flag">⚠ ' + (diff > 0 ? 'over' : 'under') + ' by ' + Math.abs(diff).toLocaleString('en-US', { maximumFractionDigits: 2 }) + ' MT</span>';
+  el.innerHTML = 'Σ legs: <b>' + sumStr + ' MT</b> / delivered <b>' + delivStr + ' MT</b><br>' + flag;
+}
+
+function onLegFieldChange(i, field, value) {
+  var leg = _legs[i];
+  if (!leg) return false;
+  var rerender = false;
+  if (field === 'channel') {
+    leg.channel = value;
+    if (value === 'depot' && leg.unit !== 'NGN_PER_L') leg.unit = 'NGN_PER_L'; // depot forces ₦/L
+    rerender = true;
+  } else if (field === 'unit') {
+    leg.unit = value;
+    rerender = true; // price label/placeholder depends on unit
+  } else if (field === 'qtyMode') {
+    leg.qtyMode = value;
+  } else if (field === 'qty') {
+    leg.qty = (value === '' ? NaN : parseFloat(value));
+  } else if (field === 'price') {
+    leg.price = (value === '' ? null : parseFloat(value));
+  }
+  if (rerender) renderLegEditor(); else updateLegTotal();
+  return rerender;
+}
+
+function legInputChanged() {
+  if (_isSample) { _isSample = false; }
+  setModified(true);
+  updateDepotVisibility();   // a depot leg activates the storage section
+  updateHeader();
+  recompute();
+}
+
+function addLeg() {
+  _legs.push(legBlank());
+  renderLegEditor();
+  legInputChanged();
+}
+
+function removeLeg(i) {
+  if (_legs.length <= 1) _legs = [legBlank()];
+  else _legs.splice(i, 1);
+  renderLegEditor();
+  legInputChanged();
+}
+
+function wireLegEditor() {
+  var box = document.getElementById('leg-editor');
+  if (box) {
+    var handler = function(e) {
+      var tEl = e.target;
+      if (!tEl || !tEl.dataset || tEl.dataset.field == null) return;
+      onLegFieldChange(+tEl.dataset.idx, tEl.dataset.field, tEl.value);
+      legInputChanged();
+    };
+    box.addEventListener('input', handler);
+    box.addEventListener('change', handler);
+    box.addEventListener('click', function(e) {
+      var tEl = e.target;
+      if (tEl && tEl.dataset && tEl.dataset.act === 'del') removeLeg(+tEl.dataset.idx);
+    });
+  }
+  var addBtn = document.getElementById('btn-add-leg');
+  if (addBtn) addBtn.addEventListener('click', addLeg);
+}
+
+// Build the engine revenueLegs array from the editor. Blank price → null (price-independent run).
+function collectLegs() {
+  return _legs.map(function(leg) {
+    var out = { channel: leg.channel, pricingUnit: leg.unit };
+    if (leg.qtyMode === 'pct') out.share = (isFinite(leg.qty) ? leg.qty/100 : NaN);
+    else out.tonnes = leg.qty;
+    out.price = (leg.price != null && isFinite(leg.price)) ? leg.price : null;
+    return out;
+  });
+}
+
 function collectTrade() {
   const bondPct     = gf('inp-bond')   / 100;
   const equityPct   = gf('inp-equity') / 100;
   const lcPct       = Math.round((1 - bondPct - equityPct) * 1e10) / 1e10;
-  const exShipPct   = Math.min(1, Math.max(0, gf('inp-exship-pct') / 100));
-  const depotPct    = Math.round((1 - exShipPct) * 1e10) / 1e10;
-  const depotOn     = depotPct > 0;
-  const currMode    = gs('inp-currency-mode') || 'USD';
+  // Sale revenue is a PER-LEG model now. Channels + currency are DERIVED from the legs.
+  const revenueLegs = collectLegs();
+  const deliveredQ  = gf('inp-delivered');
+  let _exT = 0, _deT = 0;
+  for (const l of revenueLegs) {
+    const tn = (l.tonnes != null ? l.tonnes : (isFinite(l.share) ? l.share * deliveredQ : 0));
+    if (l.channel === 'depot') _deT += tn; else _exT += tn;
+  }
+  const _totT       = _exT + _deT;
+  const exShipPct   = _totT > 0 ? _exT / _totT : 1;
+  const depotPct    = _totT > 0 ? _deT / _totT : 0;
+  const depotOn     = revenueLegs.some(l => l.channel === 'depot');
+  const needLitres  = revenueLegs.some(l => l.pricingUnit === 'NGN_PER_L');
   const iceHedgeOn  = isOn('tog-ice-hedge');
   const fxHedgeOn   = isOn('tog-fx-hedge');
   const surOn       = isOn('tog-surcharge');
@@ -1337,16 +1609,12 @@ function collectTrade() {
   const iceVolRaw     = gf('inp-ice-hedged-vol');
   const iceVol        = (isNaN(iceVolRaw) || iceVolRaw <= 0) ? null : iceVolRaw;
 
-  const sell = {
-    ...INIT.sell,
-    exShipPricePerMT: { ...INIT.sell.exShipPricePerMT, value: gf('inp-exship-price') },
-    currencyMode: currMode,
-  };
-  if (currMode === 'split') sell.splitUsdPct = gf('inp-split-usd') / 100;
-  if (depotOn) sell.depotPriceNgnPerL = { value: gf('inp-depot-price'), status: 'INDICATIVE' };
+  // sell kept for back-compat shape only; the engine prices from revenueLegs (native path).
+  const sell = { ...INIT.sell };
 
   return {
     ...INIT,
+    revenueLegs,
     market: {
       ice:        { ...INIT.market.ice,        value: gf('inp-ice') },
       fobPremium: { ...INIT.market.fobPremium, value: gf('inp-fob') },
@@ -1406,7 +1674,8 @@ function collectTrade() {
       ...INIT.pricing,
       conversion: {
         ...INIT.pricing.conversion,
-        litresPerMT: depotOn ? gf('inp-litres-per-mt') : (INIT.pricing.conversion.litresPerMT || 1183),
+        litresPerMT: (needLitres && isFinite(gf('inp-litres-per-mt')) && gf('inp-litres-per-mt') > 0)
+          ? gf('inp-litres-per-mt') : (INIT.pricing.conversion.litresPerMT || 1183),
       },
     },
     depot: { enabled: depotOn },
@@ -1442,15 +1711,13 @@ function updateLcDisplay() {
 }
 
 function updateDepotVisibility() {
-  const pct = gf('inp-exship-pct');
-  const hasDepot = pct < 100;
-  show('depot-price-row', hasDepot);
+  const hasDepot = _legs.some(l => l.channel === 'depot');
   show('storage-sec', hasDepot);
   show('storage-off-note', !hasDepot);
 }
 
 function updateCurrencyVisibility() {
-  show('split-usd-row', gs('inp-currency-mode') === 'split');
+  // Currency mode is derived from the revenue legs — no UI row to toggle.
 }
 
 function updateSurchargeVisibility() {
@@ -1510,13 +1777,10 @@ function resetToDefaults() {
   sv('inp-fob',            I.market.fobPremium.value);
   sv('inp-fxpar',          I.fx.parallel.value);
   sv('inp-delivered',      I.cargo.deliveredQtyMT);
-  sv('inp-exship-price',   I.sell.exShipPricePerMT.value);
-  sv('inp-exship-pct',     I.channels ? +(I.channels.exShipPct * 100).toFixed(1) : 100);
-  sv('inp-depot-price',    I.sell.depotPriceNgnPerL ? I.sell.depotPriceNgnPerL.value : 1400);
+  _legs = legsFromTrade(I);
+  renderLegEditor();
   sv('inp-profit-split',   +(p.profitSharePct * 100).toFixed(1));
   sv('inp-fxnafem',        I.fx.nafem.value);
-  sd('inp-currency-mode',  I.sell.currencyMode || 'USD');
-  sv('inp-split-usd',      +(((I.sell.splitUsdPct || 1) * 100)).toFixed(1));
   sv('inp-taxable-prop',   I.tax.taxableSupplyProportion);
   sv('inp-tc-rate',        I.freight.tcRatePerDay);
   sv('inp-charter',        I.freight.charterDays);
@@ -2240,19 +2504,26 @@ function recompute() {
   try { trade = collectTrade(); }
   catch(e) { clearResults(); showError('Input error: ' + e.message); return; }
 
-  // Sell price is OPTIONAL. The cost build-up and pricing ladder are price-INDEPENDENT
-  // (the ladder derives each tier's price from landed cost); only the P&L outputs need it.
-  // When no price is entered we run the engine at a synthetic placeholder purely so the
+  // Sell price is OPTIONAL, now PER LEG. The cost build-up and pricing ladder are price-INDEPENDENT
+  // (the ladder derives each tier's price from landed cost); only the P&L outputs need prices.
+  // When any leg is unpriced we run the engine with synthetic per-leg placeholders purely so the
   // price-independent outputs compute, then suppress every price-dependent display below.
-  const sellVal = trade.sell.exShipPricePerMT.value;
-  const hasSellPrice = isFinite(sellVal) && sellVal > 0;
+  const legsAll = trade.revenueLegs || [];
+  const hasSellPrice = legsAll.length > 0 && legsAll.every(l => isFinite(l.price) && l.price > 0);
 
   let engineTrade = trade;
   if (!hasSellPrice) {
     const iceV = trade.market.ice.value, fobV = trade.market.fobPremium.value;
     const base = (isFinite(iceV) ? iceV : 0) + (isFinite(fobV) ? fobV : 0);
-    const syntheticSell = base > 0 ? base * 1.25 : 1000; // positive; never displayed
-    engineTrade = { ...trade, sell: { ...trade.sell, exShipPricePerMT: { ...trade.sell.exShipPricePerMT, value: syntheticSell } } };
+    const synthUsd = base > 0 ? base * 1.25 : 1000; // positive; never displayed
+    const par = (trade.fx && trade.fx.parallel && isFinite(trade.fx.parallel.value)) ? trade.fx.parallel.value : null;
+    const litres = (trade.pricing && trade.pricing.conversion && trade.pricing.conversion.litresPerMT) || 1183;
+    const synthNgnPerL = par ? (synthUsd * par) / litres : 1000;
+    const filled = legsAll.map(l => {
+      if (isFinite(l.price) && l.price > 0) return l;
+      return { ...l, price: (l.pricingUnit === 'NGN_PER_L' ? synthNgnPerL : synthUsd) };
+    });
+    engineTrade = { ...trade, revenueLegs: filled };
   }
 
   let res;
@@ -2386,6 +2657,7 @@ function onInputChange(id) {
   updateHeader();
   refreshHedgePh();
   updateHedgedVolPlaceholder();
+  updateLegTotal();   // delivered MT feeds the leg tonnage total
   recompute();
 }
 
@@ -2393,8 +2665,7 @@ function onInputChange(id) {
 const PER_TRADE_IDS = [
   'inp-trade-name','inp-partner-name','inp-supplier-name','inp-inspector-name',
   'inp-ice','inp-fob','inp-fxpar','inp-fxnafem','inp-delivered',
-  'inp-exship-price','inp-exship-pct','inp-depot-price','inp-profit-split',
-  'inp-currency-mode','inp-split-usd',
+  'inp-profit-split',
   'inp-tc-rate','inp-charter','inp-demurrage',
   'inp-credit-rate','inp-lc-fee','inp-fin-days','inp-lockup','inp-wc-sublimit',
   'sel-equity-provider','inp-bond','inp-equity','inp-product-alloc',
@@ -2509,16 +2780,17 @@ function newTrade() {
   const BLANK = [
     'inp-trade-name','inp-partner-name','inp-supplier-name','inp-inspector-name',
     'inp-ice','inp-fob','inp-fxpar','inp-fxnafem','inp-delivered',
-    'inp-exship-price','inp-depot-price','inp-ice-fixed','inp-fx-forward','inp-ice-hedged-vol',
+    'inp-ice-fixed','inp-fx-forward','inp-ice-hedged-vol',
   ];
   for (const id of BLANK) { const el = document.getElementById(id); if (el) el.value = ''; }
 
+  // Fresh trade starts with one blank, unpriced ex-ship leg.
+  _legs = [legBlank()];
+  renderLegEditor();
+
   // Structural per-trade: reset to INIT defaults
   const I = INIT, p = I.partner, f = I.financing;
-  sv('inp-exship-pct',    I.channels ? +(I.channels.exShipPct*100).toFixed(1) : 100);
   sv('inp-profit-split',  +(p.profitSharePct*100).toFixed(1));
-  sd('inp-currency-mode', I.sell.currencyMode || 'USD');
-  sv('inp-split-usd',     +(((I.sell.splitUsdPct||1)*100)).toFixed(1));
   sv('inp-tc-rate',       I.freight.tcRatePerDay);
   sv('inp-charter',       I.freight.charterDays);
   sv('inp-demurrage',     I.freight.demurrageDays);
@@ -2576,6 +2848,7 @@ function saveTrade() {
   snap['_tog-fx-hedge']  = String(isOn('tog-fx-hedge'));
   snap['_tog-surcharge'] = String(isOn('tog-surcharge'));
   snap['_isSample']      = 'false';
+  snap['_legs']          = JSON.stringify(_legs);
   TISStorage.saveTrade(saveName, snap);
   _currentTradeName = saveName;
   renderSavedTradesList(saveName);
@@ -2601,6 +2874,7 @@ function saveAsTrade() {
   snap['_tog-fx-hedge']  = String(isOn('tog-fx-hedge'));
   snap['_tog-surcharge'] = String(isOn('tog-surcharge'));
   snap['_isSample']      = 'false';
+  snap['_legs']          = JSON.stringify(_legs);
   TISStorage.saveTrade(saveName, snap);
   _currentTradeName = saveName;
   renderSavedTradesList(saveName);
@@ -2647,6 +2921,8 @@ function loadSelectedTrade(explicit) {
   const snap = TISStorage.loadTrade(targetName);
   if (!snap) { showToast('Trade not found in storage'); return; }
   applyInputSnapshot(snap);
+  _legs = legsFromSnapshot(snap);   // new snaps carry _legs; legacy snaps rebuild from old fields
+  renderLegEditor();
   refreshHedgePh();
   updateHedgedVolPlaceholder();
   if (snap['_tog-ice-hedge'] != null) activateToggle(document.getElementById('tog-ice-hedge'), snap['_tog-ice-hedge'] === 'true');
@@ -2722,6 +2998,9 @@ window.deleteSelectedTrade = deleteSelectedTrade;
 window.saveAsDefaults      = saveAsDefaults;
 
 // ── Boot ───────────────────────────────────────────────────────────────────
+_legs = legsFromTrade(INIT);   // seed the per-leg editor from the initial trade
+renderLegEditor();
+wireLegEditor();
 updateLcDisplay();
 updateDepotVisibility();
 updateCurrencyVisibility();
