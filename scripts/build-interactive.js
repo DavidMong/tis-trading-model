@@ -472,7 +472,7 @@ body { display: flex; flex-direction: column; }
 }
 
 /* ── Ladder price-scale bar ─────────────────────────────────────── */
-.ladder-scale-wrap { padding: 8px 20px 20px; position: relative; }
+.ladder-scale-wrap { padding: 8px 20px 52px; position: relative; }
 .ladder-scale-bar {
   height: 24px;
   border-radius: 4px;
@@ -504,19 +504,54 @@ body { display: flex; flex-direction: column; }
   border-radius: 3px;
   padding: 2px 6px;
 }
+/* ladder-tier-pip now defined below cost-totals block with alt + ::before tick */
+
+/* ── Ladder tier pips: below bar, alternating rows ─────────────── */
 .ladder-tier-pip {
   position: absolute;
-  top: 50%;
-  transform: translate(-50%, -50%);
+  top: calc(100% + 5px);
+  transform: translateX(-50%);
   font-family: var(--f-display);
-  font-size: 8.5px;
+  font-size: 8px;
   font-weight: 700;
-  letter-spacing: .05em;
+  letter-spacing: .04em;
   text-transform: uppercase;
-  color: rgba(0,0,0,.38);
+  color: rgba(0,0,0,.55);
   white-space: nowrap;
   pointer-events: none;
+  line-height: 1;
 }
+.ladder-tier-pip.alt { top: calc(100% + 20px); }
+.ladder-tier-pip::before {
+  content: '';
+  position: absolute;
+  bottom: calc(100% + 5px);
+  left: 50%;
+  width: 1px;
+  height: 10px;
+  background: rgba(0,0,0,.25);
+  transform: translateX(-50%);
+}
+.ladder-tier-pip.alt::before { bottom: calc(100% + 20px); height: 25px; }
+
+/* ── Cost totals block ──────────────────────────────────────────── */
+.cost-totals {
+  background: var(--bg);
+  border-top: 2px solid var(--border);
+  padding: 12px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cost-total-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-family: var(--f-body);
+  font-size: 12px;
+}
+.cost-total-row span { color: var(--slate); }
+.cost-total-row b { font-variant-numeric: tabular-nums; }
 
 /* ── Tax net-after highlight ────────────────────────────────────── */
 .tax-net-box {
@@ -705,7 +740,10 @@ ${sec('Partner & Equity', [
     <label class="ir-lbl" for="lc-display">${pip('')}LC % (auto-derived)</label>
     <div id="lc-display" class="sr">${lcPctInit.toFixed(2)}%</div>
   </div>`,
-  ir('inp-product-alloc', 'Product Allocation %', ni('inp-product-alloc', pct2(p.productAllocationPct ?? 1), 5, 0), ''),
+  `<div class="ir">
+    <label class="ir-lbl" for="inp-product-alloc">${pip('')}<span title="Fraction of the partner's principal (their equity stake) returned in-kind as product rather than cash. 100% = full product; 0% = full cash. Does not change the partner's share of the cargo.">Partner principal as product %&nbsp;ⓘ</span></label>
+    ${ni('inp-product-alloc', pct2(p.productAllocationPct ?? 1), 5, 0)}
+  </div>`,
 ].join(''))}
 ${sec('Surcharge', [
   `<div id="sur-inc-row"${!surEnabled ? ' hidden' : ''}>
@@ -837,9 +875,9 @@ ${sharedCss}
 <!-- ── App header (always visible) ─────────────────────────────────────── -->
 <header class="report-header">
   <div class="header-inner">
-    <div class="header-logo">${logo}</div>
+    <div class="header-logo" role="img" aria-label="TIS Global Trading">${logo}</div>
     <div class="header-trade">
-      <h1 class="trade-name">${shortTitle}${fixtureBadge}</h1>
+      <h1 class="trade-name">${shortTitle} ${fixtureBadge}</h1>
       <p class="trade-id">${esc(t.meta.tradeId)}</p>
     </div>
     <div class="header-kpis" role="region" aria-label="Key metrics">
@@ -1322,9 +1360,10 @@ function renderLadder(trade, res, ladder) {
     const lo = Math.min(...prices);
     const hi = Math.max(...prices);
     const range = hi - lo || 1;
-    const tierPips = tiers.map(tier => {
+    const tierPips = tiers.map((tier, i) => {
       const pos = ((tier.pricePerMT - lo) / range * 80 + 10).toFixed(1);
-      return \`<span class="ladder-tier-pip" style="left:\${pos}%">\${esc(tier.name)}</span>\`;
+      const altCls = i % 2 === 1 ? ' alt' : '';
+      return \`<span class="ladder-tier-pip\${altCls}" style="left:\${pos}%">\${esc(tier.name)}</span>\`;
     }).join('');
     let tick = '';
     if (curPrice != null && curPrice >= lo - (range*0.1) && curPrice <= hi + (range*0.1)) {
@@ -1400,15 +1439,15 @@ function renderCost(res) {
 
   const rv = cost.recoverableVat;
   const sb = cost.servicesBucket;
-  const vatBase = \`<tr style="border-top:2px solid var(--border)">
+  const vatBase = \`<tr style="border-top:2px solid var(--border);background:var(--bg)">
     <td colspan="2"><b>VAT base (services bucket)</b><div class="legal-ref">\${sb.composition.map(x => esc(x.label)).join(', ')}</div></td>
-    <td class="muted">% of services</td>
-    <td class="r">\${fmtUsd(sb.sum)}</td>
-    <td></td>
+    <td class="muted" style="background:var(--bg)">% of services</td>
+    <td class="r" style="background:var(--bg)">\${fmtUsd(sb.sum)}</td>
+    <td style="background:var(--bg)"></td>
   </tr>\`;
-  const recRows = rv.lines.map(l => \`<tr class="tc-rec-row">
-    <td colspan="2" class="muted" style="padding-left:22px">↩ \${esc(l.label)} (recoverable s.155(4))</td>
-    <td></td><td class="r muted">\${fmtUsd(l.amount)}</td><td></td>
+  const recRows = rv.lines.map(l => \`<tr class="tc-rec-row" style="background:var(--bg)">
+    <td colspan="2" class="muted" style="padding-left:22px;background:var(--bg)">↩ \${esc(l.label)} (recoverable s.155(4))</td>
+    <td style="background:var(--bg)"></td><td class="r muted" style="background:var(--bg)">\${fmtUsd(l.amount)}</td><td style="background:var(--bg)"></td>
   </tr>\`).join('');
 
   return \`<section class="section" aria-labelledby="cost-h">
@@ -1548,7 +1587,7 @@ function renderHedge(trade, res) {
     return \`<div class="h-card\${on ? ' on' : ''}">
       <div class="h-card-hdr">
         <span class="h-card-title">\${esc(title)}</span>
-        <span class="\${pillCls}"><span class="h-pill-dot"></span>\${on ? 'Active' : 'Off'}</span>
+        <span class="\${pillCls}" style="margin-left:12px"><span class="h-pill-dot"></span>\${on ? 'Active' : 'Off'}</span>
       </div>
       <div class="h-detail">
         <div class="h-detail-inner">
@@ -1571,15 +1610,36 @@ function renderHedge(trade, res) {
 
 // ── 6. Tax Block ───────────────────────────────────────────────────────────
 function renderTax(res) {
-  const tb  = res.tax;
-  const sur = tb.surcharge;
-  const rows = (tb.lines || []).map(l => \`<tr>
-    <td>\${esc(l.label)}</td>
-    <td class="r">\${fmtUsd(l.amount)}</td>
+  const cost = res.cost;
+  const tb   = res.tax;
+  const sur  = tb.surcharge;
+  const rv   = cost.recoverableVat;
+
+  // Full tax-line set: all cost lines flagged taxLine=true, ordered by id
+  const taxLines = cost.lines.filter(l => l.taxLine);
+  const taxRows = taxLines.map(l => \`<tr>
+    <td>\${esc(l.label)}\${l.legalRef ? \`<div class="legal-ref">\${esc(l.legalRef)}</div>\` : ''}</td>
+    <td class="r">\${fmtUsd(l.amountUsd)}</td>
     <td>\${badge(l.status)}</td>
   </tr>\`).join('');
+
+  // Recoverable VAT callout (timing note)
+  const recBox = \`<tr style="background:var(--bg);border-top:2px solid var(--border)">
+    <td colspan="2" style="background:var(--bg)">
+      <span class="muted" style="font-size:11px">
+        ↩ <b>Recoverable input VAT (s.155(4))</b> — cash-flow timing only, excluded from cost.
+        Apportioned at \${(rv.taxableSupplyProportion*100).toFixed(0)}% taxable supply:
+        <b>\${fmtUsd(rv.recoverable)}</b> recoverable · <b>\${fmtUsd(rv.irrecoverable)}</b> irrecoverable (IS a cost).
+      </span>
+    </td>
+    <td class="r muted" style="background:var(--bg)">\${fmtUsd(rv.recoverable)}</td>
+  </tr>\`;
+
+  // Fossil-fuel surcharge row (toggle-gated)
   const surRow = \`<tr style="border-top:2px solid var(--border)">
-    <td><b>Fossil-fuel surcharge (5%)</b></td>
+    <td><b>Fossil-fuel surcharge (5%)</b>
+      <div class="legal-ref">NTA 2025 s.158–161; commences on Gazette date (s.160)</div>
+    </td>
     <td class="r">\${sur.enabled ? fmtUsd(sur.tisBorneUsd || 0) : '<span class="muted">OFF</span>'}</td>
     <td>\${sur.enabled ? '' : badge('PENDING')}</td>
   </tr>\`;
@@ -1595,8 +1655,8 @@ function renderTax(res) {
   <h2 class="section-heading" id="tax-h">Tax Block</h2>
   <div class="card">
     <div class="tbl-wrap"><table class="cost-table">
-      <thead><tr><th>Tax Line</th><th class="r">Amount</th><th>Flag</th></tr></thead>
-      <tbody>\${rows}\${surRow}</tbody>
+      <thead><tr><th>Tax Line</th><th class="r">Amount (USD)</th><th>Flag</th></tr></thead>
+      <tbody>\${taxRows}\${recBox}\${surRow}</tbody>
     </table></div>
     \${afterSurcharge}
   </div>
@@ -1673,19 +1733,28 @@ function renderSens(res) {
   const scenarios = [...sens.scenarios].sort((a,b) => Math.abs(b.deltaVsBase) - Math.abs(a.deltaVsBase));
   const maxAbs = Math.max(...scenarios.map(s => Math.abs(s.deltaVsBase)), 1);
 
-  function heatCls(delta) {
-    const pct = Math.abs(delta) / maxAbs;
-    if (delta > 0) return pct > 0.6 ? 'sh-pos-s' : pct > 0.2 ? 'sh-pos' : '';
-    if (delta < 0) return pct > 0.6 ? 'sh-neg-s' : pct > 0.2 ? 'sh-neg' : '';
-    return '';
+  // Proportional heat: every non-zero Δ cell gets a tint; intensity scales linearly with magnitude
+  function heatStyle(delta) {
+    if (delta === 0 || delta == null) return '';
+    const pct = Math.min(1, Math.abs(delta) / maxAbs);
+    const alpha = (0.08 + pct * 0.42).toFixed(2);
+    const bg = delta > 0
+      ? \`rgba(16,185,129,\${alpha})\`   // green
+      : \`rgba(239,68,68,\${alpha})\`;   // red
+    return \` style="background:\${bg}"\`;
   }
 
   const tableRows = [
-    \`<tr class="sens-base"><td><b>Base case</b></td><td class="r"><b>\${fmtUsd(sens.baseNet)}</b></td><td class="r">—</td></tr>\`,
+    // Base-case row: neutral bg + "baseline" label (not "—" which looks broken)
+    \`<tr class="sens-base">
+      <td><b>Base case</b></td>
+      <td class="r"><b>\${fmtUsd(sens.baseNet)}</b></td>
+      <td class="r" style="background:var(--bg);color:var(--slate);font-style:italic;font-size:11px">baseline</td>
+    </tr>\`,
     ...scenarios.map(s => \`<tr>
       <td>\${esc(s.lever)}</td>
       <td class="r">\${fmtUsd(s.tisNet)}</td>
-      <td class="r \${heatCls(s.deltaVsBase)}">\${s.deltaVsBase >= 0 ? '+' : ''}\${fmtUsd(s.deltaVsBase)}</td>
+      <td class="r"\${heatStyle(s.deltaVsBase)}>\${s.deltaVsBase >= 0 ? '+' : ''}\${fmtUsd(s.deltaVsBase)}</td>
     </tr>\`),
   ].join('');
 
@@ -1697,10 +1766,12 @@ function renderSens(res) {
   <h2 class="section-heading" id="sens-h">Sensitivities (&plusmn;10%)</h2>
   <div class="card">
     \${renderTornado(sens)}
-    <div class="tbl-wrap"><table class="cost-table" style="margin-top:16px">
-      <thead><tr><th>Lever</th><th class="r">TIS Net</th><th class="r">&Delta; vs Base</th></tr></thead>
-      <tbody>\${tableRows}</tbody>
-    </table></div>
+    <div class="tbl-wrap" style="margin-top:24px;border-top:1.5px solid var(--border);padding-top:0">
+      <table class="cost-table">
+        <thead><tr><th>Lever</th><th class="r">TIS Net</th><th class="r">&Delta; vs Base</th></tr></thead>
+        <tbody>\${tableRows}</tbody>
+      </table>
+    </div>
     \${fxNote}
   </div>
 </section>\`;
