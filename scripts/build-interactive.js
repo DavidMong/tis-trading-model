@@ -1082,8 +1082,8 @@ const sidebarHtml = `<aside class="sidebar" id="sidebar">
       <span class="mod-badge" id="modified-badge" hidden>Modified</span>
     </div>
     <div class="sb-footer-row2">
-      <select id="sel-saved-trades" class="lib-select"><option value="">— saved trades —</option></select>
-      <button class="btn-lib" onclick="loadSelectedTrade()" title="Load selected trade">↓</button>
+      <select id="sel-saved-trades" class="lib-select" onchange="loadSelectedTrade()"><option value="">— saved trades —</option></select>
+      <button class="btn-lib" onclick="loadSelectedTrade(true)" title="Load selected trade">↓</button>
       <button class="btn-lib btn-lib-del" onclick="deleteSelectedTrade()" title="Delete selected trade">✕</button>
     </div>
   </div>
@@ -2281,6 +2281,7 @@ function updateHeader() {
 
 // ── New Trade ─────────────────────────────────────────────────────────────
 function newTrade() {
+  if (_modified && !confirm('Unsaved edits will be lost. Start a new trade?')) return;
   const BLANK = [
     'inp-trade-name','inp-partner-name','inp-supplier-name','inp-inspector-name',
     'inp-ice','inp-fob','inp-fxpar','inp-fxnafem','inp-delivered',
@@ -2342,11 +2343,19 @@ function saveTrade() {
 }
 
 // ── Load selected trade ───────────────────────────────────────────────────
-function loadSelectedTrade() {
+function loadSelectedTrade(explicit) {
   const sel = document.getElementById('sel-saved-trades');
-  if (!sel || !sel.value) return;
+  if (!sel || !sel.value) {
+    if (explicit) showToast('Select a saved trade first');
+    return;
+  }
+  if (_modified && !confirm('Unsaved edits will be lost. Load "' + sel.value + '"?')) {
+    sel.value = '';   // reset dropdown to placeholder so UI state is consistent
+    return;
+  }
   const snap = TISStorage.loadTrade(sel.value);
-  if (!snap) return;
+  if (!snap) { showToast('Trade not found in storage'); return; }
+  const loadedName = sel.value;
   applyInputSnapshot(snap);
   if (snap['_tog-ice-hedge'] != null) activateToggle(document.getElementById('tog-ice-hedge'), snap['_tog-ice-hedge'] === 'true');
   if (snap['_tog-fx-hedge']  != null) activateToggle(document.getElementById('tog-fx-hedge'),  snap['_tog-fx-hedge']  === 'true');
@@ -2357,6 +2366,7 @@ function loadSelectedTrade() {
   updateHeader();
   setModified(false);
   recompute();
+  showToast('Loaded: ' + loadedName);
 }
 
 // ── Delete selected trade ─────────────────────────────────────────────────

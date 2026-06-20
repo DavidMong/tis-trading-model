@@ -200,6 +200,24 @@ Two named arrays in the client script control which inputs are cleared/reloaded 
 - **`DEFAULT_IDS`** — cost-line rates/flat fees, tax rates, storage rates, density, hedge bank
   terms. Persist across trades; loaded from saved house defaults on New Trade.
 
+### Save / Load / New Trade lifecycle
+
+- **Save** (`saveTrade()`): snapshots all `PER_TRADE_IDS` + `DEFAULT_IDS` values plus toggle states
+  (`_tog-ice-hedge`, `_tog-fx-hedge`, `_tog-surcharge`) into localStorage under the trade name.
+  Clears the MODIFIED badge. Rebuilds the dropdown with the just-saved trade pre-selected.
+- **Load** (`loadSelectedTrade(explicit?)`): called both by the `↓` button (with `explicit=true`)
+  and by the dropdown's `onchange` (auto-load on selection). If there are unsaved edits (`_modified`),
+  shows a confirm dialog; on cancel resets the dropdown to the placeholder so UI state stays
+  consistent. Restores every input and all three toggles, calls all visibility updaters and
+  `recompute()`, then shows a "Loaded: {name}" toast. The `↓` button passes `explicit=true` so an
+  empty-selection click shows "Select a saved trade first"; the `onchange` path passes nothing and
+  returns silently on empty.
+- **New Trade** (`newTrade()`): if `_modified` is true, shows a confirm dialog before clearing.
+  Clears all PER_TRADE fields, applies saved house defaults for DEFAULT fields, resets toggles to
+  OFF. Does NOT touch `localStorage` — saved trades are preserved.
+- **MODIFIED badge**: set to `true` by any `onInputChange()` or toggle click; cleared by Save,
+  Load, or New Trade (after the form is reset).
+
 ### Storage abstraction (`TISStorage`)
 
 All persistence is routed through `TISStorage` (an IIFE in the client script). Current backend:
