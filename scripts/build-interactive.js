@@ -341,19 +341,23 @@ body { display: flex; flex-direction: column; }
   transition: background .12s, color .12s;
 }
 .btn-reset:hover { background: var(--bg); color: var(--ink); }
-.mod-badge {
+.state-badge {
   font-family: var(--f-display);
-  font-size: 9px;
+  font-size: 9.5px;
   font-weight: 700;
-  letter-spacing: .06em;
+  letter-spacing: .04em;
   text-transform: uppercase;
-  background: rgba(212,29,29,.08);
-  color: var(--red);
-  border: 1px solid rgba(212,29,29,.20);
   border-radius: 3px;
-  padding: 2px 6px;
+  padding: 2px 7px;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  display: inline-block;
 }
+.state-new      { color: var(--slate); background: var(--slate-bg); }
+.state-saved    { color: #475569;      background: #f1f5f9; border: 1px solid #cbd5e1; }
+.state-modified { color: #92400e;      background: #fef3c7; border: 1px solid #fbbf24; }
 
 /* ── Results area ───────────────────────────────────────────────── */
 .results {
@@ -758,32 +762,40 @@ body { display: flex; flex-direction: column; }
 /* ── Text inputs share .si but don't need spinner removal ─────────────────── */
 .si[type="text"] { -webkit-appearance: auto; appearance: auto; }
 
-/* ── Sidebar footer: 2-row layout ────────────────────────────────────────── */
-.sb-footer { flex-shrink:0; border-top:1.5px solid var(--border); background:var(--white); }
-.sb-footer-row1 { display:flex; align-items:center; gap:8px; padding:10px 16px; border-bottom:1px solid var(--border); }
-.sb-footer-row2 { display:flex; align-items:center; gap:6px; padding:8px 16px; }
+/* ── Sidebar footer: 3-row layout (actions / state / library) ──────────────── */
+.sb-footer { flex-shrink:0; display:flex; flex-direction:column; border-top:1.5px solid var(--border); background:var(--white); }
+.sb-footer-row1 { display:flex; align-items:center; gap:6px; padding:9px 14px 6px; }
+.sb-state-row   { padding:0 14px 8px; border-bottom:1px solid var(--border); }
+.sb-footer-row2 { display:flex; align-items:center; gap:5px; padding:8px 14px; }
 
 .btn-new {
-  flex:1; padding:6px 10px; background:none; border:1px solid var(--border);
+  flex:1; padding:5px 8px; background:none; border:1px solid var(--border);
   border-radius:4px; font-family:var(--f-body); font-size:11px; color:var(--slate);
-  cursor:pointer; transition:background .12s, color .12s;
+  cursor:pointer; transition:background .12s, color .12s; white-space:nowrap;
 }
 .btn-new:hover { background:var(--bg); color:var(--ink); }
 
 .btn-save {
-  padding:6px 14px; background:var(--red); border:none; border-radius:4px;
+  padding:5px 12px; background:var(--red); border:none; border-radius:4px;
   font-family:var(--f-body); font-size:11px; font-weight:600; color:#fff;
   cursor:pointer; transition:background .12s; white-space:nowrap;
 }
 .btn-save:hover { background:#b91c1c; }
 
+.btn-saveas {
+  padding:5px 9px; background:none; border:1px solid var(--border);
+  border-radius:4px; font-family:var(--f-body); font-size:11px; color:var(--slate);
+  cursor:pointer; transition:background .12s, color .12s; white-space:nowrap;
+}
+.btn-saveas:hover { background:var(--bg); color:var(--ink); }
+
 .btn-lib {
-  padding:5px 9px; background:none; border:1px solid var(--border); border-radius:4px;
+  padding:5px 8px; background:none; border:1px solid var(--border); border-radius:4px;
   font-family:var(--f-body); font-size:12px; color:var(--slate); cursor:pointer;
   flex-shrink:0; transition:background .12s, color .12s, border-color .12s;
 }
 .btn-lib:hover { background:var(--bg); color:var(--ink); }
-.btn-lib-del:hover { background:#fef2f2; color:var(--red); border-color:#fca5a5; }
+.btn-lib-del:hover { background:var(--slate-bg); color:var(--ink); border-color:var(--slate); }
 
 .lib-select {
   flex:1; font-family:var(--f-body); font-size:11px; color:var(--ink);
@@ -1077,14 +1089,18 @@ const sidebarHtml = `<aside class="sidebar" id="sidebar">
   </div>
   <div class="sb-footer">
     <div class="sb-footer-row1">
-      <button class="btn-new" onclick="newTrade()" title="Clear per-trade fields, keep house defaults">New Trade</button>
-      <button class="btn-save" onclick="saveTrade()" title="Save all inputs under the trade name">Save</button>
-      <span class="mod-badge" id="modified-badge" hidden>Modified</span>
+      <button class="btn-new"    onclick="newTrade()"    title="Clear form, start a new trade">New Trade</button>
+      <button class="btn-save"   onclick="saveTrade()"   title="Save / update this trade">Save</button>
+      <button class="btn-saveas" onclick="saveAsTrade()" title="Save a copy under a new name">Save As…</button>
+    </div>
+    <div class="sb-state-row">
+      <span id="trade-state-badge" class="state-badge state-new">New · unsaved</span>
     </div>
     <div class="sb-footer-row2">
-      <select id="sel-saved-trades" class="lib-select" onchange="loadSelectedTrade()"><option value="">— saved trades —</option></select>
-      <button class="btn-lib" onclick="loadSelectedTrade(true)" title="Load selected trade">↓</button>
-      <button class="btn-lib btn-lib-del" onclick="deleteSelectedTrade()" title="Delete selected trade">✕</button>
+      <select id="sel-saved-trades" class="lib-select" onchange="loadSelectedTrade()"><option value="">Load a saved trade…</option></select>
+      <button class="btn-lib"               onclick="loadSelectedTrade(true)" title="Reload the selected trade">↓</button>
+      <button class="btn-lib btn-lib-ren"   onclick="renameTrade()"           title="Rename selected trade">✎</button>
+      <button class="btn-lib btn-lib-del"   onclick="deleteSelectedTrade()"   title="Delete selected trade">✕</button>
     </div>
   </div>
 </aside>`;
@@ -1411,10 +1427,26 @@ function updateIceRouteVisibility() {
 
 // ── Modified state ─────────────────────────────────────────────────────────
 let _modified = false;
+let _currentTradeName = null;   // null = new/unsaved; string = loaded/saved trade key
+
+function updateStateBadge() {
+  const el = document.getElementById('trade-state-badge');
+  if (!el) return;
+  if (_currentTradeName === null) {
+    el.textContent = 'New · unsaved';
+    el.className = 'state-badge state-new';
+  } else if (_modified) {
+    el.textContent = _currentTradeName + ' · modified';
+    el.className = 'state-badge state-modified';
+  } else {
+    el.textContent = _currentTradeName + ' · saved';
+    el.className = 'state-badge state-saved';
+  }
+}
+
 function setModified(v) {
   _modified = v;
-  const el = document.getElementById('modified-badge');
-  if (el) el.hidden = !v;
+  updateStateBadge();
 }
 
 // ── Reset to defaults ──────────────────────────────────────────────────────
@@ -1492,6 +1524,9 @@ function resetToDefaults() {
   sv('inp-supplier-name', (I.parties||{}).supplier  || '');
   sv('inp-inspector-name',(I.parties||{}).inspector || '');
   _isSample = INIT_IS_SAMPLE;
+  _currentTradeName = null;
+  const selRTD = document.getElementById('sel-saved-trades');
+  if (selRTD) selRTD.value = '';
   // UI state
   updateLcDisplay();
   updateDepotVisibility();
@@ -2281,7 +2316,7 @@ function updateHeader() {
 
 // ── New Trade ─────────────────────────────────────────────────────────────
 function newTrade() {
-  if (_modified && !confirm('Unsaved edits will be lost. Start a new trade?')) return;
+  if (_modified && !confirm('You have unsaved changes. Start a new trade and discard them?')) return;
   const BLANK = [
     'inp-trade-name','inp-partner-name','inp-supplier-name','inp-inspector-name',
     'inp-ice','inp-fob','inp-fxpar','inp-fxnafem','inp-delivered',
@@ -2318,6 +2353,9 @@ function newTrade() {
   activateToggle(document.getElementById('tog-surcharge'), false);
 
   _isSample = false;
+  _currentTradeName = null;
+  const selNT = document.getElementById('sel-saved-trades');
+  if (selNT) selNT.value = '';
   updateLcDisplay(); updateDepotVisibility(); updateCurrencyVisibility();
   updateSurchargeVisibility(); updateHedgeTab(); updateIceRouteVisibility();
   updateHeader();
@@ -2326,20 +2364,80 @@ function newTrade() {
   showToast('New trade — enter market data');
 }
 
-// ── Save trade ────────────────────────────────────────────────────────────
+// ── Save trade (smart: update in place if already saved, else create new) ─────
 function saveTrade() {
   const nameEl = document.getElementById('inp-trade-name');
-  const name   = nameEl ? nameEl.value.trim() : '';
-  if (!name) { showToast('Enter a trade name first'); if (nameEl) nameEl.focus(); return; }
+  let saveName;
+  const isUpdate = _currentTradeName !== null;
+
+  if (isUpdate) {
+    saveName = _currentTradeName;
+  } else {
+    const typedName = nameEl ? nameEl.value.trim() : '';
+    if (!typedName) { showToast('Enter a trade name first'); if (nameEl) nameEl.focus(); return; }
+    if (TISStorage.loadTrades()[typedName] &&
+        !confirm('"' + typedName + '" already exists. Overwrite it?')) return;
+    saveName = typedName;
+  }
+
   const snap = snapshotInputs([...PER_TRADE_IDS, ...DEFAULT_IDS]);
   snap['_tog-ice-hedge'] = String(isOn('tog-ice-hedge'));
   snap['_tog-fx-hedge']  = String(isOn('tog-fx-hedge'));
   snap['_tog-surcharge'] = String(isOn('tog-surcharge'));
   snap['_isSample']      = 'false';
-  TISStorage.saveTrade(name, snap);
-  renderSavedTradesList(name);
+  TISStorage.saveTrade(saveName, snap);
+  _currentTradeName = saveName;
+  renderSavedTradesList(saveName);
   setModified(false);
-  showToast('Saved: ' + name);
+  showToast(isUpdate ? 'Updated: ' + saveName : 'Saved: ' + saveName);
+}
+
+// ── Save As (always prompts for a new name, creates a separate saved copy) ───
+function saveAsTrade() {
+  const nameEl    = document.getElementById('inp-trade-name');
+  const suggestion = _currentTradeName
+    ? _currentTradeName + ' (copy)'
+    : (nameEl ? nameEl.value.trim() : '');
+  const input = prompt('Save a copy as:', suggestion);
+  if (input === null) return;
+  const saveName = input.trim();
+  if (!saveName) { showToast('Name cannot be empty'); return; }
+  if (TISStorage.loadTrades()[saveName] && saveName !== _currentTradeName &&
+      !confirm('"' + saveName + '" already exists. Overwrite it?')) return;
+
+  const snap = snapshotInputs([...PER_TRADE_IDS, ...DEFAULT_IDS]);
+  snap['_tog-ice-hedge'] = String(isOn('tog-ice-hedge'));
+  snap['_tog-fx-hedge']  = String(isOn('tog-fx-hedge'));
+  snap['_tog-surcharge'] = String(isOn('tog-surcharge'));
+  snap['_isSample']      = 'false';
+  TISStorage.saveTrade(saveName, snap);
+  _currentTradeName = saveName;
+  renderSavedTradesList(saveName);
+  setModified(false);
+  showToast('Saved as: ' + saveName);
+}
+
+// ── Rename selected saved trade ────────────────────────────────────────────
+function renameTrade() {
+  const sel = document.getElementById('sel-saved-trades');
+  if (!sel || !sel.value) { showToast('Select a saved trade first'); return; }
+  const currentName = sel.value;
+  const input = prompt('Rename "' + currentName + '" to:', currentName);
+  if (input === null) return;
+  const renamed = input.trim();
+  if (!renamed) { showToast('Name cannot be empty'); return; }
+  if (renamed === currentName) return;
+  if (TISStorage.loadTrades()[renamed] &&
+      !confirm('"' + renamed + '" already exists. Overwrite it?')) return;
+
+  const snap = TISStorage.loadTrade(currentName);
+  if (!snap) { showToast('Trade not found'); return; }
+  TISStorage.saveTrade(renamed, snap);
+  TISStorage.deleteTrade(currentName);
+  if (_currentTradeName === currentName) _currentTradeName = renamed;
+  renderSavedTradesList(renamed);
+  updateStateBadge();
+  showToast('Renamed to: ' + renamed);
 }
 
 // ── Load selected trade ───────────────────────────────────────────────────
@@ -2349,34 +2447,44 @@ function loadSelectedTrade(explicit) {
     if (explicit) showToast('Select a saved trade first');
     return;
   }
-  if (_modified && !confirm('Unsaved edits will be lost. Load "' + sel.value + '"?')) {
-    sel.value = '';   // reset dropdown to placeholder so UI state is consistent
+  const targetName = sel.value;
+  if (_modified && !confirm('Discard unsaved changes and load "' + targetName + '"?')) {
+    // Restore dropdown to reflect the form's current state
+    sel.value = _currentTradeName || '';
     return;
   }
-  const snap = TISStorage.loadTrade(sel.value);
+  const snap = TISStorage.loadTrade(targetName);
   if (!snap) { showToast('Trade not found in storage'); return; }
-  const loadedName = sel.value;
   applyInputSnapshot(snap);
   if (snap['_tog-ice-hedge'] != null) activateToggle(document.getElementById('tog-ice-hedge'), snap['_tog-ice-hedge'] === 'true');
   if (snap['_tog-fx-hedge']  != null) activateToggle(document.getElementById('tog-fx-hedge'),  snap['_tog-fx-hedge']  === 'true');
   if (snap['_tog-surcharge'] != null) activateToggle(document.getElementById('tog-surcharge'), snap['_tog-surcharge'] === 'true');
   _isSample = snap['_isSample'] === 'true';
+  _currentTradeName = targetName;
   updateLcDisplay(); updateDepotVisibility(); updateCurrencyVisibility();
   updateSurchargeVisibility(); updateHedgeTab(); updateIceRouteVisibility();
   updateHeader();
   setModified(false);
   recompute();
-  showToast('Loaded: ' + loadedName);
+  showToast('Loaded: ' + targetName);
 }
 
 // ── Delete selected trade ─────────────────────────────────────────────────
 function deleteSelectedTrade() {
   const sel = document.getElementById('sel-saved-trades');
-  if (!sel || !sel.value) return;
+  if (!sel || !sel.value) { showToast('Select a saved trade first'); return; }
   const name = sel.value;
-  if (!confirm('Delete saved trade "' + name + '"?')) return;
+  const isCurrentTrade = (_currentTradeName === name);
+  const extra = isCurrentTrade ? ' (This is the trade currently in your form.)' : '';
+  if (!confirm('Delete "' + name + '"? This cannot be undone.' + extra)) return;
   TISStorage.deleteTrade(name);
+  if (isCurrentTrade) {
+    _currentTradeName = null;
+    // Form stays intact; saved copy is gone → state reverts to "new · unsaved"
+  }
   renderSavedTradesList();
+  sel.value = '';
+  updateStateBadge();
   showToast('Deleted: ' + name);
 }
 
@@ -2392,7 +2500,7 @@ function renderSavedTradesList(selectName) {
   const sel    = document.getElementById('sel-saved-trades');
   if (!sel) return;
   const names = Object.keys(trades).sort();
-  sel.innerHTML = '<option value="">— saved trades —</option>' +
+  sel.innerHTML = '<option value="">Load a saved trade…</option>' +
     names.map(n => \`<option value="\${esc(n)}"\${n === selectName ? ' selected' : ''}>\${esc(n)}</option>\`).join('');
 }
 
@@ -2414,6 +2522,8 @@ function showToast(msg) {
 // ── Window exposes ────────────────────────────────────────────────────────
 window.newTrade            = newTrade;
 window.saveTrade           = saveTrade;
+window.saveAsTrade         = saveAsTrade;
+window.renameTrade         = renameTrade;
 window.loadSelectedTrade   = loadSelectedTrade;
 window.deleteSelectedTrade = deleteSelectedTrade;
 window.saveAsDefaults      = saveAsDefaults;
@@ -2427,6 +2537,7 @@ updateHedgeTab();
 updateIceRouteVisibility();
 updateHeader();
 renderSavedTradesList();
+updateStateBadge();
 recompute();
 
 })();
