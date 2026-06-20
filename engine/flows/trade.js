@@ -7,25 +7,33 @@ const { buildTaxBlock } = require('../core/tax');
 const { buildHedge } = require('../core/hedge');
 const { resolveFxRates, exShipCurrencyShares } = require('../core/fx');
 const { buildFxHedge } = require('../core/fx-hedge');
+const { normalizeLegs, computeLegRevenue } = require('../core/revenue');
 const { num, positive, nonNegative, proportion, oneOf, sumToOne, computedPositive } = require('../core/validate');
 
-// UNIFIED, fully-configurable trade flow. Five INDEPENDENT dimensions — every combination computes:
-//   1. SALE CHANNELS  : ex-ship (USD) and/or ex-depot (NGN); split of tonnes; proceeds POOL into one P&L.
-//   2. EQUITY PROVIDER: 'partner' (equity-split waterfall) or 'TIS' (self-funded; standalone = TIS net).
-//   3. EQUITY RATIO   : bond/equity/LC fully configurable; funding stack validated to 100%.
-//   4. CURRENCY       : ex-ship USD/NGN/split; depot always NGN. PARALLEL drives P&L; NAFEM reference only.
-//   5. DEPOT          : priced NGN/L; margin vs ALL-IN DEPOT landed; naira storage costs FX-exposed.
+// UNIFIED, fully-configurable trade flow. Sale revenue is a PER-LEG model (engine/core/revenue.js):
+// a trade holds a LIST of revenue legs, each priced in ONE unit —
+//   { channel: 'ex-ship'|'depot', pricingUnit: 'USD_PER_MT'|'NGN_PER_L', tonnes (or share), price }
+// Any MIX is supported: ex-ship-USD ($/MT), ex-ship-NGN (native ₦/L), depot-NGN (₦/L, always — depot is
+// never USD). Every NGN_PER_L leg → USD via (ngnPerL × litresPerMT) / parallelPayment (depot-identical;
+// ex-ship-NGN reuses the same conversion). Legacy trades (channels.exShipPct/depotPct + sell.currencyMode
+// /splitUsdPct) are ADAPTED onto this model and compute byte-for-byte identically — see revenue.js.
+//
+// Other INDEPENDENT dimensions, every combination computes:
+//   - EQUITY PROVIDER: 'partner' (equity-split waterfall) or 'TIS' (self-funded; standalone = TIS net).
+//   - EQUITY RATIO   : bond/equity/LC fully configurable; funding stack validated to 100%.
+//   - CURRENCY       : per-leg pricing unit (above). PARALLEL drives P&L; NAFEM reference only.
+//   - DEPOT          : margin vs ALL-IN DEPOT landed; naira storage costs FX-exposed.
 //
 // The engine is USD-internal; the FX layer converts naira legs to USD-equivalent at the PARALLEL rate
 // and reports FX exposure separately. computeEquityPartner stays the verified Profogas path; this flow
 // reproduces it exactly for {ex-ship, partner, USD, 25%} (see test/invariants.js cross-check).
 //
-// MARGIN-FOREGONE BENCHMARK: the partner's in-kind product is delivered EX-SHIP at the tank farm, so
-// margin-foregone is benchmarked on the EX-SHIP price (TIS keeps the depot premium it earns by taking
-// storage/holding/FX risk). EDGE CASE: a depot-only trade (no ex-ship channel) falls back to the depot
-// realized (ex-storage) price as the benchmark.
+// PARTNER IN-KIND BENCHMARK: the partner's in-kind product is valued in USD — at the USD ex-ship price
+// when a USD ex-ship leg exists; otherwise at the USD-equivalent landed cost. Deterministic, no arbitrary
+// pick. (The product is lifted ex-ship at the tank farm, so TIS keeps the depot premium it earns by
+// taking storage/holding/FX risk.)
 
-function validateTrade(trade, deliveredQty, ch) {
+function validateTrade(trade, deliveredQty, ch, native) {
   positive(deliveredQty, 'cargo.deliveredQtyMT');
   num(trade.market.ice.value, 'market.ice.value');
   num(trade.market.fobPremium.value, 'market.fobPremium.value');
@@ -39,9 +47,12 @@ function validateTrade(trade, deliveredQty, ch) {
   num(trade.tax.vatRate, 'tax.vatRate');
   proportion(trade.tax.taxableSupplyProportion, 'tax.taxableSupplyProportion');
 
-  proportion(ch.exShipPct, 'channels.exShipPct');
-  proportion(ch.depotPct, 'channels.depotPct');
-  sumToOne({ exShipPct: ch.exShipPct, depotPct: ch.depotPct }, 'channels');
+  // Legacy channel split is validated here; NATIVE per-leg trades validate leg tonnage in normalizeLegs.
+  if (!native) {
+    proportion(ch.exShipPct, 'channels.exShipPct');
+    proportion(ch.depotPct, 'channels.depotPct');
+    sumToOne({ exShipPct: ch.exShipPct, depotPct: ch.depotPct }, 'channels');
+  }
 
   const provider = (trade.partner && trade.partner.equityProvider) || 'partner';
   oneOf(provider, ['partner', 'TIS'], 'partner.equityProvider');
@@ -50,11 +61,9 @@ function validateTrade(trade, deliveredQty, ch) {
 
 function computeTrade(trade, opts = {}) {
   const deliveredQty = opts.deliveredQtyOverride ?? trade.cargo.deliveredQtyMT;
+  const native = Array.isArray(trade.revenueLegs) && trade.revenueLegs.length > 0;
   const ch = trade.channels || { exShipPct: 1, depotPct: 0 };
-  validateTrade(trade, deliveredQty, ch);
-
-  const exShipTonnes = deliveredQty * ch.exShipPct;
-  const depotTonnes = deliveredQty * ch.depotPct;
+  validateTrade(trade, deliveredQty, ch, native);
 
   // 1. Cargo FOB value & funding stack (equity ratio configurable, validated to 100%)
   const unitFob = trade.market.ice.value + trade.market.fobPremium.value;
@@ -64,14 +73,23 @@ function computeTrade(trade, opts = {}) {
   // 2. FX rates. PARALLEL = economic (P&L); NAFEM = reference only. fxBump = payment-vs-pricing parallel.
   const fxBump = opts.fxBump ?? (trade.fx && trade.fx.paymentBumpPct) ?? 0;
   const fx = resolveFxRates(trade, fxBump);
-  const exShares = exShipCurrencyShares(trade);
-  const needNaira = depotTonnes > 0 || exShares.nairaShare > 0;
+  // Legacy currency split only applies to the legacy adapter (native trades carry per-leg pricing units).
+  const exShares = native ? null : exShipCurrencyShares(trade);
+
+  // 3. Per-leg revenue model (native trade.revenueLegs, else legacy channels+currencyMode adapter).
+  const { legs, litresPerMT } = normalizeLegs(trade, {
+    deliveredQty, ch, exShares, parallelPricing: fx.parallelPricing,
+  });
+  const exShipTonnes = legs.filter((l) => l.channel === 'ex-ship').reduce((s, l) => s + l.tonnes, 0);
+  const depotTonnes = legs.filter((l) => l.channel === 'depot').reduce((s, l) => s + l.tonnes, 0);
+
+  const needNaira = legs.some((l) => l.pricingUnit === 'NGN_PER_L');
   if (needNaira) {
     computedPositive(fx.parallelPricing, 'parallel (pricing) rate');
     computedPositive(fx.parallelPayment, 'parallel (payment) rate');
   }
 
-  // 3. Cost build-up (storage active for depot tonnes; naira storage converted at parallel payment)
+  // 4. Cost build-up (storage active for depot tonnes; naira storage converted at parallel payment)
   const cost = buildCostBuildup(trade, {
     cargoValue, deliveredQty, depotTonnes, financing, parallelPayment: fx.parallelPayment,
   });
@@ -79,39 +97,48 @@ function computeTrade(trade, opts = {}) {
   const depotLandedPerMT = cost.depotLandedPerMT; // base + storage/depotTonnes
   computedPositive(exShipLandedPerMT, 'ex-ship landed cost / MT');
 
-  // 4. Revenue per channel (PARALLEL-driven; naira legs revalued pricing->payment via fxBump)
-  // Ex-ship leg: USD share has no FX risk; naira share is fixed in NGN at pricing, revalued at payment.
-  let exShipPriceUSD = null;
+  // 5. Revenue — sum the legs. USD_PER_MT legs carry no FX risk; every NGN_PER_L leg (depot OR native
+  // ex-ship-NGN) converts identically: (ngnPerL × litresPerMT) / parallelPayment, naira fixed for exposure.
+  const legResults = legs.map((l) => ({ leg: l, rev: computeLegRevenue(l, { parallelPayment: fx.parallelPayment, litresPerMT }) }));
   let exShipRevenueUSD = 0;
-  let exShipNairaUsdAtPricing = 0;
-  let exShipNairaNgn = 0;
-  if (exShipTonnes > 0) {
-    exShipPriceUSD = positive(trade.sell.exShipPricePerMT.value, 'sell.exShipPricePerMT.value');
-    const usdPart = exShares.usdShare * exShipPriceUSD * exShipTonnes;
-    exShipNairaUsdAtPricing = exShares.nairaShare * exShipPriceUSD * exShipTonnes; // USD-equiv fixed at pricing
-    exShipNairaNgn = exShipNairaUsdAtPricing * (fx.parallelPricing || 0);
-    const nairaUsdAtPayment = fx.parallelPayment ? exShipNairaNgn / fx.parallelPayment : exShipNairaUsdAtPricing;
-    exShipRevenueUSD = usdPart + nairaUsdAtPayment;
-  }
-  // Depot leg: priced NGN/L, always naira. Converted to USD at parallel payment.
-  let depotPriceUSDperMT = null;
   let depotRevenueUSD = 0;
-  let depotRevenueNgn = 0;
-  if (depotTonnes > 0) {
-    const ngnPerL = positive(trade.sell.depotPriceNgnPerL.value, 'sell.depotPriceNgnPerL.value');
-    const litresPerMT = positive(trade.pricing.conversion.litresPerMT, 'pricing.conversion.litresPerMT');
-    depotRevenueNgn = ngnPerL * litresPerMT * depotTonnes;
-    depotPriceUSDperMT = (ngnPerL * litresPerMT) / fx.parallelPayment;
-    depotRevenueUSD = depotTonnes * depotPriceUSDperMT;
+  let totalNairaRevenueNgnRaw = 0;
+  for (const { leg, rev } of legResults) {
+    if (leg.channel === 'ex-ship') exShipRevenueUSD += rev.usdRevenue;
+    else depotRevenueUSD += rev.usdRevenue;
+    totalNairaRevenueNgnRaw += rev.nairaNgn; // 0 for USD legs
+  }
+  // Representative per-channel prices (display + benchmark). exShipPriceUSD = the USD ex-ship leg price
+  // (or a legacy naira-settled leg's retained USD ref); depot from the depot leg's USD-equivalent.
+  const exShipUsdLeg = legs.find((l) => l.channel === 'ex-ship' && l.pricingUnit === 'USD_PER_MT');
+  const exShipAnyLeg = legs.find((l) => l.channel === 'ex-ship');
+  const exShipPriceUSD = exShipUsdLeg ? exShipUsdLeg.price : (exShipAnyLeg ? exShipAnyLeg.usdPriceRef : null);
+  const depotLegResult = legResults.find((x) => x.leg.channel === 'depot');
+  const depotPriceUSDperMT = depotLegResult ? depotLegResult.rev.priceUsdPerMT : null;
+  const depotPriceNgnPerL = depotLegResult ? depotLegResult.leg.price : null;
+
+  // Channel split + ex-ship currency view for the output. Legacy preserves the exShipCurrencyShares
+  // values byte-for-byte; native derives them from the resolved legs (ex-ship USD vs NGN tonnage).
+  const exShipPct = native ? exShipTonnes / deliveredQty : ch.exShipPct;
+  const depotPct = native ? depotTonnes / deliveredQty : ch.depotPct;
+  let currencyView;
+  if (native) {
+    const usdT = legs.filter((l) => l.channel === 'ex-ship' && l.pricingUnit === 'USD_PER_MT').reduce((s, l) => s + l.tonnes, 0);
+    const usdShare = exShipTonnes > 0 ? usdT / exShipTonnes : 0;
+    const mode = usdShare === 1 ? 'USD' : usdShare === 0 ? 'NGN' : 'split';
+    currencyView = { mode, usdShare, nairaShare: 1 - usdShare };
+  } else {
+    currencyView = { mode: exShares.mode, usdShare: exShares.usdShare, nairaShare: exShares.nairaShare };
   }
 
   // Naira cost (storage, naira-paid) -> needed for net exposure + FX exposure block + FX hedge.
   const nairaCostLines = cost.lines.filter((l) => l.category === 'storage' && l.currency === 'NGN');
   const nairaCostUsd = round(nairaCostLines.reduce((s, l) => s + l.amountUsd, 0), 2);
   const nairaCostNgn = round(nairaCostLines.reduce((s, l) => s + (l.ngnAmount || 0), 0), 2);
-  const totalNairaRevenueNgn = round(exShipNairaNgn + depotRevenueNgn, 2);
+  // NGN AGGREGATION: sum N arbitrary NGN legs (not two named buckets) minus naira cost -> FX exposure.
+  const totalNairaRevenueNgn = round(totalNairaRevenueNgnRaw, 2);
   const netNairaNgn = totalNairaRevenueNgn - nairaCostNgn;
-  const nairaRevenueUsd = round((fx.parallelPayment ? exShipNairaNgn / fx.parallelPayment : 0) + depotRevenueUSD, 2);
+  const nairaRevenueUsd = round(legResults.reduce((s, x) => s + (x.leg.pricingUnit === 'NGN_PER_L' ? x.rev.usdRevenue : 0), 0), 2);
 
   // FLOATING (unhedged) baseline: all naira at parallel payment, ICE at marked.
   const combinedRevenue = exShipRevenueUSD + depotRevenueUSD;
@@ -134,8 +161,10 @@ function computeTrade(trade, opts = {}) {
     principalAsProduct = partnerPrincipal * productAllocationPct;
     principalAsCash = partnerPrincipal - principalAsProduct;
     partnerTonnes = principalAsProduct / exShipLandedPerMT; // in-kind valued at EX-SHIP landed
-    if (exShipTonnes > 0) { benchmarkPriceUSD = exShipPriceUSD; benchmarkBasis = 'ex-ship price'; }
-    else { benchmarkPriceUSD = depotPriceUSDperMT; benchmarkBasis = 'depot realized price (ex-ship channel absent)'; }
+    // PARTNER IN-KIND BENCHMARK (#4): USD ex-ship price when a USD ex-ship leg exists; otherwise the
+    // USD-equivalent landed cost. Deterministic — never an arbitrary pick of a naira leg's realized price.
+    if (exShipUsdLeg) { benchmarkPriceUSD = exShipUsdLeg.price; benchmarkBasis = 'ex-ship price'; }
+    else { benchmarkPriceUSD = exShipLandedPerMT; benchmarkBasis = 'USD-equivalent landed cost (no USD ex-ship leg)'; }
     profitSharePct = trade.partner.profitSharePct;
   }
   const tisRetainedTonnes = deliveredQty - partnerTonnes;
@@ -200,9 +229,9 @@ function computeTrade(trade, opts = {}) {
   }
   const nafem = fx.nafemReference;
   const fxBlock = {
-    currencyMode: exShares.mode,
-    usdShare: exShares.usdShare,
-    nairaShare: exShares.nairaShare,
+    currencyMode: currencyView.mode,
+    usdShare: currencyView.usdShare,
+    nairaShare: currencyView.nairaShare,
     rates: {
       parallelPricing: fx.parallelPricing,
       parallelPayment: fx.parallelPayment,
@@ -252,14 +281,14 @@ function computeTrade(trade, opts = {}) {
     financing,
     cost,
     channels: {
-      exShipPct: ch.exShipPct, depotPct: ch.depotPct,
+      exShipPct, depotPct,
       exShipTonnes: round(exShipTonnes, 4), depotTonnes: round(depotTonnes, 4),
     },
     price: {
       exShipLandedPerMT: round(exShipLandedPerMT, 4),
       depotLandedPerMT: round(depotLandedPerMT, 4),
       exShipPricePerMT: exShipPriceUSD != null ? round(exShipPriceUSD, 4) : null,
-      depotPriceNgnPerL: depotTonnes > 0 ? trade.sell.depotPriceNgnPerL.value : null,
+      depotPriceNgnPerL: depotPriceNgnPerL,
       depotPriceUSDperMT: depotPriceUSDperMT != null ? round(depotPriceUSDperMT, 4) : null,
       avgRealizedPriceUSDperMT: round(avgRealizedPriceUSDperMT, 4),
       depotPremiumPerMT: depotPriceUSDperMT != null && exShipPriceUSD != null ? round(depotPriceUSDperMT - exShipPriceUSD, 4) : null,
@@ -268,6 +297,16 @@ function computeTrade(trade, opts = {}) {
       exShipUSD: money(exShipRevenueUSD),
       depotUSD: money(depotRevenueUSD),
       combinedUSD: money(combinedRevenue),
+      // Per-leg breakdown (per-leg revenue model). NGN legs carry their fixed naira amount (FX exposure).
+      legs: legResults.map(({ leg, rev }) => ({
+        channel: leg.channel,
+        pricingUnit: leg.pricingUnit,
+        tonnes: round(leg.tonnes, 4),
+        price: leg.price,
+        priceUsdPerMT: round(rev.priceUsdPerMT, 4),
+        usd: money(rev.usdRevenue),
+        ngn: leg.pricingUnit === 'NGN_PER_L' ? round(rev.nairaNgn, 2) : null,
+      })),
     },
     quantities: {
       deliveredQty,

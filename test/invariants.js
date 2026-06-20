@@ -258,12 +258,16 @@ check('FX8 equity ratio re-flow: LC = 80% of cargo', approx(both.financing.lc, 0
 check('FX8 equity ratio re-flow: partner funding = 20% of cargo', approx(both.financing.partnerFunding, 0.2 * both.cargoValue, 1));
 check('FX8 day-count Actual/360 used', both.financing.dayCountBasis === 360);
 
-// FX9 — margin-foregone benchmark = EX-SHIP price (both channels); depot-only partner falls back.
+// FX9 — partner in-kind benchmark = USD ex-ship price when a USD ex-ship leg exists (both channels).
 check('FX9 margin-foregone benchmark = ex-ship price (both channels)',
   approx(both.profit.benchmarkPriceUSD, bothChannels.sell.exShipPricePerMT.value, 0.01));
+// RULE CHANGE 2026-06-20 (Stage-1 per-leg revenue): the no-USD-leg fallback is now the USD-EQUIVALENT
+// LANDED COST (was the depot realized/ex-storage price). Only this synthetic depot-only-PARTNER scenario
+// is affected; Profogas and all USD/real trades are byte-for-byte unchanged. Old expected: depotPriceUSDperMT
+// ($1330.875); new expected: exShipLandedPerMT ($1037.0449). Check retained, re-pointed to the new rule.
 const depotPartner = computeTrade({ ...depotOnly, partner: { ...depotOnly.partner, equityProvider: 'partner', profitSharePct: 0.3, productAllocationPct: 1.0 } });
-check('FX9 depot-only partner: benchmark falls back to depot realized price',
-  approx(depotPartner.profit.benchmarkPriceUSD, depotPartner.price.depotPriceUSDperMT, 0.01));
+check('FX9 depot-only partner: benchmark falls back to USD-equivalent landed cost',
+  approx(depotPartner.profit.benchmarkPriceUSD, depotPartner.price.exShipLandedPerMT, 0.01));
 
 // FX10 — validation throws on bad funding stack / channel split.
 expectThrow('FX10 funding stack not summing to 1 throws', () => computeTrade({ ...bothChannels, partner: { ...bothChannels.partner, equityPct: 0.3 } }), 'sum to 1.0');
@@ -324,6 +328,73 @@ check('HX8 USD trade: FX-ON TIS net == OFF', approx(exFxOn.profit.tisNetProfit, 
 // HX9 — reconciliation still holds with both hedges ON.
 const bothOn = computeTrade({ ...bothChannels, hedge: { ...bothChannels.hedge, iceHedged: true }, fxHedge: { ...bothChannels.fxHedge, fxHedged: true } });
 check('HX9 reconciliation holds with ICE+FX both ON', bothOn.profit.reconciliation.ok === true);
+
+// ============================================================================================
+// PER-LEG REVENUE MODEL (Stage 1) — native trade.revenueLegs: ex-ship-USD / ex-ship-NGN / depot-NGN mix,
+// the shared NGN→USD conversion, N-leg NGN aggregation into the FX hedge, the partner-benchmark fallback,
+// and per-leg validation. Legacy trades are covered byte-for-byte by FX1–FX10 above (same engine, adapter).
+// ============================================================================================
+const LITRES = bothChannels.pricing.conversion.litresPerMT; // 1183
+
+// PL1 — a NATIVE ex-ship leg priced ₦/L uses the SAME conversion as a depot ₦/L leg (identical price/tonnes).
+const exNgn1 = computeTrade({ ...depotOnly, revenueLegs: [{ channel: 'ex-ship', pricingUnit: 'NGN_PER_L', tonnes: 10000, price: 1800 }] });
+const depNgn1 = computeTrade({ ...depotOnly, revenueLegs: [{ channel: 'depot', pricingUnit: 'NGN_PER_L', tonnes: 10000, price: 1800 }] });
+const exLeg = exNgn1.revenue.legs[0];
+const depLeg = depNgn1.revenue.legs[0];
+const payment1 = exNgn1.fx.rates.parallelPayment;
+check('PL1 ex-ship-NGN leg classified as ex-ship channel', exLeg.channel === 'ex-ship' && exNgn1.channels.exShipTonnes === 10000);
+check('PL1 ex-ship-NGN priceUsdPerMT = (ngnPerL × litres) / parallelPayment', approx(exLeg.priceUsdPerMT, (1800 * LITRES) / payment1, 0.001));
+check('PL1 ex-ship-NGN USD = depot-NGN USD (same conversion)', exLeg.usd === depLeg.usd);
+check('PL1 ex-ship-NGN priceUsdPerMT = depot-NGN priceUsdPerMT', exLeg.priceUsdPerMT === depLeg.priceUsdPerMT);
+check('PL1 ex-ship-NGN naira amount = ngnPerL × litres × tonnes', approx(exLeg.ngn, 1800 * LITRES * 10000, 0.01) && exLeg.ngn === depLeg.ngn);
+
+// PL2 — a 3-leg mix (ex-ship-USD + ex-ship-NGN + depot-NGN) pools into one P&L; channels/currency derive.
+const mixLegs = [
+  { channel: 'ex-ship', pricingUnit: 'USD_PER_MT', tonnes: 5000, price: 1300 },
+  { channel: 'ex-ship', pricingUnit: 'NGN_PER_L', tonnes: 3000, price: 1850 },
+  { channel: 'depot', pricingUnit: 'NGN_PER_L', tonnes: 4000, price: 1850 },
+];
+const mix = computeTrade({ ...bothChannels, revenueLegs: mixLegs });
+const mixLegUsdSum = mix.revenue.legs.reduce((s, l) => s + l.usd, 0);
+check('PL2 3-leg mix: combinedUSD = Σ leg USD', approx(mix.revenue.combinedUSD, mixLegUsdSum, 0.02));
+check('PL2 3-leg mix: exShipUSD = USD leg + ex-ship-NGN leg', approx(mix.revenue.exShipUSD, mix.revenue.legs[0].usd + mix.revenue.legs[1].usd, 0.02));
+check('PL2 3-leg mix: depotUSD = depot leg', approx(mix.revenue.depotUSD, mix.revenue.legs[2].usd, 0.02));
+check('PL2 3-leg mix pools into one P&L (standalone = rev − cost)', approx(mix.profit.standaloneProfit, mix.revenue.combinedUSD - mix.cost.allInCost, 0.02) && mix.profit.reconciliation.ok === true);
+check('PL2 3-leg mix: channels derive from legs (ex-ship 8000 / depot 4000)', mix.channels.exShipTonnes === 8000 && mix.channels.depotTonnes === 4000);
+check('PL2 3-leg mix: currency view = split (usdShare 5000/8000)', mix.fx.currencyMode === 'split' && approx(mix.fx.usdShare, 5000 / 8000, 1e-9));
+check('PL2 3-leg mix partner benchmark = USD ex-ship leg price (USD leg present)', approx(mix.profit.benchmarkPriceUSD, 1300, 0.01) && mix.profit.benchmarkBasis === 'ex-ship price');
+
+// PL3 — partner-benchmark FALLBACK: an all-naira trade (no USD ex-ship leg) values in-kind product at the
+// USD-EQUIVALENT LANDED COST (deterministic), not at any naira leg's realized price.
+const allNairaLegs = [
+  { channel: 'ex-ship', pricingUnit: 'NGN_PER_L', tonnes: 7000, price: 1850 },
+  { channel: 'depot', pricingUnit: 'NGN_PER_L', tonnes: 5000, price: 1850 },
+];
+const allNaira = computeTrade({ ...bothChannels, revenueLegs: allNairaLegs });
+check('PL3 all-naira partner: benchmark = USD-equivalent landed cost', approx(allNaira.profit.benchmarkPriceUSD, allNaira.price.exShipLandedPerMT, 0.01));
+check('PL3 all-naira partner: benchmark basis names landed cost', /landed cost/.test(allNaira.profit.benchmarkBasis));
+check('PL3 all-naira partner: no USD ex-ship price reported', allNaira.price.exShipPricePerMT === null);
+check('PL3 all-naira reconciliation holds', allNaira.profit.reconciliation.ok === true);
+
+// PL4 — NGN AGGREGATION across >2 legs (two ex-ship-NGN + one depot-NGN) sums into the net naira exposure
+// that feeds the FX hedge (generalizes the old two-bucket sum to N arbitrary legs).
+const aggLegs = [
+  { channel: 'ex-ship', pricingUnit: 'NGN_PER_L', tonnes: 3000, price: 1800 },
+  { channel: 'ex-ship', pricingUnit: 'NGN_PER_L', tonnes: 4000, price: 1900 },
+  { channel: 'depot', pricingUnit: 'NGN_PER_L', tonnes: 5000, price: 1850 },
+];
+const agg = computeTrade({ ...bothChannels, revenueLegs: aggLegs, fxHedge: { ...bothChannels.fxHedge, fxHedged: true } });
+const expectedNgnSum = 1800 * LITRES * 3000 + 1900 * LITRES * 4000 + 1850 * LITRES * 5000;
+check('PL4 >2 NGN legs: total naira revenue = Σ of all NGN legs', approx(agg.fx.nairaRevenue.ngn, expectedNgnSum, 0.5));
+check('PL4 >2 NGN legs: all three legs carry a naira amount', agg.revenue.legs.length === 3 && agg.revenue.legs.every((l) => l.ngn > 0));
+check('PL4 net naira exposure = Σ NGN revenue − naira cost', approx(agg.fxHedge.exposureNgn, agg.fx.nairaRevenue.ngn - agg.fx.nairaCost.ngn, 0.5));
+check('PL4 FX hedge consumes the aggregated exposure (hedged ≈ exposure at ratio 1)', agg.fxHedge.hasExposure === true && approx(agg.fxHedge.hedgedNgn, agg.fxHedge.exposureNgn, 1));
+
+// PL5 — per-leg validation (#1 tonnage sum, #5 missing/non-positive price, depot-never-USD).
+expectThrow('PL5 depot leg priced USD is rejected', () => computeTrade({ ...bothChannels, revenueLegs: [{ channel: 'depot', pricingUnit: 'USD_PER_MT', tonnes: 12000, price: 1300 }] }), 'depot legs must be priced NGN_PER_L');
+expectThrow('PL5 leg tonnage must sum to delivered quantity', () => computeTrade({ ...bothChannels, revenueLegs: [{ channel: 'ex-ship', pricingUnit: 'USD_PER_MT', tonnes: 5000, price: 1300 }] }), 'sum to delivered quantity');
+expectThrow('PL5 missing/non-positive leg price throws (positive, per leg)', () => computeTrade({ ...bothChannels, revenueLegs: [{ channel: 'ex-ship', pricingUnit: 'USD_PER_MT', tonnes: 12000, price: 0 }] }), 'price');
+expectThrow('PL5 invalid leg channel throws', () => computeTrade({ ...bothChannels, revenueLegs: [{ channel: 'wholesale', pricingUnit: 'USD_PER_MT', tonnes: 12000, price: 1300 }] }), 'channel');
 
 // ============================================================================================
 // Config-driven cost/tax lines (policy-change-proofing) — type/rate/base editable via config only.
