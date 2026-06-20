@@ -992,7 +992,8 @@ ${sec('Pricing <span class="live-badge">Live</span>', [
   ir('inp-delivered', 'Delivered MT',        ni('inp-delivered', t.cargo.deliveredQtyMT,        1, 1),        '', true),
 ].join(''))}
 ${sec('Sale', [
-  ir('inp-exship-price', 'Ex-Ship Price $/MT', ni('inp-exship-price', t.sell.exShipPricePerMT.value, 0.01, 0), t.sell.exShipPricePerMT.status, true),
+  ir('inp-exship-price', 'Ex-Ship Price $/MT', ni('inp-exship-price', t.sell.exShipPricePerMT.value, 0.01, 0), t.sell.exShipPricePerMT.status, true)
+    + '<p class="defaults-note" style="margin-top:-2px">Optional — leave blank to see the cost build-up &amp; pricing ladder first, then price from the ladder.</p>',
   ir('inp-exship-pct',   'Ex-ship Channel %',  ni('inp-exship-pct',   exShipPctInit, 1, 0), '', true),
   `<div class="ir pri" id="depot-price-row"${!depotActive ? ' hidden' : ''}>
     <label class="ir-lbl" for="inp-depot-price">${pip('INDICATIVE')}Depot Price ₦/L</label>
@@ -1594,27 +1595,51 @@ function infoRow(label, value, extra) {
   return \`<div class="info-row"><span>\${esc(label)}</span><b>\${value ?? '—'}</b>\${extra ? \` \${extra}\` : ''}</div>\`;
 }
 
-// ── KPI chips ──────────────────────────────────────────────────────────────
-function renderKPIs(res) {
-  const p   = res.profit;
-  const tisNet = p.tisNetProfit;
+// Calm pending card shown in the waterfall slot before a sell price is entered.
+function renderPricePending() {
+  return \`<section class="section" aria-labelledby="wf-h">
+  <h2 class="section-heading" id="wf-h">Profit Waterfall</h2>
+  <div class="card">
+    <div class="empty-state" style="padding:36px 24px">
+      <p class="empty-state-title">Enter your sell price to see P&amp;L</p>
+      <p class="empty-state-sub">The cost build-up and pricing ladder below are ready. Pick a price from the ladder, then enter it as the Ex-Ship Price to compute TIS Net Profit, ex-ship margin, partner split and sensitivities.</p>
+    </div>
+  </div>
+</section>\`;
+}
 
+// ── KPI chips ──────────────────────────────────────────────────────────────
+function renderKPIs(res, hasSellPrice) {
   const kv = document.getElementById('kpi-tisnet-val');
   const ks = document.getElementById('kpi-tisnet-sub');
+  const av  = document.getElementById('kpi-annret-val');
+  const as_ = document.getElementById('kpi-annret-sub');
+  const mv = document.getElementById('kpi-margin-val');
+  const ms = document.getElementById('kpi-margin-sub');
+
+  // P&L KPIs are pending until a sell price is entered — show calm placeholders, no fake numbers.
+  if (hasSellPrice === false) {
+    if (kv) kv.textContent = '—';
+    if (ks) ks.textContent = 'enter sell price for P&L';
+    if (av) av.textContent = '—';
+    if (as_) as_.textContent = 'enter sell price';
+    if (mv) mv.textContent = '—';
+    if (ms) ms.textContent = 'enter sell price';
+    return;
+  }
+
+  const p   = res.profit;
+  const tisNet = p.tisNetProfit;
   if (kv) { kv.textContent = fmtUsd(tisNet); kv.classList.add('kpi-flash'); setTimeout(() => kv.classList.remove('kpi-flash'), 350); }
   if (ks) ks.textContent = res.equityProvider === 'TIS' ? 'self-funded (no partner)' : 'after partner split';
 
   const ann = res.tisAnnualisedReturn;
-  const av  = document.getElementById('kpi-annret-val');
-  const as_ = document.getElementById('kpi-annret-sub');
   if (av) av.textContent = ann != null ? fmtPct(ann) : '—';
   if (as_) as_.textContent = \`on cargo value · \${res.financing.capitalLockupDays}d lockup\`;
 
   const landed = res.price.exShipLandedPerMT;
   const price  = res.price.exShipPricePerMT;
   const margin = (price && landed) ? (price - landed) / price : null;
-  const mv = document.getElementById('kpi-margin-val');
-  const ms = document.getElementById('kpi-margin-sub');
   if (mv) mv.textContent = margin != null ? fmtPct(margin) : '—';
   if (ms) ms.textContent = price ? fmtUsd(price) + '/MT sell' : '—';
 }
@@ -1756,7 +1781,7 @@ function renderLadder(trade, res, ladder) {
     </table></div>
     \${depotSection}
     <div class="card-footer">
-      Ex-ship landed: <b>\${fmtUsd(landed)}/MT</b> &nbsp;·&nbsp; Current price: <b>\${fmtUsd(curPrice)}/MT</b>\${compNote}
+      Ex-ship landed: <b>\${fmtUsd(landed)}/MT</b>\${curPrice != null ? \` &nbsp;·&nbsp; Current price: <b>\${fmtUsd(curPrice)}/MT</b>\` : ''}\${compNote}
     </div>
   </div>
 </section>\`;
@@ -2152,15 +2177,27 @@ function renderSens(res) {
 }
 
 // ── Master render ──────────────────────────────────────────────────────────
-function renderAll(trade, res, ladder) {
-  renderKPIs(res);
-  document.getElementById('sec-waterfall').innerHTML = renderWaterfall(res);
-  document.getElementById('sec-ladder').innerHTML    = renderLadder(trade, res, ladder);
-  document.getElementById('sec-cost').innerHTML      = renderCost(res);
-  document.getElementById('sec-partner').innerHTML   = renderPartner(trade, res);
-  document.getElementById('sec-hedge').innerHTML     = renderHedge(trade, res);
-  document.getElementById('sec-tax').innerHTML       = renderTax(res);
-  document.getElementById('sec-sens').innerHTML      = renderSens(res);
+function renderAll(trade, res, ladder, hasSellPrice) {
+  renderKPIs(res, hasSellPrice);
+  if (hasSellPrice === false) {
+    // No sell price yet: show price-INDEPENDENT outputs (cost build-up + pricing ladder),
+    // a calm pending card where the waterfall goes, and clear the P&L-dependent sections.
+    document.getElementById('sec-waterfall').innerHTML = renderPricePending();
+    document.getElementById('sec-ladder').innerHTML    = renderLadder(trade, res, ladder);
+    document.getElementById('sec-cost').innerHTML      = renderCost(res);
+    document.getElementById('sec-partner').innerHTML   = '';
+    document.getElementById('sec-hedge').innerHTML     = '';
+    document.getElementById('sec-tax').innerHTML       = '';
+    document.getElementById('sec-sens').innerHTML      = '';
+  } else {
+    document.getElementById('sec-waterfall').innerHTML = renderWaterfall(res);
+    document.getElementById('sec-ladder').innerHTML    = renderLadder(trade, res, ladder);
+    document.getElementById('sec-cost').innerHTML      = renderCost(res);
+    document.getElementById('sec-partner').innerHTML   = renderPartner(trade, res);
+    document.getElementById('sec-hedge').innerHTML     = renderHedge(trade, res);
+    document.getElementById('sec-tax').innerHTML       = renderTax(res);
+    document.getElementById('sec-sens').innerHTML      = renderSens(res);
+  }
   requestAnimationFrame(() => {
     document.querySelectorAll('.section').forEach(el => {
       el.classList.remove('val-flash');
@@ -2190,7 +2227,7 @@ function showEmptyState() {
   clearResults();
   clearError();
   const el = document.getElementById('sec-waterfall');
-  if (el) el.innerHTML = '<section class="section empty-state-section"><div class="empty-state"><p class="empty-state-title">Enter trade data to see results</p><p class="empty-state-sub">Required: ICE price · FX parallel rate · delivered MT · ex-ship price</p></div></section>';
+  if (el) el.innerHTML = '<section class="section empty-state-section"><div class="empty-state"><p class="empty-state-title">Enter trade data to see results</p><p class="empty-state-sub">Required: ICE price · FX parallel rate · delivered MT</p></div></section>';
 }
 
 // ── Recompute ──────────────────────────────────────────────────────────────
@@ -2203,23 +2240,46 @@ function recompute() {
   try { trade = collectTrade(); }
   catch(e) { clearResults(); showError('Input error: ' + e.message); return; }
 
+  // Sell price is OPTIONAL. The cost build-up and pricing ladder are price-INDEPENDENT
+  // (the ladder derives each tier's price from landed cost); only the P&L outputs need it.
+  // When no price is entered we run the engine at a synthetic placeholder purely so the
+  // price-independent outputs compute, then suppress every price-dependent display below.
+  const sellVal = trade.sell.exShipPricePerMT.value;
+  const hasSellPrice = isFinite(sellVal) && sellVal > 0;
+
+  let engineTrade = trade;
+  if (!hasSellPrice) {
+    const iceV = trade.market.ice.value, fobV = trade.market.fobPremium.value;
+    const base = (isFinite(iceV) ? iceV : 0) + (isFinite(fobV) ? fobV : 0);
+    const syntheticSell = base > 0 ? base * 1.25 : 1000; // positive; never displayed
+    engineTrade = { ...trade, sell: { ...trade.sell, exShipPricePerMT: { ...trade.sell.exShipPricePerMT, value: syntheticSell } } };
+  }
+
   let res;
-  try { res = TISEngine.computeTrade(trade); }
+  try { res = TISEngine.computeTrade(engineTrade); }
   catch(e) { clearResults(); showError(e.message); return; }
 
-  try {
-    const fn = t => TISEngine.computeTrade(t, { skipHedgeCompare: true });
-    res.sensitivities = TISEngine.runSensitivities(trade, fn, { fxMode: 'parallel' });
-  } catch(_) { res.sensitivities = null; }
+  // Sensitivities are P&L-based — only meaningful (and only shown) once a sell price exists.
+  if (hasSellPrice) {
+    try {
+      const fn = t => TISEngine.computeTrade(t, { skipHedgeCompare: true });
+      res.sensitivities = TISEngine.runSensitivities(engineTrade, fn, { fxMode: 'parallel' });
+    } catch(_) { res.sensitivities = null; }
+  } else {
+    res.sensitivities = null;
+  }
 
   let ladder = null;
   try {
     const fn = t => TISEngine.computeTrade(t, { skipHedgeCompare: true });
-    ladder = TISEngine.buildLadder(trade, fn, res);
+    ladder = TISEngine.buildLadder(engineTrade, fn, res);
   } catch(_) { ladder = null; }
 
+  // Suppress the synthetic price so the ladder shows no fake current-price marker.
+  if (!hasSellPrice) res.price.exShipPricePerMT = null;
+
   clearError();
-  renderAll(trade, res, ladder);
+  renderAll(trade, res, ladder, hasSellPrice);
 }
 
 // ── Toggle switches ────────────────────────────────────────────────────────

@@ -289,6 +289,36 @@ wipes the sections + KPIs and the red error banner shows — no stale prior-trad
 House defaults (Costs tab: tax rates, cost-line rates, hedge bank terms) are NOT cleared by this; they
 persist through New Trade as intended and rehydrate from saved house defaults.
 
+### Sell price is OPTIONAL (price-independent vs price-dependent outputs)
+
+The Ex-Ship sell price (`inp-exship-price`) is **not required**. The trader prices *from* the ladder,
+so the cost build-up and pricing ladder must be visible before a price is chosen.
+
+**Price-INDEPENDENT** (compute/render without a sell price):
+- Cost Build-Up (`renderCost`) — `buildCostBuildup` never receives `sellValue` in the unified
+  `engine/flows/trade.js` path, so `pct_of_sell` lines resolve to 0; landed cost is pure cost-side.
+- Pricing Ladder (`renderLadder`) — each tier derives its own price from `exShipLandedPerMT` and runs
+  the engine at that price (`runAtPrice`); the ladder base never needs the entered sell price.
+
+**Price-DEPENDENT** (need a sell price; shown as a calm PENDING state until one is entered):
+- Profit Waterfall, TIS Net Profit KPI, Annualised Return KPI, Ex-Ship Margin KPI,
+  Partner Deliverables (cash share), Hedge Analysis comparison, Tax surcharge, Sensitivities.
+
+**How `recompute()` handles it** (no engine math changed):
+- Detects `hasSellPrice = isFinite(value) && value > 0` from the collected trade.
+- The engine (`trade.js:89`) *throws* if the ex-ship channel is active and the price isn't positive.
+  So when there's no price, it runs the engine once at a **synthetic placeholder** price
+  (`(ice+fob)*1.25`, fallback 1000) purely to extract the price-independent outputs. That synthetic
+  value is **never displayed**.
+- After the run, `res.price.exShipPricePerMT` is set to `null` so the ladder shows no fake
+  current-price marker, and sensitivities are skipped.
+- `renderAll(trade, res, ladder, hasSellPrice)` then renders cost + ladder + a pending card in the
+  waterfall slot and clears the P&L-dependent sections; `renderKPIs(res, false)` shows `—` with an
+  "enter sell price" sub. Entering a price re-runs normally and everything computes; clearing it
+  returns to pending with the ladder intact.
+
+The 133 invariant tests exercise the engine directly (with a real sell price), so they are unaffected.
+
 ### Storage abstraction (`TISStorage`)
 
 All persistence is routed through `TISStorage` (an IIFE in the client script). Current backend:
