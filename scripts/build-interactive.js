@@ -1115,6 +1115,7 @@ const tabHedge = `
       ${ir('inp-ice-margin', 'Initial margin %', ni('inp-ice-margin', pct2(hg.initialMarginPct || 0.10), 1, 0, 'ph'), 'PLACEHOLDER')}
     </div>
     ${ir('inp-ice-hedged-vol', 'Hedged volume MT', ni('inp-ice-hedged-vol', hg.hedgedVolumeMT != null ? hg.hedgedVolumeMT : '', 100, 0), 'INDICATIVE')}
+    <p class="defaults-note">Defaults to full cargo — assumes fixed-price partner repayment, so TIS carries ICE purchase-cost risk on all tonnes. Lower this to cash-sale tonnes only if partner repayment floats with the market.</p>
   </div>
 </div>
 <div class="sb-sec">
