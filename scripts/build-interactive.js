@@ -20,7 +20,9 @@ const initialTrade = JSON.parse(fs.readFileSync(path.join(ROOT, 'trades', 'sampl
 
 // ── 3. Read logo SVG ─────────────────────────────────────────────────────────
 const logoSvgRaw = fs.readFileSync(path.join(ROOT, 'assets', 'tis-logo-2.svg'), 'utf8');
-const logo = logoSvgRaw.replace(/fill:#242331/g, 'fill:#f0f1f2');
+const logo = logoSvgRaw
+  .replace(/fill:#242331/g, 'fill:#f0f1f2')
+  .replace(/(<svg[^>]*>)/, '$1<title>TIS Global Trading</title>');
 
 // ── 4. CSS ───────────────────────────────────────────────────────────────────
 function css() {
@@ -259,6 +261,12 @@ body { display: flex; flex-direction: column; }
   transition: background .18s;
 }
 .tgl-track.on { background: var(--red); }
+/* Hedge toggles ON → green (active = safe/good state) */
+.tgl-wrap[data-type="hedge"] .tgl-track.on { background: #10b981; }
+.tgl-wrap[data-type="hedge"]:focus-visible .tgl-track { box-shadow: 0 0 0 2px rgba(16,185,129,.30); }
+/* Surcharge toggle ON → amber (caution: cost/risk) */
+.tgl-wrap[data-type="surcharge"] .tgl-track.on { background: #f59e0b; }
+.tgl-wrap[data-type="surcharge"]:focus-visible .tgl-track { box-shadow: 0 0 0 2px rgba(245,158,11,.30); }
 .tgl-knob {
   position: absolute;
   top: 2px; left: 2px;
@@ -386,7 +394,7 @@ body { display: flex; flex-direction: column; }
   border-radius: 10px;
   overflow: hidden;
 }
-.h-card.on { border-color: rgba(212,29,29,.30); }
+.h-card.on { border-color: rgba(16,185,129,.35); }
 .h-card-hdr {
   display: flex;
   align-items: center;
@@ -417,7 +425,7 @@ body { display: flex; flex-direction: column; }
   border: 1px solid var(--border);
   transition: all .18s;
 }
-.h-pill.on { background: rgba(212,29,29,.07); color: var(--red); border-color: rgba(212,29,29,.35); }
+.h-pill.on { background: rgba(16,185,129,.12); color: #059669; border-color: rgba(16,185,129,.40); }
 .h-pill-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 /* Detail expands on ON state */
 .h-detail {
@@ -643,8 +651,9 @@ function si(id, opts, sel) {
 function ro(id, val) {
   return `<div id="${id}" class="sr">${esc(String(val ?? ''))}</div>`;
 }
-function tog(id, label, active) {
-  return `<div id="${id}" class="tgl-wrap" data-on="${active}" tabindex="0" role="switch" aria-checked="${active}" aria-label="${esc(label)}">
+function tog(id, label, active, type) {
+  const typeAttr = type ? ` data-type="${type}"` : '';
+  return `<div id="${id}" class="tgl-wrap" data-on="${active}"${typeAttr} tabindex="0" role="switch" aria-checked="${active}" aria-label="${esc(label)}">
     <div class="tgl-track${active ? ' on' : ''}"><div class="tgl-knob"></div></div>
     <span class="tgl-lbl">${esc(label)}</span>
   </div>`;
@@ -704,9 +713,9 @@ ${sec('Sale', [
   ir('inp-profit-split', 'Partner Profit Split %', ni('inp-profit-split', pct2(p.profitSharePct), 1, 0), '', true),
 ].join(''))}
 ${sec('Toggles', `<div class="tgl-set">
-  ${tog('tog-ice-hedge', 'ICE Gasoil Hedge', iceOn)}
-  ${tog('tog-fx-hedge',  'FX Hedge (Naira)', fxOn)}
-  ${tog('tog-surcharge', 'Fossil-fuel Surcharge', surEnabled)}
+  ${tog('tog-ice-hedge', 'ICE Gasoil Hedge', iceOn, 'hedge')}
+  ${tog('tog-fx-hedge',  'FX Hedge (Naira)', fxOn, 'hedge')}
+  ${tog('tog-surcharge', 'Fossil-fuel Surcharge', surEnabled, 'surcharge')}
 </div>`)}
 
 ${tdiv('Deal Terms')}
@@ -1766,7 +1775,7 @@ function renderSens(res) {
   <h2 class="section-heading" id="sens-h">Sensitivities (&plusmn;10%)</h2>
   <div class="card">
     \${renderTornado(sens)}
-    <div class="tbl-wrap" style="margin-top:24px;border-top:1.5px solid var(--border);padding-top:0">
+    <div class="tbl-wrap" style="margin-top:24px;border-top:1.5px solid var(--border);padding-top:16px">
       <table class="cost-table">
         <thead><tr><th>Lever</th><th class="r">TIS Net</th><th class="r">&Delta; vs Base</th></tr></thead>
         <tbody>\${tableRows}</tbody>
