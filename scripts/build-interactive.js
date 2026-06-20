@@ -866,6 +866,14 @@ body { display: flex; flex-direction: column; }
 .status-legend .sl-check { color: #10b981; font-size: 11px; font-weight: 700; }
 .status-legend .sl-key { font-weight: 600; color: #4b5563; }
 
+/* ── Empty state (blank/new trade — insufficient inputs to compute) ─────────── */
+.empty-state-section { min-height: 260px; display:flex; align-items:center; justify-content:center;
+  border:none; background:none; box-shadow:none; padding:0; }
+.empty-state { text-align:center; padding:48px 24px; }
+.empty-state-title { font-family:var(--f-display); font-size:14px; font-weight:600;
+  color:#4b5563; margin:0 0 6px; letter-spacing:0; }
+.empty-state-sub { font-family:var(--f-body); font-size:11px; color:#94a3b8; margin:0; }
+
 /* ── C1: Expected negative figures → slate/neutral, not alarm-red ─────────── */
 /* .neg is used for expected structural negatives (hedge cost, sensitivity deltas).
    .loss is for actual P&L losses (TIS Net negative at a pricing tier). */
@@ -2169,16 +2177,33 @@ function clearError() {
   const el = document.getElementById('rpt-error');
   if (el) { el.textContent = ''; el.hidden = true; }
 }
+function clearResults() {
+  ['sec-waterfall','sec-ladder','sec-cost','sec-partner','sec-hedge','sec-tax','sec-sens']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
+  [['kpi-tisnet-val','—'],['kpi-annret-val','—'],['kpi-margin-val','—'],
+   ['kpi-tisnet-sub','—'],['kpi-annret-sub','—'],['kpi-margin-sub','—']]
+    .forEach(([id,t]) => { const el = document.getElementById(id); if (el) el.textContent = t; });
+}
+function showEmptyState() {
+  clearResults();
+  clearError();
+  const el = document.getElementById('sec-waterfall');
+  if (el) el.innerHTML = '<section class="section empty-state-section"><div class="empty-state"><p class="empty-state-title">Enter trade data to see results</p><p class="empty-state-sub">Required: ICE price · FX parallel rate · delivered MT · ex-ship price</p></div></section>';
+}
 
 // ── Recompute ──────────────────────────────────────────────────────────────
 function recompute() {
+  // Gate on key per-trade input — blank form (New Trade) shows empty state, no stale numbers
+  const delivEl = document.getElementById('inp-delivered');
+  if (!delivEl || !delivEl.value.trim()) { showEmptyState(); return; }
+
   let trade;
   try { trade = collectTrade(); }
-  catch(e) { showError('Input error: ' + e.message); return; }
+  catch(e) { clearResults(); showError('Input error: ' + e.message); return; }
 
   let res;
   try { res = TISEngine.computeTrade(trade); }
-  catch(e) { showError(e.message); return; }
+  catch(e) { clearResults(); showError(e.message); return; }
 
   try {
     const fn = t => TISEngine.computeTrade(t, { skipHedgeCompare: true });

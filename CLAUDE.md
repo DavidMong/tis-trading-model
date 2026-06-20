@@ -249,6 +249,20 @@ Key behaviours:
 the browser JS string, breaking single-quoted strings. Never use `\n` in string literals within the
 client JS block — use concatenation or omit newlines entirely.
 
+### Empty state / stale-results prevention
+
+`recompute()` gates on `inp-delivered` being non-empty before calling the engine. If blank (New Trade
+or first load with no data), it calls `showEmptyState()` which:
+1. Wipes all 7 result `<div>` sections (`sec-waterfall` through `sec-sens`) to empty HTML.
+2. Sets all header KPI values and subs to `—`.
+3. Clears the error banner.
+4. Renders a calm "Enter trade data to see results" prompt in `sec-waterfall`.
+
+If the engine throws on partial inputs (delivered MT filled but other fields invalid), `clearResults()`
+wipes the sections + KPIs and the red error banner shows — no stale prior-trade numbers remain.
+House defaults (Costs tab: tax rates, cost-line rates, hedge bank terms) are NOT cleared by this; they
+persist through New Trade as intended and rehydrate from saved house defaults.
+
 ### Storage abstraction (`TISStorage`)
 
 All persistence is routed through `TISStorage` (an IIFE in the client script). Current backend:
