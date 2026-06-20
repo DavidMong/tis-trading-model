@@ -650,10 +650,24 @@ body { display: flex; flex-direction: column; }
    All padding/gap/margin values snap to this grid.
    ══════════════════════════════════════════════════════════════════════════ */
 
-/* ── 1. Header: symmetric band, proportionate KPI chips ─────────────────── */
-/* Override reportCss 24px/20px asymmetry so logo/title/chips share center  */
-.header-inner { padding: 20px 32px; }
-.kpi-chip     { padding: 10px 16px; min-width: 126px; }
+/* ── 1. Header: full-bleed aligned to results band ─────────────────────────── */
+/* reportCss uses max-width:1200px;margin:0 auto which floats the header content
+   centered — at wide viewports it diverges from the sidebar+results layout.
+   Override to remove that centering; use the same 28px padding as .results so
+   the KPI chips' right edge aligns with the results area right edge.
+   align-items:center from reportCss stays untouched.                              */
+.header-inner {
+  max-width: none;
+  margin: 0;
+  padding: 20px 28px;
+}
+/* Meta strip: same horizontal bounds as the header row                            */
+.header-meta-inner {
+  max-width: none;
+  margin: 0;
+  padding: 0 28px;
+}
+.kpi-chip { padding: 10px 16px; min-width: 126px; }
 
 /* ── 2. Section headings: breathe above cards ────────────────────────────── */
 .section-heading { margin-bottom: 14px; }
@@ -999,8 +1013,8 @@ ${sharedCss}
   <div class="header-inner">
     <div class="header-logo" role="img" aria-label="TIS Global Trading">${logo}</div>
     <div class="header-trade">
-      <h1 class="trade-name">${shortTitle} ${fixtureBadge}</h1>
-      <p class="trade-id">${esc(t.meta.tradeId)}</p>
+      <h1 class="trade-name">${shortTitle}</h1>
+      <p class="trade-id">${esc(t.meta.tradeId)}${fixtureBadge}</p>
     </div>
     <div class="header-kpis" role="region" aria-label="Key metrics">
       <div class="kpi-chip kpi-accent">
