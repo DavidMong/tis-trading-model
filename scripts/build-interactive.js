@@ -921,7 +921,8 @@ function pct4(v) { return dp(v * 100, 4); }
 function ni(id, val, step, min, cls) {
   const minAttr = min != null ? ` min="${min}"` : '';
   const clsStr  = cls ? ` ${cls}` : '';
-  return `<input type="number" id="${id}" class="si${clsStr}" value="${val !== '' && val != null ? val : ''}" step="${step ?? 'any'}"${minAttr}>`;
+  const phData  = cls === 'ph' ? ' data-ph="1"' : '';
+  return `<input type="number" id="${id}" class="si${clsStr}" value="${val !== '' && val != null ? val : ''}" step="${step ?? 'any'}"${minAttr}${phData}>`;
 }
 function si(id, opts, sel) {
   const o = opts.map(([v, l]) => `<option value="${v}"${v === sel ? ' selected' : ''}>${esc(l)}</option>`).join('');
@@ -2288,6 +2289,30 @@ document.querySelectorAll('.si, .ss').forEach(el => {
   el.addEventListener('change', () => { onInputChange(el.id); });
 });
 
+// Sync ph-class and pip on hedge placeholder fields: amber only when field is empty
+function refreshHedgePh() {
+  document.querySelectorAll('[data-ph]').forEach(function(inp) {
+    const hasVal = inp.value.trim() !== '';
+    inp.classList.toggle('ph', !hasVal);
+    const pipEl = inp.closest('.ir') ? inp.closest('.ir').querySelector('.pip') : null;
+    if (pipEl) {
+      pipEl.classList.remove('pip-ok','pip-ind','pip-unv','pip-ph','pip-conf','pip-none');
+      pipEl.classList.add(hasVal ? 'pip-ok' : 'pip-ind');
+      pipEl.title = hasVal ? 'OK' : 'PLACEHOLDER';
+    }
+  });
+}
+// Keep hedged-volume placeholder in sync with delivered MT
+function updateHedgedVolPlaceholder() {
+  const delivEl = document.getElementById('inp-delivered');
+  const volEl   = document.getElementById('inp-ice-hedged-vol');
+  if (!volEl) return;
+  const qty = delivEl ? parseFloat(delivEl.value) : NaN;
+  volEl.placeholder = (!isNaN(qty) && qty > 0)
+    ? qty.toLocaleString('en-US', {maximumFractionDigits: 0}) + ' (full cargo)'
+    : 'full cargo';
+}
+
 function onInputChange(id) {
   if (_isSample) { _isSample = false; }
   setModified(true);
@@ -2298,6 +2323,8 @@ function onInputChange(id) {
   updateHedgeTab();
   updateIceRouteVisibility();
   updateHeader();
+  refreshHedgePh();
+  updateHedgedVolPlaceholder();
   recompute();
 }
 
@@ -2448,6 +2475,8 @@ function newTrade() {
   // Apply saved house defaults for cost lines, tax rates, hedge params
   const defs = TISStorage.loadDefaults();
   if (defs) { applyInputSnapshot(defs); }
+  refreshHedgePh();
+  updateHedgedVolPlaceholder();
 
   activateToggle(document.getElementById('tog-ice-hedge'), false);
   activateToggle(document.getElementById('tog-fx-hedge'),  false);
@@ -2557,6 +2586,8 @@ function loadSelectedTrade(explicit) {
   const snap = TISStorage.loadTrade(targetName);
   if (!snap) { showToast('Trade not found in storage'); return; }
   applyInputSnapshot(snap);
+  refreshHedgePh();
+  updateHedgedVolPlaceholder();
   if (snap['_tog-ice-hedge'] != null) activateToggle(document.getElementById('tog-ice-hedge'), snap['_tog-ice-hedge'] === 'true');
   if (snap['_tog-fx-hedge']  != null) activateToggle(document.getElementById('tog-fx-hedge'),  snap['_tog-fx-hedge']  === 'true');
   if (snap['_tog-surcharge'] != null) activateToggle(document.getElementById('tog-surcharge'), snap['_tog-surcharge'] === 'true');
@@ -2640,6 +2671,8 @@ updateHeader();
 renderSavedTradesList();
 updateStateBadge();
 recompute();
+refreshHedgePh();
+updateHedgedVolPlaceholder();
 
 })();
 </script>

@@ -257,11 +257,23 @@ client JS block — use concatenation or omit newlines entirely.
 - Unnamed / New Trade → `New Trade — TIS Global Trading`
 - Named real trade → `${name} — TIS Global Trading`
 
-### Hedge input text color — `.si.ph` rule
+### Hedge placeholder field state — `.si.ph` and `data-ph`
 
-`.si.ph` gives amber border/background to signal "unconfirmed default / placeholder not yet confirmed
-by the user." The `color` property is intentionally absent — text values inside placeholder fields
-must always read in ink (#242331) per the C5 rule; the border/background hint is sufficient.
+`.si.ph` gives amber border/background + amber pip to signal "field is empty; unconfirmed default."
+Once a field has a value it must show **neutral** styling (normal border/bg, green pip, ink text).
+
+Implementation:
+- `ni()` adds `data-ph="1"` to inputs rendered with `cls='ph'`
+- `refreshHedgePh()` iterates `[data-ph]` inputs: has-value → removes `ph`, sets pip to `pip-ok`;
+  empty → ensures `ph` present, pip stays `pip-ind`
+- Called from `onInputChange()` (every keystroke), after each `applyInputSnapshot()` call, and at init
+- The `color` property was removed from `.si.ph` (prior pass) so text is always ink regardless
+
+### Hedged volume MT placeholder
+
+`inp-ice-hedged-vol` is empty when using the full-cargo default. `updateHedgedVolPlaceholder()`
+sets its HTML `placeholder` attribute to e.g. `"10,000 (full cargo)"` from the current `inp-delivered`
+value. Called from `onInputChange()` and at init so it tracks the cargo MT live.
 
 ### Empty state / stale-results prevention
 
