@@ -196,6 +196,7 @@ body { display: flex; flex-direction: column; }
 .pip-conf { background: #f59e0b; }
 .pip-ind  { background: #94a3b8; }
 .pip-ph   { background: #f59e0b; }
+.pip-unv  { background: #f97316; }
 .pip-none { width: 0; }
 
 /* Inputs */
@@ -844,11 +845,26 @@ body { display: flex; flex-direction: column; }
   vertical-align:middle;
 }
 
-/* ── C4: PLACEHOLDER badge → amber caution family (overrides reportCss blue) ── */
+/* ── C4 (Batch C) / D2 (Batch D): 3-state taxonomy badge overrides ─────────── */
+/* Defensive: keep bdg-placeholder styled amber even though badge() no longer emits it */
 :root { --placeholder-c: #92400e; --placeholder-bg: #fef3c7; }
-/* Double-class selector (spec 0-2-0) overrides reportCss single-class; !important to
-   defeat any undetected cascade conflict from the static-server cache environment */
 .bdg.bdg-placeholder { color: #92400e !important; background: #fef3c7; }
+/* INDICATIVE: amber — reasonable estimate, fine to model */
+.bdg.bdg-indicative  { color: #92400e; background: #fef3c7; }
+/* UNVERIFIED: deeper amber — needs checking before live trade */
+.bdg.bdg-unverified  { color: #7c2d12; background: #fed7aa; }
+/* pip-ind: amber dot (override reportCss slate) */
+.pip-ind { background: #f59e0b; }
+
+/* ── D3: Status legend ──────────────────────────────────────────────────────── */
+.status-legend {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  font-family: var(--f-body); font-size: 10px; color: #717c89;
+  padding: 8px 12px; border-top: 1px solid var(--border); margin-top: 2px;
+}
+.status-legend .sl-item { display: flex; align-items: center; gap: 5px; }
+.status-legend .sl-check { color: #10b981; font-size: 11px; font-weight: 700; }
+.status-legend .sl-key { font-weight: 600; color: #4b5563; }
 
 /* ── C1: Expected negative figures → slate/neutral, not alarm-red ─────────── */
 /* .neg is used for expected structural negatives (hedge cost, sensitivity deltas).
@@ -920,13 +936,10 @@ function tog(id, label, active, type) {
 
 function pip(status) {
   const s = (status || '').toUpperCase();
-  let cls = 'pip-none';
-  if (!status || s === 'OK')           cls = 'pip-ok';
-  else if (s.includes('CONFIRM'))      cls = 'pip-conf';
-  else if (s.includes('INDICATIVE'))   cls = 'pip-ind';
-  else if (s.includes('PLACEHOLDER'))  cls = 'pip-ph';
-  else if (s.includes('EXAMPLE') || s.includes('DUMMY')) cls = 'pip-ind';
-  else cls = 'pip-ok';
+  let cls;
+  if (!status || s === 'OK' || s.includes('FIXED')) cls = 'pip-ok';
+  else if (s.includes('CONFIRM') || s.includes('UNVERIFIED')) cls = 'pip-unv';
+  else cls = 'pip-ind';
   return `<span class="pip ${cls}" title="${esc(status || 'OK')}"></span>`;
 }
 
@@ -1022,7 +1035,7 @@ ${sec('Partner & Equity', [
 ].join(''))}
 ${sec('Surcharge', [
   `<div id="sur-inc-row"${!surEnabled ? ' hidden' : ''}>
-    ${ir('sel-surcharge-inc', 'Surcharge incidence', si('sel-surcharge-inc', [['cost','Cost (TIS bears)'],['pass_through','Pass-through (buyer)']], (sur.incidence) || 'cost'), 'PENDING')}
+    ${ir('sel-surcharge-inc', 'Surcharge incidence', si('sel-surcharge-inc', [['cost','Cost (TIS bears)'],['pass_through','Pass-through (buyer)']], (sur.incidence) || 'cost'), 'INDICATIVE')}
   </div>`,
   `<div id="sur-off-note" class="ir-lbl" style="color:#94a3b8"${surEnabled ? ' hidden' : ''}>Enable toggle to configure incidence</div>`,
 ].join(''))}
@@ -1030,7 +1043,7 @@ ${sec('Surcharge', [
 <div class="disc-body">
 ${sec('Tax Rates', [
   ir('inp-vat-rate', 'VAT Rate %',        ni('inp-vat-rate', pct2(t.tax.vatRate),             0.1, 0), 'OK'),
-  ir('inp-wht-rate', 'WHT on freight %',  ni('inp-wht-rate', pct2(t.tax.whtFreightRate || 0.05), 0.1, 0), 'CONFIRM'),
+  ir('inp-wht-rate', 'WHT on freight %',  ni('inp-wht-rate', pct2(t.tax.whtFreightRate || 0.05), 0.1, 0), 'UNVERIFIED'),
 ].join(''))}
 </div>
 `;
@@ -1044,9 +1057,9 @@ ${sec('Port & Cargo Dues', [
   ir('inp-ncs-docs',   'NCS documentation $', ni('inp-ncs-docs',   cl.ncsDocs, 100, 0),            'OK'),
 ].join(''))}
 ${sec('Maritime Levies', [
-  ir('inp-nimasa-cab',     'NIMASA cabotage %',     ni('inp-nimasa-cab',     pct2(cl.nimasaCabotagePct),     0.1, 0), 'CONFIRM'),
-  ir('inp-nimasa-freight', 'NIMASA freight levy %', ni('inp-nimasa-freight', pct2(cl.nimasaFreightLevyPct), 0.1, 0), 'CONFIRM'),
-  ir('inp-spomo',          'SPOMO / CVFF %',        ni('inp-spomo',          pct2(cl.spomoCvffPct),         0.1, 0), 'CONFIRM'),
+  ir('inp-nimasa-cab',     'NIMASA cabotage %',     ni('inp-nimasa-cab',     pct2(cl.nimasaCabotagePct),     0.1, 0), 'UNVERIFIED'),
+  ir('inp-nimasa-freight', 'NIMASA freight levy %', ni('inp-nimasa-freight', pct2(cl.nimasaFreightLevyPct), 0.1, 0), 'UNVERIFIED'),
+  ir('inp-spomo',          'SPOMO / CVFF %',        ni('inp-spomo',          pct2(cl.spomoCvffPct),         0.1, 0), 'UNVERIFIED'),
 ].join(''))}
 ${sec('Cargo & Services', [
   ir('inp-marine-icc',    'Marine ICC(A) %',      ni('inp-marine-icc',    pct4(cl.marineIccPct),    0.001, 0), 'INDICATIVE'),
@@ -1080,7 +1093,7 @@ ${sec('Storage (depot active)', [
 const tabHedge = `
 <div class="sb-sec">
   <div class="sb-sec-title">ICE Gasoil Swap</div>
-  <div id="ice-on-warn" class="hedge-warn-note"${!iceOn ? ' hidden' : ''}>Hedge ON — verify all PLACEHOLDER values before live trading.</div>
+  <div id="ice-on-warn" class="hedge-warn-note"${!iceOn ? ' hidden' : ''}>Hedge ON — unconfirmed values are marked INDICATIVE. Verify all before live trading.</div>
   <div id="ice-off-note" class="hedge-off-note"${iceOn ? ' hidden' : ''}>Enable ICE Hedge in Deal tab to activate.</div>
   <div id="ice-params" class="${iceOn ? '' : 'hedge-off'}">
     ${ir('sel-ice-route', 'Route', si('sel-ice-route', [['bank_book','Bank book (in-house)'],['third_party','Third party (margin financing)']], hg.route || 'bank_book'), '')}
@@ -1097,7 +1110,7 @@ const tabHedge = `
 </div>
 <div class="sb-sec">
   <div class="sb-sec-title">FX Hedge (Naira Exposure)</div>
-  <div id="fx-on-warn" class="hedge-warn-note"${!fxOn ? ' hidden' : ''}>FX Hedge ON — verify all PLACEHOLDER values before live trading.</div>
+  <div id="fx-on-warn" class="hedge-warn-note"${!fxOn ? ' hidden' : ''}>FX Hedge ON — unconfirmed values are marked INDICATIVE. Verify all before live trading.</div>
   <div id="fx-off-note" class="hedge-off-note"${fxOn ? ' hidden' : ''}>Enable FX Hedge in Deal tab to activate.</div>
   <div id="fx-params" class="${fxOn ? '' : 'hedge-off'}">
     ${ir('sel-fx-route',   'Route',             si('sel-fx-route', [['bank_book','Bank book'],['third_party','Third party']], fxhg.route || 'bank_book'), '')}
@@ -1274,16 +1287,12 @@ function fmtNum(v, d) {
 }
 function badge(s) {
   if (!s || s === 'OK') return '';
-  const cls = {
-    CONFIRM:'bdg-confirm', UNVERIFIED:'bdg-unverified', PLACEHOLDER:'bdg-placeholder',
-    PENDING:'bdg-pending', RECOVERABLE:'bdg-recoverable', INDICATIVE:'bdg-indicative',
-    EXAMPLE:'bdg-example', DUMMY:'bdg-example', FIXED:'bdg-fixed',
-  };
   const upper = String(s).toUpperCase();
-  let c = 'bdg-default';
-  for (const [k,v] of Object.entries(cls)) { if (upper.includes(k)) { c = v; break; } }
-  const short = s.length > 18 ? s.replace(/\\s*\\([^)]*\\)/g,'').trim() : s;
-  return \`<span class="bdg \${c}" title="\${esc(s)}">\${esc(short.split('(')[0].trim())}</span>\`;
+  if (upper.includes('RECOVERABLE')) return \`<span class="bdg bdg-recoverable" title="\${esc(s)}">&#10003; OK</span>\`;
+  if (upper.includes('FIXED')) return '';
+  if (upper.includes('CONFIRM') || upper.includes('UNVERIFIED'))
+    return \`<span class="bdg bdg-unverified" title="\${esc(s)}">&#9888;&#xFE0E;&nbsp;UNVERIFIED</span>\`;
+  return \`<span class="bdg bdg-indicative" title="\${esc(s)}">INDICATIVE</span>\`;
 }
 
 // ── DOM helpers ────────────────────────────────────────────────────────────
@@ -1787,6 +1796,11 @@ function renderCost(res) {
     <div class="card-footer">
       Freight base: TC hire <b>\${fmtUsd(cost.freight.tcHire)}</b> + demurrage <b>\${fmtUsd(cost.freight.demurrage)}</b> = <b>\${fmtUsd(cost.freight.freightBase)}</b>
       \${cost.storageActive ? '&nbsp;·&nbsp; Storage active (depot leg)' : ''}
+    </div>
+    <div class="status-legend">
+      <span class="sl-item"><span class="sl-check">&#10003;</span><span class="sl-key">No badge</span>Verified — confirmed vs statute or contract</span>
+      <span class="sl-item"><span class="bdg bdg-indicative" style="font-size:9px;padding:1px 5px">INDICATIVE</span><span class="sl-key" style="margin-left:2px">Indicative</span>Reasonable estimate; fine to model, not contractual</span>
+      <span class="sl-item"><span class="bdg bdg-unverified" style="font-size:9px;padding:1px 5px">&#9888;&#xFE0E;&nbsp;UNVERIFIED</span><span class="sl-key" style="margin-left:2px">Unverified</span>Needs confirmation before live trading</span>
     </div>
   </div>
 </section>\`;

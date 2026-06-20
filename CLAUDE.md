@@ -184,10 +184,22 @@ calculation logic.** A policy change (rate edit, %→fixed flip, base change) is
   (CFG3), config is the sole rate source (CFG4), tax-block membership is config-driven (CFG5). Profogas
   byte-for-byte unchanged with current defaults.
 
-## Status-flag taxonomy (carried into every report)
+## Status-flag taxonomy (Batch D — final, 3 states)
 
-`OK` · `INDICATIVE` (overridable assumption) · `CONFIRM` (needs external confirmation) ·
-`PLACEHOLDER` (fill before live) · `PENDING` (gated, e.g. surcharge) · `RECOVERABLE` (timing only).
+Display layer only — engine/config schemas still carry historical strings (CONFIRM, PLACEHOLDER, etc.)
+which are remapped at render time in `badge()` and `pip()`. Do not change engine schemas.
+
+| Display label | Badge style | Pip | Absorbs | Meaning |
+|---|---|---|---|---|
+| *(no badge)* | — | green `pip-ok` | OK, FIXED | Verified vs statute or contract |
+| `INDICATIVE` | amber `#fef3c7 / #92400e` | amber `pip-ind` | INDICATIVE, PLACEHOLDER, PENDING, EXAMPLE | Reasonable estimate; fine to model, not contractual |
+| `⚠ UNVERIFIED` | deeper amber `#fed7aa / #7c2d12` | orange `pip-unv` | CONFIRM, UNVERIFIED | Needs checking before live trading |
+| `✓ OK` | green `bdg-recoverable` | — | RECOVERABLE | Cash-flow timing only (e.g. input VAT) |
+
+`bdg-confirm` class is still used for the live MISMATCH reconciliation error — not a status flag.
+
+**UNVERIFIED lines (open items):** NIMASA cabotage, NIMASA freight levy, SPOMO/CVFF, WHT on freight 5%
+(TAA 2025 s.51 — rate unverified), VAT on services (INFERRED base composition).
 
 ## Interactive dashboard — real-trade features (`scripts/build-interactive.js`)
 
