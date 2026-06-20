@@ -30,8 +30,10 @@ const faviconDataUri = 'data:image/svg+xml,' + encodeURIComponent([
 // ── 3. Read logo SVG ─────────────────────────────────────────────────────────
 const logoSvgRaw = fs.readFileSync(path.join(ROOT, 'assets', 'tis-logo-2.svg'), 'utf8');
 const logo = logoSvgRaw
-  .replace(/fill:#242331/g, 'fill:#f0f1f2')
-  .replace(/(<svg[^>]*>)/, '$1<title>TIS Global Trading</title>');
+  .replace(/^<\?xml[^?]*\?>\s*/,'')
+  .replace(/<!DOCTYPE[^>]*>\s*/,'')
+  .replace(/fill:#242331/g, 'fill:#f0f1f2');
+// aria-label on the container provides accessibility; no <title> injected into inline SVG
 
 // ── 4. CSS ───────────────────────────────────────────────────────────────────
 function css() {
@@ -762,11 +764,26 @@ body { display: flex; flex-direction: column; }
 /* ── Text inputs share .si but don't need spinner removal ─────────────────── */
 .si[type="text"] { -webkit-appearance: auto; appearance: auto; }
 
-/* ── Sidebar footer: 3-row layout (actions / state / library) ──────────────── */
-.sb-footer { flex-shrink:0; display:flex; flex-direction:column; border-top:1.5px solid var(--border); background:var(--white); }
-.sb-footer-row1 { display:flex; align-items:center; gap:6px; padding:9px 14px 6px; }
-.sb-state-row   { padding:0 14px 8px; border-bottom:1px solid var(--border); }
-.sb-footer-row2 { display:flex; align-items:center; gap:5px; padding:8px 14px; }
+/* ── Sidebar footer: 3-row column layout ───────────────────────────────────── */
+/* Override old .sb-footer (display:flex;align-items:center;gap:8px;padding:9px 13px)
+   and the spacing-system override (padding:10px 16px). Rows own their padding. */
+.sb-footer {
+  flex-shrink:0; display:flex; flex-direction:column; align-items:stretch;
+  padding:0; gap:0; border-top:1.5px solid var(--border); background:var(--white);
+  overflow:hidden; box-sizing:border-box; width:100%;
+}
+.sb-footer-row1 {
+  display:flex; align-items:center; gap:6px; padding:9px 14px 6px;
+  box-sizing:border-box; width:100%; overflow:hidden;
+}
+.sb-state-row   {
+  padding:4px 14px 6px; border-bottom:1px solid var(--border);
+  box-sizing:border-box; width:100%; overflow:hidden;
+}
+.sb-footer-row2 {
+  display:flex; align-items:center; gap:5px; padding:8px 14px;
+  box-sizing:border-box; width:100%; overflow:hidden;
+}
 
 .btn-new {
   flex:1; padding:5px 8px; background:none; border:1px solid var(--border);
@@ -800,7 +817,8 @@ body { display: flex; flex-direction: column; }
 .lib-select {
   flex:1; font-family:var(--f-body); font-size:11px; color:var(--ink);
   background:var(--white); border:1px solid var(--border); border-radius:4px;
-  padding:5px 6px; cursor:pointer; min-width:0;
+  padding:5px 6px; cursor:pointer; min-width:0; max-width:100%; overflow:hidden;
+  text-overflow:ellipsis; box-sizing:border-box;
 }
 .lib-select:focus { outline:none; border-color:var(--red); }
 
@@ -1138,7 +1156,7 @@ ${sharedCss}
     <div class="header-logo" role="img" aria-label="TIS Global Trading">${logo}</div>
     <div class="header-trade">
       <h1 class="trade-name" id="hdr-trade-name">${shortTitle}</h1>
-      <p class="trade-id">${esc(t.meta.tradeId)}${fixtureBadgeHtml}</p>
+      <p class="trade-id" id="hdr-trade-id">${esc(t.meta.tradeId)}${fixtureBadgeHtml}</p>
     </div>
     <div class="header-kpis" role="region" aria-label="Key metrics">
       <div class="kpi-chip kpi-accent">
@@ -1160,10 +1178,7 @@ ${sharedCss}
   </div>
   <div class="header-meta-strip">
     <div class="header-meta-inner">
-      Flow: <b id="hdr-flow">${esc(t.meta.flow || 'equity-partner')}</b> &nbsp;&middot;&nbsp;
-      Partner: <b id="hdr-partner">${esc((t.parties || {}).partner || '—')}</b> &nbsp;&middot;&nbsp;
-      Supplier: <span id="hdr-supplier">${esc((t.parties || {}).supplier || '—')}</span> &nbsp;&middot;&nbsp;
-      Inspector: <span id="hdr-inspector">${esc((t.parties || {}).inspector || '—')}</span>
+      Flow: <b id="hdr-flow">${esc(t.meta.flow || 'equity-partner')}</b><span id="hdr-partner-seg">&nbsp;&middot;&nbsp;Partner: <b id="hdr-partner">${esc((t.parties || {}).partner || '')}</b></span><span id="hdr-supplier-seg">&nbsp;&middot;&nbsp;Supplier: <span id="hdr-supplier">${esc((t.parties || {}).supplier || '')}</span></span><span id="hdr-inspector-seg">&nbsp;&middot;&nbsp;Inspector: <span id="hdr-inspector">${esc((t.parties || {}).inspector || '')}</span></span>
     </div>
   </div>
 </header>
@@ -2160,10 +2175,12 @@ function activateToggle(wrap, on) {
 
 document.querySelectorAll('.tgl-wrap').forEach(wrap => {
   const toggle = () => {
+    if (_isSample) { _isSample = false; }
     activateToggle(wrap, wrap.dataset.on !== 'true');
     updateSurchargeVisibility();
     updateHedgeTab();
     setModified(true);
+    updateHeader();
     recompute();
   };
   wrap.addEventListener('click', toggle);
@@ -2217,6 +2234,7 @@ document.querySelectorAll('.si, .ss').forEach(el => {
 });
 
 function onInputChange(id) {
+  if (_isSample) { _isSample = false; }
   setModified(true);
   updateLcDisplay();
   updateDepotVisibility();
@@ -2303,15 +2321,34 @@ function updateHeader() {
   const hName  = document.getElementById('hdr-trade-name');
   if (hName) hName.textContent = name;
 
-  const partner   = document.getElementById('inp-partner-name')?.value   || '—';
-  const supplier  = document.getElementById('inp-supplier-name')?.value  || '—';
-  const inspector = document.getElementById('inp-inspector-name')?.value || '—';
+  const partner   = document.getElementById('inp-partner-name')?.value.trim()   || '';
+  const supplier  = document.getElementById('inp-supplier-name')?.value.trim()  || '';
+  const inspector = document.getElementById('inp-inspector-name')?.value.trim() || '';
+
   const hP = document.getElementById('hdr-partner');   if (hP) hP.textContent = partner;
   const hS = document.getElementById('hdr-supplier');  if (hS) hS.textContent = supplier;
   const hI = document.getElementById('hdr-inspector'); if (hI) hI.textContent = inspector;
 
+  const hPS = document.getElementById('hdr-partner-seg');
+  const hSS = document.getElementById('hdr-supplier-seg');
+  const hIS = document.getElementById('hdr-inspector-seg');
+  if (hPS) hPS.style.display = partner   ? '' : 'none';
+  if (hSS) hSS.style.display = supplier  ? '' : 'none';
+  if (hIS) hIS.style.display = inspector ? '' : 'none';
+
   const badge = document.getElementById('hdr-fixture-badge');
   if (badge) badge.style.display = _isSample ? 'inline-block' : 'none';
+
+  const tradeIdEl = document.getElementById('hdr-trade-id');
+  if (tradeIdEl) {
+    if (_isSample) {
+      tradeIdEl.firstChild.textContent = INIT.meta.tradeId;
+      tradeIdEl.style.display = '';
+    } else {
+      tradeIdEl.firstChild.textContent = '';
+      tradeIdEl.style.display = 'none';
+    }
+  }
 }
 
 // ── New Trade ─────────────────────────────────────────────────────────────

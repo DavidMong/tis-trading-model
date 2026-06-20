@@ -213,6 +213,13 @@ Footer is a three-row column layout (requires `display:flex; flex-direction:colu
 2. **State row** — three-state badge (full width)
 3. **Row 2** — dropdown · ↓ (force-load) · ✎ (rename) · ✕ (delete)
 
+**CSS cascade note:** three `.sb-footer` blocks exist in the stylesheet (original ~line 322, spacing-system
+~line 693, new-feature ~line 766). The new-feature block must explicitly set `align-items:stretch; padding:0;
+gap:0; overflow:hidden; box-sizing:border-box; width:100%` to override all conflicting properties from the
+earlier blocks. Each inner row (`sb-footer-row1`, `sb-state-row`, `sb-footer-row2`) carries its own padding
+and `box-sizing:border-box; width:100%; overflow:hidden`. The lib-select dropdown uses `flex:1; min-width:0;
+max-width:100%; box-sizing:border-box` to shrink within its flex row without bleeding past the sidebar edge.
+
 Key behaviours:
 - **Smart Save** (`saveTrade()`): if `_currentTradeName !== null`, updates in place ("Updated: {name}");
   otherwise reads `inp-trade-name`, prompts duplicate-check, saves as new.
@@ -240,9 +247,24 @@ replace only the four methods: `saveTrade`, `loadTrade`, `loadTrades`, `deleteTr
 ### Identity fields + Fixture badge
 
 Trade name, Partner, Supplier, Inspector are editable text fields in the **Trade Identity** section
-of the Deal tab. They update the header live (`updateHeader()`). The **Fixture** badge is shown only
-when `_isSample === true`; this is set from `INIT_IS_SAMPLE` (derived from the initial trade's
-`meta.tradeName`) and cleared to `false` on New Trade or when a real saved trade is loaded.
+of the Deal tab. They update the header live (`updateHeader()`).
+
+**`_isSample` flag:** `true` at boot when `INIT_IS_SAMPLE` detects the bundled sample fixture name
+(REGRESSION/FIXTURE/dummy/test/sample keywords). Cleared to `false` on: any `onInputChange()` call
+(any text/number input change), any toggle click (`.tgl-wrap` listener), `newTrade()`, or loading a
+real saved trade via `loadSelectedTrade()`. When `_isSample` is `false`, `updateHeader()` hides the
+`#hdr-fixture-badge` span and sets `#hdr-trade-id` to `display:none`. The badge only reappears if the
+page is reloaded with the original sample fixture.
+
+**Header identity segments:** each of Partner / Supplier / Inspector is wrapped in a `<span id="hdr-X-seg">`.
+`updateHeader()` sets `display:none` on any segment whose value is empty — so blank fields are omitted
+entirely from the header strip rather than showing a stale or placeholder value. When a value is filled
+in, the segment reverts to the default display (empty string).
+
+**Logo SVG:** the raw SVG (`assets/tis-logo-2.svg`) has an `<?xml...?>` declaration and `<!DOCTYPE>` stripped
+before inlining; no `<title>` is injected into the inline SVG (accessibility is handled by `role="img"` +
+`aria-label="TIS Global Trading"` on the container div). This prevents doubled text from SVG-title + aria-label
+rendering in certain environments.
 
 ### Favicon
 
