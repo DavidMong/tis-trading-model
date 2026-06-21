@@ -2323,6 +2323,7 @@ function renderHedge(trade, res) {
       <div class="h-cmp-row"><span class="h-cmp-lbl">Hedged TIS Net</span><b class="h-cmp-val">\${fmtUsd(comp.hedgedTisNet)}</b></div>
       <div class="h-cmp-row"><span class="h-cmp-lbl">Unhedged TIS Net</span><b class="h-cmp-val">\${fmtUsd(comp.unhedgedTisNet)}</b></div>
       <div class="h-cmp-row"><span class="h-cmp-lbl">Hedge value vs unhedged</span><b class="h-cmp-delta \${dcls}">\${fmtUsdSign(delta)}</b></div>
+      <p class="defaults-note" style="margin-top:6px">Cost or benefit of hedging vs running unhedged, given how the rate actually moved. Negative = the hedge cost its fee/financing because the rate stayed flat or moved in your favour (protection you didn't need to claim). Positive = the hedge paid off because the rate moved against you. The hedge locks your margin both ways — it trades the chance of a windfall for certainty.</p>
     </div>\`;
   }
 
