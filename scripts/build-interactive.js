@@ -948,6 +948,8 @@ body { display: flex; flex-direction: column; }
 /* Unpriced leg — calm amber cue (same language as hedge placeholders); P&L stays pending. */
 .leg-in.leg-in-pending { border-color:#f59e0b; background:#fffbeb; }
 .leg-price-flag { color:#92400e; font-weight:700; font-size:9px; letter-spacing:.04em; }
+.leg-ngn-equiv { font-family:var(--f-body); font-size:10px; color:#94a3b8; margin-top:2px; display:block; min-height:13px; }
+.ladder-ngn-equiv { color:var(--slate); font-weight:400; font-size:11px; white-space:nowrap; }
 
 /* Per-leg native-currency ladders */
 .ladder-sub { font-family:var(--f-display); font-size:10px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--slate); margin:18px 20px 8px; }
@@ -1471,8 +1473,29 @@ function legRowHtml(leg, i) {
         '<select class="leg-in" data-field="qtyMode" data-idx="' + i + '">' + qtyModeOpts + '</select>' +
       '</div></div>' +
     '<div class="leg-field"><span class="leg-field-lbl">Price (' + legUnitLabel(leg.unit) + ')' + priceFlag + '</span>' +
-      '<input class="leg-in' + (priced ? '' : ' leg-in-pending') + '" type="number" step="any" min="0" data-field="price" data-idx="' + i + '" value="' + priceVal + '" placeholder="' + legUnitLabel(leg.unit) + ' (optional)"></div>' +
+      '<input class="leg-in' + (priced ? '' : ' leg-in-pending') + '" type="number" step="any" min="0" data-field="price" data-idx="' + i + '" value="' + priceVal + '" placeholder="optional">' +
+      '<span id="leg-ngn-equiv-' + i + '" class="leg-ngn-equiv"></span></div>' +
     '</div>';
+}
+
+function updateLegNgnEquiv() {
+  var parEl = document.getElementById('inp-fxpar');
+  var litEl = document.getElementById('inp-litres-per-mt');
+  var parallelRate = parEl ? parseFloat(parEl.value) : NaN;
+  var litresPerMT = (litEl && isFinite(parseFloat(litEl.value)) && parseFloat(litEl.value) > 0)
+    ? parseFloat(litEl.value) : 1183;
+  var canCompute = isFinite(parallelRate) && parallelRate > 0 && isFinite(litresPerMT) && litresPerMT > 0;
+  for (var i = 0; i < _legs.length; i++) {
+    var leg = _legs[i];
+    var el = document.getElementById('leg-ngn-equiv-' + i);
+    if (!el) continue;
+    if (!canCompute || leg.unit !== 'USD_PER_MT' || leg.price == null || !isFinite(leg.price) || leg.price <= 0) {
+      el.textContent = '';
+    } else {
+      var ngnPerL = (leg.price * parallelRate) / litresPerMT;
+      el.textContent = '· ₦' + Math.round(ngnPerL).toLocaleString('en-US') + '/L equiv';
+    }
+  }
 }
 
 function renderLegEditor() {
@@ -1483,6 +1506,7 @@ function renderLegEditor() {
   for (var i = 0; i < _legs.length; i++) html += legRowHtml(_legs[i], i);
   box.innerHTML = html;
   updateLegTotal();
+  updateLegNgnEquiv();
 }
 
 function legTonnesResolved(leg, delivered) {
@@ -1501,7 +1525,9 @@ function updateLegTotal() {
   var sumStr = sum.toLocaleString('en-US', { maximumFractionDigits: 2 });
   if (!isFinite(delivered) || delivered <= 0) {
     el.className = 'leg-total';
-    el.innerHTML = 'Σ legs: <b>' + sumStr + ' MT</b>';
+    el.innerHTML = !isFinite(delivered)
+      ? 'Σ legs: <b>—</b>'
+      : 'Σ legs: <b>' + sumStr + ' MT</b>';
     return;
   }
   var delivStr = delivered.toLocaleString('en-US', { maximumFractionDigits: 2 });
@@ -2039,6 +2065,13 @@ function renderLadder(trade, res, ladder) {
   const curPrice = res.price.exShipPricePerMT;
   const landed   = res.price.exShipLandedPerMT;
 
+  // Naira-equivalent converter for ex-ship USD prices (trader-on-a-call reference).
+  const ladderParallel = (trade && trade.fx && trade.fx.parallel && isFinite(trade.fx.parallel.value) && trade.fx.parallel.value > 0) ? trade.fx.parallel.value : null;
+  const ladderLitres   = (trade && trade.pricing && trade.pricing.conversion && isFinite(trade.pricing.conversion.litresPerMT) && trade.pricing.conversion.litresPerMT > 0) ? trade.pricing.conversion.litresPerMT : null;
+  const ngnEquivSpan = usd => (ladderParallel && ladderLitres)
+    ? \` <span class="ladder-ngn-equiv muted">· ₦\${Math.round((usd * ladderParallel) / ladderLitres).toLocaleString('en-US')}/L</span>\`
+    : '';
+
   // ----- Ex-ship $/MT ladder (only when an ex-ship leg exists) -----
   let exShipBlock = '';
   const exShip = ladder.exShip;
@@ -2068,7 +2101,7 @@ function renderLadder(trade, res, ladder) {
       const isCur = curPrice != null && Math.abs(tier.pricePerMT - curPrice) < 0.005;
       return \`<tr class="\${isCur ? 'ladder-current' : ''}">
         <td><b>\${esc(tier.name)}</b></td>
-        <td class="r">\${fmtUsd(tier.pricePerMT)}/MT</td>
+        <td class="r">\${fmtUsd(tier.pricePerMT)}/MT\${ngnEquivSpan(tier.pricePerMT)}</td>
         <td class="r">\${fmtPct(tier.marginPctOfSell)}</td>
         <td class="r">\${fmtPct(tier.markupPctOnCost)}</td>
         <td class="r">\${fmtUsd(tier.spreadPerMT)}/MT</td>
@@ -2647,6 +2680,7 @@ function recompute() {
 
   clearError();
   renderAll(trade, res, ladder, hasSellPrice);
+  updateLegNgnEquiv();
 }
 
 // ── Toggle switches ────────────────────────────────────────────────────────
