@@ -5,7 +5,7 @@
     "flow": "equity-partner",
     "entity": "TIS Global Trading",
     "createdAt": "2026-01-01",
-    "note": "Sanitised regression fixture — SAME STRUCTURE as the real Profogas trade (equity-partner / USD / fixed price / 25% equity / partner split) but with DUMMY values. Tracked in git so the structural regression (computeTrade == computeEquityPartner) runs on a clean clone without exposing real data."
+    "note": "Sanitised regression fixture — SAME STRUCTURE as the real reference-trade (equity-partner / USD / fixed price / 25% equity / partner split) but with DUMMY values. Tracked in git so the structural regression (computeTrade == computeEquityPartner) runs on a clean clone without exposing real data."
   },
   "parties": {
     "partner": "Example Partner Ltd",

@@ -25,7 +25,7 @@ const { num, positive, nonNegative, proportion, oneOf, sumToOne, computedPositiv
 //   - DEPOT          : margin vs ALL-IN DEPOT landed; naira storage costs FX-exposed.
 //
 // The engine is USD-internal; the FX layer converts naira legs to USD-equivalent at the PARALLEL rate
-// and reports FX exposure separately. computeEquityPartner stays the verified Profogas path; this flow
+// and reports FX exposure separately. computeEquityPartner stays the verified reference-trade path; this flow
 // reproduces it exactly for {ex-ship, partner, USD, 25%} (see test/invariants.js cross-check).
 //
 // PARTNER IN-KIND BENCHMARK: the partner's in-kind product is valued in USD — at the USD ex-ship price

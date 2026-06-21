@@ -118,7 +118,7 @@ profit exactly (auditable WYSIWYG).
 
 ## Unified trade model (`engine/flows/trade.js`, `flow: "trade"`) — five independent dimensions
 
-`computeEquityPartner` is kept untouched as the verified Profogas path (`flow: "equity-partner"`).
+`computeEquityPartner` is kept untouched as the verified reference-trade path (`flow: "equity-partner"`).
 `computeTrade` is the unified flow reusing the same core modules; it reproduces `computeEquityPartner`
 **exactly** for {ex-ship, partner, USD, 25%} (asserted: FX1). `straight-exship` / `full-depot-resale`
 route into it. The engine is USD-internal; the FX layer converts naira legs at the boundary.
@@ -144,7 +144,7 @@ so TIS keeps the depot premium it earns by taking storage/holding/FX risk). **Ed
 (no ex-ship channel) falls back to the depot realized (ex-storage) price as the benchmark (asserted: FX9).
 
 Sample trades: `sample-depot-only` (depot/TIS/NGN), `sample-both-channels` (both/partner/split, advanceRate 0.80),
-`sample-exship-tis` (ex-ship/TIS/USD), plus `profogas-dangote-001` (the unchanged verified baseline).
+`sample-exship-tis` (ex-ship/TIS/USD), plus `reference-trade-001` (the unchanged verified baseline).
 
 ## Hedge toggles — ICE + FX (`engine/core/hedge.js`, `engine/core/fx-hedge.js`)
 
@@ -161,7 +161,7 @@ Two **independent** per-trade toggles, both default **OFF**: `hedge.iceHedged` a
 - **BASIS RISK (explicit):** the hedge settles against the benchmark, not parallel, so realized P&L carries
   the benchmark↔parallel basis as a surfaced residual (`fxHedge.basis.residualBasisUsd` + ⚠ note). The hedge
   never implies full parallel cover. All hedge params are PLACEHOLDER — confirm with bank/broker.
-- Profogas runs on `computeEquityPartner` (toggles n/a) → byte-for-byte unchanged.
+- The reference-trade runs on `computeEquityPartner` (toggles n/a) → byte-for-byte unchanged.
 
 ## Config-driven cost/tax lines (`engine/config/cost-line-schema.json`)
 
@@ -181,8 +181,8 @@ calculation logic.** A policy change (rate edit, %→fixed flip, base change) is
 - Editing a **rate** (VAT 7.5%→10%): edit `trade.tax.vatRate` (or the line's `rate`). Editing a **type**:
   edit the schema or a per-trade override. Both are config edits; the engine re-flows everything.
 - Verified: rate change propagates (CFG1), type flip computes + reconciles (CFG2), base change recomputes
-  (CFG3), config is the sole rate source (CFG4), tax-block membership is config-driven (CFG5). Profogas
-  byte-for-byte unchanged with current defaults.
+  (CFG3), config is the sole rate source (CFG4), tax-block membership is config-driven (CFG5). The
+  reference-trade is byte-for-byte unchanged with current defaults.
 
 ## Status-flag taxonomy (Batch D — final, 3 states)
 

@@ -9,8 +9,8 @@ Node.js >= 20 (developed on v25). No `npm install` needed.
 ## Run
 
 ```bash
-node run.js                                  # first trade (Profogas/Dangote) — full report
-node run.js trades/profogas-dangote-001.json # explicit trade file
+node run.js                                  # reference trade — full report
+node run.js trades/reference-trade-001.json # explicit trade file
 node run.js --with-surcharge                 # enable 5% fossil-fuel surcharge (default OFF, pending Gazette)
 node run.js --upside                         # +5% seller option (deliveredQtyUpsideMT)
 node run.js --compare-fx                      # NAFEM vs parallel FX (no NGN legs here -> no P&L impact)
@@ -32,14 +32,14 @@ partner deliverables · hedged-vs-unhedged · sensitivities (±10%) · inferred-
 ```
 engine/core/   cost-buildup.js  tax.js  fx.js  financing.js  hedge.js  rounding.js  sensitivities.js
 engine/flows/  equity-partner.js (built)  straight-exship.js (stub)  full-depot-resale.js (stub)
-trades/        profogas-dangote-001.json
+trades/        reference-trade-001.json
 run.js         CLI + report + CSV export
 test/          invariants.js
 CLAUDE.md      model spec: dependency graph, NTA 2025 tax anchors, partner toggle, hedge, quantities
 ```
 
 ## Adding a trade
-Copy `trades/profogas-dangote-001.json`, edit the **inputs only** (never type a derived amount), set
+Copy `trades/reference-trade-001.json`, edit the **inputs only** (never type a derived amount), set
 `meta.flow`, and run `node run.js trades/<your-trade>.json`. Leave `sell.exShipPricePerMT.value` as
 `null` to use the cost-plus-6% placeholder until the buyer is priced.
 

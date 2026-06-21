@@ -1042,7 +1042,7 @@ const fxOn          = !!(fxhg.fxHedged);
 const shortTitleRaw = t.meta.tradeName.replace(/\s*\([^)]*(?:REGRESSION|FIXTURE|dummy|test|sample)[^)]*\)/gi, '').trim();
 const tabDeal = `
 ${sec('Trade Identity <span class="per-trade-tag">per-trade</span>', [
-  ir('inp-trade-name',    'Trade name',  ti('inp-trade-name',    shortTitleRaw,                   'e.g. Profogas Dangote 001'), ''),
+  ir('inp-trade-name',    'Trade name',  ti('inp-trade-name',    shortTitleRaw,                   'e.g. Reference Trade 001'), ''),
   ir('inp-partner-name',  'Partner',     ti('inp-partner-name',  (t.parties||{}).partner  || '', 'Partner name'), ''),
   ir('inp-supplier-name', 'Supplier',    ti('inp-supplier-name', (t.parties||{}).supplier || '', 'Supplier name'), ''),
   ir('inp-inspector-name','Inspector',   ti('inp-inspector-name',(t.parties||{}).inspector|| '', 'Inspector name'), ''),

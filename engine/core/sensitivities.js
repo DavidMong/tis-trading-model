@@ -10,7 +10,7 @@ const { round } = require('./rounding');
 //
 // options.fxMode:
 //   'nafem'    (default) -> FX scenario bumps the NAFEM rate (no P&L effect; preserves the verified
-//                            equity-partner / Profogas output byte-for-byte).
+//                            equity-partner / reference-trade output byte-for-byte).
 //   'parallel'           -> FX scenario moves the PAYMENT parallel rate (paymentBumpPct), so it bites
 //                            naira legs in the unified trade flow.
 

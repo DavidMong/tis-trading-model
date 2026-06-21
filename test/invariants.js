@@ -6,15 +6,15 @@
 const { computeEquityPartner } = require('../engine/flows/equity-partner');
 
 // PRIMARY trade for all structural assertions: a SANITIZED, git-tracked fixture (no real data).
-// Same STRUCTURE as the real Profogas trade (equity-partner / USD / fixed price / 25% / partner split).
+// Same STRUCTURE as the real reference-trade (equity-partner / USD / fixed price / 25% / partner split).
 const trade = require('../trades/sample-equity-partner.json');
 
-// The real Profogas trade is intentionally gitignored (real margins/prices/names). Load it ONLY if
+// The real reference-trade is intentionally gitignored (real margins/prices/names). Load it ONLY if
 // present — used solely for LOCAL-ONLY exact-value guards that skip cleanly on a clean clone.
 function tryLoad(rel) {
   try { return require(rel); } catch (e) { return null; }
 }
-const realTrade = tryLoad('../trades/profogas-dangote-001.json');
+const realTrade = tryLoad('../trades/reference-trade-001.json');
 
 let pass = 0;
 let fail = 0;
@@ -121,7 +121,7 @@ check('ladder Target adjusted == direct engine run at Target price',
   approx(target.adjustedProfit, directAtTarget.profit.adjustedProfit, 0.5));
 
 // Ladder classifies the entered fixed price to the nearest tier by margin-of-sell (structural —
-// valid for any trade; the exact "$1,400 -> Stretch" guard is local-only on the real Profogas trade).
+// valid for any trade; the exact "$1,400 -> Stretch" guard is local-only on the real reference-trade).
 if (ladder.current) {
   const m = ladder.current.marginPctOfSell;
   let nearestTier = ladder.tiers[0];
@@ -207,7 +207,7 @@ const exshipTis = require('../trades/sample-exship-tis.json');
 
 // FX1 — STRUCTURAL REGRESSION (clean-clone runnable): computeTrade reproduces computeEquityPartner
 // exactly on the sanitized equity-partner fixture — proving the generalization is faithful without
-// any real Profogas figures in the repo.
+// any real reference-trade figures in the repo.
 const ctP = computeTrade(trade);
 check('FX1 computeTrade == computeEquityPartner: standalone', approx(ctP.profit.standaloneProfit, r.profit.standaloneProfit, 0.01));
 check('FX1 computeTrade == computeEquityPartner: marginForegone', approx(ctP.profit.marginForegone, r.profit.marginForegone, 0.01));
@@ -263,7 +263,7 @@ check('FX9 margin-foregone benchmark = ex-ship price (both channels)',
   approx(both.profit.benchmarkPriceUSD, bothChannels.sell.exShipPricePerMT.value, 0.01));
 // RULE CHANGE 2026-06-20 (Stage-1 per-leg revenue): the no-USD-leg fallback is now the USD-EQUIVALENT
 // LANDED COST (was the depot realized/ex-storage price). Only this synthetic depot-only-PARTNER scenario
-// is affected; Profogas and all USD/real trades are byte-for-byte unchanged. Old expected: depotPriceUSDperMT
+// is affected; reference-trade and all USD/real trades are byte-for-byte unchanged. Old expected: depotPriceUSDperMT
 // ($1330.875); new expected: exShipLandedPerMT ($1037.0449). Check retained, re-pointed to the new rule.
 const depotPartner = computeTrade({ ...depotOnly, partner: { ...depotOnly.partner, equityProvider: 'partner', profitSharePct: 0.3, productAllocationPct: 1.0 } });
 check('FX9 depot-only partner: benchmark falls back to USD-equivalent landed cost',
@@ -475,21 +475,21 @@ check('CFG4 zeroing config rate zeroes the line', zeroed.cost.byId[7].amountUsd 
 check('CFG5 tax block built from config taxLine flag', cfgBase.cost.byId[7].taxLine === true && cfgBase.cost.byId[6].taxLine === false);
 
 // ============================================================================================
-// LOCAL-ONLY exact-value guards — run only when the real (gitignored) Profogas trade is present.
+// LOCAL-ONLY exact-value guards — run only when the real (gitignored) reference-trade is present.
 // These keep the exact real-number baseline as a local guard; they SKIP cleanly on a clean clone,
 // so real figures never enter the repo.
 // ============================================================================================
 if (realTrade) {
-  console.log('  -- local-only exact-value guards (real Profogas trade present) --');
+  console.log('  -- local-only exact-value guards (real reference-trade present) --');
   const rp = computeEquityPartner(realTrade);
-  check('LOCAL Profogas standalone = $3,126,683.88', approx(rp.profit.standaloneProfit, 3126683.88, 0.01));
-  check('LOCAL Profogas TIS net = $1,591,014.15', approx(rp.profit.tisNetProfit, 1591014.15, 0.01));
+  check('LOCAL reference-trade standalone = $3,126,683.88', approx(rp.profit.standaloneProfit, 3126683.88, 0.01));
+  check('LOCAL reference-trade TIS net = $1,591,014.15', approx(rp.profit.tisNetProfit, 1591014.15, 0.01));
   const lp = buildExShipLadder(realTrade, (t) => computeEquityPartner(t), rp);
-  check('LOCAL Profogas entered $1,400 nearest tier = Stretch', !!lp.current && lp.current.nearestTier === 'Stretch');
+  check('LOCAL reference-trade entered $1,400 nearest tier = Stretch', !!lp.current && lp.current.nearestTier === 'Stretch');
   check('LOCAL structural regression on real trade: computeTrade == computeEquityPartner (TIS net)',
     approx(computeTrade(realTrade).profit.tisNetProfit, rp.profit.tisNetProfit, 0.01));
 } else {
-  console.log('  -- skipped local-only Profogas exact-value guards (real file absent — clean clone) --');
+  console.log('  -- skipped local-only reference-trade exact-value guards (real file absent — clean clone) --');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

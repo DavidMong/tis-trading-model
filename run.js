@@ -448,7 +448,7 @@ function printHelp() {
   console.log(`TIS trading model
 Usage: node run.js [tradeFile.json] [flags]
 
-  default tradeFile: trades/profogas-dangote-001.json
+  default tradeFile: trades/reference-trade-001.json
 
 Flags:
   --with-surcharge   enable the 5% fossil-fuel surcharge (default OFF, pending Gazette)
@@ -465,7 +465,7 @@ function main() {
   const { flags, tradeFile } = parseCli();
   if (flags.help) return printHelp();
 
-  const file = tradeFile || path.join(__dirname, 'trades', 'profogas-dangote-001.json');
+  const file = tradeFile || path.join(__dirname, 'trades', 'reference-trade-001.json');
   const trade = loadTrade(file);
 
   // Apply flags to the trade object
@@ -485,7 +485,7 @@ function main() {
   }
 
   // Unified trade flow uses the parallel-payment FX sensitivity; equity-partner keeps NAFEM (no-op),
-  // preserving the verified Profogas output byte-for-byte.
+  // preserving the verified reference-trade output byte-for-byte.
   const isUnified = res.channels !== undefined && res.revenue !== undefined;
   const sensOptions = isUnified ? { fxMode: 'parallel' } : {};
   res.sensitivities = runSensitivities(trade, (t) => compute(t, opts), sensOptions);
