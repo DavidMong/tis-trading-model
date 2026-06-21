@@ -699,7 +699,7 @@ body { display: flex; flex-direction: column; }
 .tgl-set        { gap: 10px; }
 
 /* ── 4. Waterfall: more room in the row; proper reconcile text flow ──────── */
-.wf-row { padding: 24px 24px 8px; }
+.wf-row { padding: 24px; }
 /* Override reportCss padding on the shared wf-box class */
 .wf-box { padding: 18px 16px; }
 /* reportCss uses display:flex+gap on .wf-reconcile but content is inline;
@@ -2780,13 +2780,20 @@ function refreshHedgePh() {
 function updateHedgedVolPlaceholder() {
   const volEl = document.getElementById('inp-ice-hedged-vol');
   if (!volEl) return;
-  if (_lastRetainedTonnes != null && isFinite(_lastRetainedTonnes) && _lastRetainedTonnes > 0) {
-    volEl.placeholder = _lastRetainedTonnes.toLocaleString('en-US', {maximumFractionDigits: 0}) + ' (retained)';
-  } else {
-    volEl.placeholder = 'retained tonnes';
+  const hasDefault = _lastRetainedTonnes != null && isFinite(_lastRetainedTonnes) && _lastRetainedTonnes > 0;
+  volEl.placeholder = hasDefault
+    ? _lastRetainedTonnes.toLocaleString('en-US', {maximumFractionDigits: 0}) + ' (retained)'
+    : 'retained tonnes';
+  // Pip: green when user entered a value OR a valid computed default exists;
+  // amber only when genuinely empty with no computable default.
+  const pipEl = volEl.closest('.ir') && volEl.closest('.ir').querySelector('.pip');
+  if (pipEl) {
+    const hasValue = volEl.value.trim() !== '';
+    pipEl.classList.remove('pip-ok','pip-ind','pip-unv','pip-ph','pip-conf','pip-none');
+    pipEl.classList.add(hasValue || hasDefault ? 'pip-ok' : 'pip-ind');
+    pipEl.title = hasValue ? 'OK' : (hasDefault ? 'Using retained default' : 'INDICATIVE');
   }
 }
-
 function onInputChange(id) {
   if (_isSample) { _isSample = false; }
   setModified(true);
