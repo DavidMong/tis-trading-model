@@ -1049,6 +1049,8 @@ ${sec('Trade Identity <span class="per-trade-tag">per-trade</span>', [
 ].join(''))}
 ${sec('Pricing <span class="live-badge">Live</span>', [
   ir('inp-ice',       'ICE LSGO $/MT',      ni('inp-ice',       t.market.ice.value,           0.01, 0),     t.market.ice.status, true),
+  ir('inp-ice-final', 'Final ICE $/MT (settlement)', ni('inp-ice-final', t.market.ice.final != null ? t.market.ice.final : '', 0.01, 0, 'ph'), 'INDICATIVE'),
+  '<p class="defaults-note">Leave blank to use live ICE. Enter the settled ICE at payment to see the realized hedge outcome — your purchase floats at this price; the swap offsets it on hedged tonnes.</p>',
   ir('inp-fob',       'FOB Premium $/MT',    ni('inp-fob',       t.market.fobPremium.value,    0.01),        '', true),
   ir('inp-fxpar',     'FX Parallel ₦/USD',   ni('inp-fxpar',     t.fx.parallel.value,          1, 1),        t.fx.parallel.status, true),
   ir('inp-delivered', 'Delivered MT',        ni('inp-delivered', t.cargo.deliveredQtyMT,        1, 1),        '', true),
@@ -1660,6 +1662,9 @@ function collectTrade() {
   const fxFwd         = (isNaN(fxFwdRaw) || fxFwdRaw <= 0) ? null : fxFwdRaw;
   const iceVolRaw     = gf('inp-ice-hedged-vol');
   const iceVol        = (isNaN(iceVolRaw) || iceVolRaw <= 0) ? null : iceVolRaw;
+  // Final/settlement ICE: blank (or non-positive) => null => engine defaults to live ICE.
+  const iceFinalRaw   = gf('inp-ice-final');
+  const iceFinal      = (isNaN(iceFinalRaw) || iceFinalRaw <= 0) ? null : iceFinalRaw;
 
   // sell kept for back-compat shape only; the engine prices from revenueLegs (native path).
   const sell = { ...INIT.sell };
@@ -1668,7 +1673,7 @@ function collectTrade() {
     ...INIT,
     revenueLegs,
     market: {
-      ice:        { ...INIT.market.ice,        value: gf('inp-ice') },
+      ice:        { ...INIT.market.ice,        value: gf('inp-ice'), final: iceFinal },
       fobPremium: { ...INIT.market.fobPremium, value: gf('inp-fob') },
     },
     cargo:    { ...INIT.cargo, deliveredQtyMT: gf('inp-delivered') },
@@ -1826,6 +1831,7 @@ function resetToDefaults() {
   const sur = I.tax.surcharge || {};
 
   sv('inp-ice',            I.market.ice.value);
+  sv('inp-ice-final',      I.market.ice.final != null ? I.market.ice.final : '');
   sv('inp-fob',            I.market.fobPremium.value);
   sv('inp-fxpar',          I.fx.parallel.value);
   sv('inp-delivered',      I.cargo.deliveredQtyMT);
@@ -2338,18 +2344,26 @@ function renderHedge(trade, res) {
        \${infoRow('Margin financing cost', fmtUsd(h.extraFinancingCost))}\`
     : infoRow('Bank spread', fmtUsd((trade.hedge.bankSpreadPerMT || 0) * hedgedTonnes) + ' total');
 
+  // Final/settlement ICE: when entered, h.liveIce carries the settled price and the purchase floats to
+  // it; the row relabels and a realized swap-P&L row appears.
+  const finalSet = trade.market.ice && trade.market.ice.final != null;
+  const effIce   = h.liveIce || trade.market.ice.value;
   const iceRows = \`
     \${infoRow('Lots / Hedged MT', \`\${h.lots ?? '—'} lots (\${fmtNum(hedgedTonnes, 0)} MT)\`)}
     \${infoRow('Retained basis', fmtMt(h.comparisonBasisTonnes, 2) + ' TIS retained')}
     \${infoRow('Fixed price', fmtUsd(h.fixedPrice) + '/MT ' + (trade.hedge.fixedPrice == null ? badge('PLACEHOLDER') : ''))}
-    \${infoRow('Live ICE', fmtUsd(h.liveIce || trade.market.ice.value) + '/MT')}
+    \${infoRow(finalSet ? 'Settlement ICE (final)' : 'Live ICE', fmtUsd(effIce) + '/MT' + (finalSet ? ' ' + badge('SETTLEMENT') : ''))}
     \${infoRow('ICE cost delta', fmtUsdSign(h.iceCostDelta) + (iceOn ? '' : ' (OFF — not applied)'))}
+    \${finalSet ? infoRow('Realized hedge P&L', fmtUsdSign(res.hedges.iceHedgeNetImpact) + (iceOn ? ' (swap settles − fee/financing)' : ' (OFF — not applied)')) : ''}
     \${infoRow('Swap fee', fmtUsd(h.swapFee) + ' ' + badge('PLACEHOLDER'))}
     \${iceRouteRows}
   \`;
-  const iceDetail = iceNullFixed
-    ? \`<div class="h-lock-warn">⚠ Fixed price not set — hedge prices at live ICE (<b>\${fmtUsd(trade.market.ice.value)}/MT</b>). No lock-in effect. Set a fixed price in the Hedge tab.</div>\`
+  const settlementNote = finalSet
+    ? \`<div class="defaults-note">Realized at settlement ICE <b>\${fmtUsd(effIce)}/MT</b>: the purchase floats to this price (landed cost recomputed) and the swap settles (final − fixed) × hedged tonnes on TIS's retained tonnes only. "Hedge value vs unhedged" below is the realized outcome.</div>\`
     : '';
+  const iceDetail = settlementNote + (iceNullFixed
+    ? \`<div class="h-lock-warn">⚠ Fixed price not set — hedge prices at live ICE (<b>\${fmtUsd(trade.market.ice.value)}/MT</b>). No lock-in effect. Set a fixed price in the Hedge tab.</div>\`
+    : '');
 
   // FX rows
   let fxRows;
@@ -2692,6 +2706,7 @@ function recompute() {
   renderAll(trade, res, ladder, hasSellPrice);
   updateLegNgnEquiv();
   updateHedgedVolPlaceholder();
+  updateFinalIcePlaceholder();
 }
 
 // ── Toggle switches ────────────────────────────────────────────────────────
@@ -2795,6 +2810,16 @@ function updateHedgedVolPlaceholder() {
     pipEl.title = hasValue ? 'OK' : (hasDefault ? 'Using retained default' : 'INDICATIVE');
   }
 }
+// Keep the Final ICE placeholder showing the current live ICE (blank => engine uses live).
+function updateFinalIcePlaceholder() {
+  const finEl = document.getElementById('inp-ice-final');
+  if (!finEl) return;
+  const iceEl = document.getElementById('inp-ice');
+  const live = iceEl ? parseFloat(iceEl.value) : NaN;
+  finEl.placeholder = isFinite(live) && live > 0
+    ? live.toLocaleString('en-US', {maximumFractionDigits: 2}) + ' (live ICE)'
+    : 'live ICE';
+}
 function onInputChange(id) {
   if (_isSample) { _isSample = false; }
   setModified(true);
@@ -2807,6 +2832,7 @@ function onInputChange(id) {
   updateHeader();
   refreshHedgePh();
   updateHedgedVolPlaceholder();
+  updateFinalIcePlaceholder();
   updateLegTotal();   // delivered MT feeds the leg tonnage total
   recompute();
 }
@@ -2814,7 +2840,7 @@ function onInputChange(id) {
 // ── Per-trade vs house-defaults grouping ──────────────────────────────────
 const PER_TRADE_IDS = [
   'inp-trade-name','inp-partner-name','inp-supplier-name','inp-inspector-name',
-  'inp-ice','inp-fob','inp-fxpar','inp-fxnafem','inp-delivered',
+  'inp-ice','inp-ice-final','inp-fob','inp-fxpar','inp-fxnafem','inp-delivered',
   'inp-profit-split',
   'inp-tc-rate','inp-charter','inp-demurrage',
   'inp-credit-rate','inp-lc-fee','inp-fin-days','inp-lockup','inp-wc-sublimit',
@@ -2929,7 +2955,7 @@ function newTrade() {
   if (_modified && !confirm('You have unsaved changes. Start a new trade and discard them?')) return;
   const BLANK = [
     'inp-trade-name','inp-partner-name','inp-supplier-name','inp-inspector-name',
-    'inp-ice','inp-fob','inp-fxpar','inp-fxnafem','inp-delivered',
+    'inp-ice','inp-ice-final','inp-fob','inp-fxpar','inp-fxnafem','inp-delivered',
     'inp-ice-fixed','inp-fx-forward','inp-ice-hedged-vol',
   ];
   for (const id of BLANK) { const el = document.getElementById(id); if (el) el.value = ''; }
@@ -2960,6 +2986,7 @@ function newTrade() {
   if (defs) { applyInputSnapshot(defs); }
   refreshHedgePh();
   updateHedgedVolPlaceholder();
+  updateFinalIcePlaceholder();
 
   activateToggle(document.getElementById('tog-ice-hedge'), false);
   activateToggle(document.getElementById('tog-fx-hedge'),  false);
@@ -3075,6 +3102,7 @@ function loadSelectedTrade(explicit) {
   renderLegEditor();
   refreshHedgePh();
   updateHedgedVolPlaceholder();
+  updateFinalIcePlaceholder();
   if (snap['_tog-ice-hedge'] != null) activateToggle(document.getElementById('tog-ice-hedge'), snap['_tog-ice-hedge'] === 'true');
   if (snap['_tog-fx-hedge']  != null) activateToggle(document.getElementById('tog-fx-hedge'),  snap['_tog-fx-hedge']  === 'true');
   if (snap['_tog-surcharge'] != null) activateToggle(document.getElementById('tog-surcharge'), snap['_tog-surcharge'] === 'true');
@@ -3163,6 +3191,7 @@ updateStateBadge();
 recompute();
 refreshHedgePh();
 updateHedgedVolPlaceholder();
+updateFinalIcePlaceholder();
 
 })();
 </script>

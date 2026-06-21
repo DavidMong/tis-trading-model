@@ -19,7 +19,7 @@ re-runs the same pure function under perturbed inputs.
 
 ## Input -> derivative dependency graph
 
-**TRUE INPUTS (typed):** ICE $/MT (+asOf, feed hook), FOB premium, cargo MT, ±5% seller option,
+**TRUE INPUTS (typed):** ICE $/MT (+asOf, feed hook; optional `market.ice.final` settlement ICE), FOB premium, cargo MT, ±5% seller option,
 deliveredQty, TC rate/day, charter days, demurrage days, creditRate, lcFeePct, financingDays,
 capitalLockupDays, ex-ship price (placeholder), FX (NAFEM+parallel; value/source/asOf/override),
 partner terms, hedge terms, flat cost lines, taxableSupplyProportion, surcharge toggle.
@@ -162,6 +162,35 @@ Two **independent** per-trade toggles, both default **OFF**: `hedge.iceHedged` a
   the benchmark↔parallel basis as a surfaced residual (`fxHedge.basis.residualBasisUsd` + ⚠ note). The hedge
   never implies full parallel cover. All hedge params are PLACEHOLDER — confirm with bank/broker.
 - The reference-trade runs on `computeEquityPartner` (toggles n/a) → byte-for-byte unchanged.
+
+## Final / settlement ICE (`market.ice.final`)
+
+Optional single value. The physical FOB purchase **FLOATS** at ICE (it is not locked — that is *why* TIS
+hedges), so the settled ICE at payment must drive BOTH landed cost AND the swap reference. Resolved ONCE
+at the top of `computeTrade` / `computeEquityPartner`:
+
+```
+effectiveIce = market.ice.final ?? market.ice.value
+```
+
+`effectiveIce` is substituted at EVERY site that reads `market.ice.value` — the two `unitFob` reads, the
+hedge's `liveIce` reference (`buildHedge`), and cost line 1 "ICE LSGO" (`rateFrom: market.ice.value`,
+resolved against an `effTrade` clone). It is **one shared value, never a second ICE reference on the same
+tonnes** — so the swap and the physical offset cleanly. Result:
+
+- **(a)** landed cost recomputes at the settled ICE (purchase floats);
+- **(b)** swap gain/loss = `hedgedPhysical × (effectiveIce − fixedPrice)`, scoped to **RETAINED tonnes only**
+  (`iceCostDelta`, never full cargo, never partner tonnes);
+- **(c)** partner principal (∝ cargo value) and partner tonnes (÷ landed) recompute at the new landed cost —
+  **self-offsetting at par**, so the swap must NOT cover them (it doesn't: default hedged volume = retained).
+
+**SAFETY RULE — BLANK ⇒ live ⇒ byte-for-byte unchanged.** When `final` is absent, `effectiveIce === liveIce`
+and `effTrade === trade` *by reference*: zero structural change, every existing number identical. No new
+result fields are emitted (the UI reads the input + existing hedge fields). Guarded by the full suite
+(reference/Profogas trade byte-for-byte) plus the **FI0–FI8** tests (settled-ICE behavior + net stability:
+hedged TIS net stays ~stable across the ICE range while unhedged swings widely). UI: "Final ICE $/MT
+(settlement)" in the Pricing section (placeholder = live ICE); the ICE hedge card relabels "Live ICE" →
+"Settlement ICE (final)" and surfaces a **Realized hedge P&L** row + realized-outcome note when set.
 
 ## Config-driven cost/tax lines (`engine/config/cost-line-schema.json`)
 

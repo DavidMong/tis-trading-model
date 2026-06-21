@@ -475,6 +475,88 @@ check('CFG4 zeroing config rate zeroes the line', zeroed.cost.byId[7].amountUsd 
 check('CFG5 tax block built from config taxLine flag', cfgBase.cost.byId[7].taxLine === true && cfgBase.cost.byId[6].taxLine === false);
 
 // ============================================================================================
+// FINAL / SETTLEMENT ICE (market.ice.final) — the physical FOB purchase FLOATS at ICE, so a settled
+// ICE flows into BOTH landed cost AND the swap reference (ONE shared value, never a second reference
+// on the same tonnes). The ICE swap — scoped to RETAINED tonnes — offsets the landed-cost move on
+// TIS's exposure; partner tonnes self-offset at par. BLANK => live ICE => byte-for-byte unchanged
+// (proven suite-wide by /tmp fingerprint; here we exercise the SETTLED behavior).
+// ============================================================================================
+const fiCT = (overrides) => computeTrade({ ...trade, ...overrides }, { skipHedgeCompare: true });
+const fiLive = trade.market.ice.value; // 800
+const fiHedgeOn = { ...trade.hedge, iceHedged: true, fixedPrice: fiLive }; // lock = original live ICE; vol default = retained
+const fiHedgeOff = { ...trade.hedge, iceHedged: false };
+const setFinal = (fin, hedge) => fiCT({ hedge, market: { ...trade.market, ice: { ...trade.market.ice, final: fin } } });
+const fiBlank = setFinal(undefined, fiHedgeOn);  // final blank (=> effective live)
+const fiAtLive = setFinal(fiLive, fiHedgeOn);    // final == live exactly
+const fiHi = setFinal(fiLive * 1.2, fiHedgeOn);  // final > fixed (+20%)
+const fiLo = setFinal(fiLive * 0.8, fiHedgeOn);  // final < fixed (-20%)
+const uBlank = setFinal(undefined, fiHedgeOff);  // unhedged counterparts (the exposure the hedge removes)
+const uHi = setFinal(fiLive * 1.2, fiHedgeOff);
+const uLo = setFinal(fiLive * 0.8, fiHedgeOff);
+const fixedLock = fiLive;
+const dIce = fiLive * 0.2;
+
+// FI0 — final ICE == live == blank (effectiveIce identity; the SETTLEMENT-equals-live no-op).
+check('FI0 final ICE == live reproduces blank exactly (effectiveIce identity)',
+  approx(fiAtLive.profit.tisNetProfit, fiBlank.profit.tisNetProfit, 0.001) &&
+  approx(fiAtLive.price.exShipLandedPerMT, fiBlank.price.exShipLandedPerMT, 0.001));
+
+// FI1 — (a) landed cost recomputes at final ICE (purchase floats ≥ 1:1 per MT, + pct/financing lines).
+check('FI1 (a) landed cost rises with higher final ICE, falls with lower',
+  fiHi.price.exShipLandedPerMT > fiBlank.price.exShipLandedPerMT && fiLo.price.exShipLandedPerMT < fiBlank.price.exShipLandedPerMT);
+check('FI1 (a) landed-cost move ≈ ICE move per MT (floats ≥ 1:1, < 1.08× incl pct + financing)',
+  (fiHi.price.exShipLandedPerMT - fiBlank.price.exShipLandedPerMT) >= dIce - 0.01 &&
+  (fiHi.price.exShipLandedPerMT - fiBlank.price.exShipLandedPerMT) < dIce * 1.08);
+
+// FI2 — (b) swap gain/loss = hedgedPhysical × (final − fixed), scoped to RETAINED tonnes ONLY.
+check('FI2 (b) iceCostDelta = hedgedPhysical × (fixed − final) [exact formula]',
+  approx(fiHi.hedge.iceCostDelta, fiHi.hedge.hedgedPhysical * (fixedLock - fiLive * 1.2), 0.5) &&
+  approx(fiLo.hedge.iceCostDelta, fiLo.hedge.hedgedPhysical * (fixedLock - fiLive * 0.8), 0.5));
+check('FI2 (b) realized swap impact = hedgedPhysical × (final − fixed) − hedge fee/financing',
+  approx(fiHi.hedges.iceHedgeNetImpact, fiHi.hedge.hedgedPhysical * (fiLive * 1.2 - fixedLock) - fiHi.hedge.extraFinancingCost, 0.5));
+check('FI2 (b) swap scoped to RETAINED (≤ retained, < full cargo, within 1 lot of retained)',
+  fiHi.hedge.hedgedPhysical <= fiHi.quantities.economic.tisRetainedTonnes + 1e-6 &&
+  fiHi.hedge.hedgedPhysical < fiHi.meta.deliveredQty &&
+  Math.abs(fiHi.hedge.hedgedPhysical - fiHi.quantities.economic.tisRetainedTonnes) < 100);
+check('FI2 (b) partner tonnes EXCLUDED from the swap (hedged + partner ≈ delivered, within 1 lot)',
+  Math.abs(fiHi.hedge.hedgedPhysical + fiHi.quantities.economic.partnerTonnes - fiHi.meta.deliveredQty) < 100);
+
+// FI3 — (c) partner principal/tonnes recompute at the new landed cost, self-offsetting at par.
+check('FI3 (c) partner principal = 25% of cargo value AT final ICE (moves with ICE)',
+  approx(fiHi.quantities.economic.principalAsProduct, 0.25 * fiHi.cargoValue, 1) && fiHi.cargoValue > fiBlank.cargoValue);
+check('FI3 (c) partner tonnes × landed = principal (par holds at the NEW landed cost, both directions)',
+  approx(fiHi.quantities.economic.partnerTonnes * fiHi.price.exShipLandedPerMT, fiHi.quantities.economic.principalAsProduct, 1) &&
+  approx(fiLo.quantities.economic.partnerTonnes * fiLo.price.exShipLandedPerMT, fiLo.quantities.economic.principalAsProduct, 1));
+
+// FI4 — directional offset: the landed-cost move and the swap move have OPPOSITE signs on the exposure.
+check('FI4 final > fixed: unhedged net FALLS (cost up), swap GAINS (impact > 0)',
+  uHi.profit.tisNetProfit < uBlank.profit.tisNetProfit && fiHi.hedges.iceHedgeNetImpact > 0);
+check('FI4 final < fixed: unhedged net RISES (cost down), swap LOSES (impact < 0)',
+  uLo.profit.tisNetProfit > uBlank.profit.tisNetProfit && fiLo.hedges.iceHedgeNetImpact < 0);
+
+// FI5 — NET STABILITY (proves the hedge works): hedged TIS net barely moves across the ICE range while
+// unhedged swings widely; hedged net margin stays ~flat.
+const fiHedgedSpread = Math.abs(fiHi.profit.tisNetProfit - fiLo.profit.tisNetProfit);
+const fiUnhedgedSpread = Math.abs(uHi.profit.tisNetProfit - uLo.profit.tisNetProfit);
+check('FI5 hedged net FAR more stable than unhedged (hedged spread < 15% of unhedged)',
+  fiHedgedSpread < 0.15 * fiUnhedgedSpread);
+check('FI5 hedged net margin stays ~stable across final ICE (< 1 pt drift)',
+  Math.abs(fiHi.profit.tisNetProfit / fiHi.revenue.combinedUSD - fiLo.profit.tisNetProfit / fiLo.revenue.combinedUSD) < 0.01);
+
+// FI6 — BLANK final reverts to the pre-existing base case: no settlement move => iceCostDelta ≈ 0,
+// realized impact = the hedge fee/financing only (current behavior, exactly).
+check('FI6 blank final: iceCostDelta ≈ 0 (no settlement move)', Math.abs(fiBlank.hedge.iceCostDelta) < 0.5);
+check('FI6 blank final: realized impact = -(fee/financing) only (pre-existing base case)',
+  approx(fiBlank.hedges.iceHedgeNetImpact, -fiBlank.hedge.extraFinancingCost, 0.5));
+
+// FI7 — reconciliation identity still holds with a settled ICE + the ICE hedge ON.
+check('FI7 reconciliation holds with final ICE + ICE hedge ON',
+  fiHi.profit.reconciliation.ok === true && fiLo.profit.reconciliation.ok === true);
+
+// FI8 — invalid final ICE is rejected at the boundary (no NaN/Infinity leak).
+expectThrow('FI8 non-numeric final ICE throws', () => computeTrade({ ...trade, market: { ...trade.market, ice: { ...trade.market.ice, final: 'oops' } } }), 'market.ice.final');
+
+// ============================================================================================
 // LOCAL-ONLY exact-value guards — run only when the real (gitignored) reference-trade is present.
 // These keep the exact real-number baseline as a local guard; they SKIP cleanly on a clean clone,
 // so real figures never enter the repo.

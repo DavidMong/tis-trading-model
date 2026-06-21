@@ -65,10 +65,24 @@ function computeTrade(trade, opts = {}) {
   const ch = trade.channels || { exShipPct: 1, depotPct: 0 };
   validateTrade(trade, deliveredQty, ch, native);
 
+  // 0. Effective ICE. The physical FOB purchase FLOATS at ICE; `market.ice.final` is the
+  //    SETTLEMENT/at-payment print. When set, it is the single ICE that drives BOTH the landed cost
+  //    AND the swap reference — one shared value, never a second reference on the same tonnes, so the
+  //    swap (hedged tonnes) and the physical (full cargo) offset cleanly, and partner principal/tonnes
+  //    recompute at the new landed cost (self-offset at par). When BLANK it is exactly the live value,
+  //    so `effTrade === trade` by reference and every existing number is byte-for-byte unchanged.
+  const liveIce = trade.market.ice.value;
+  const finalIce = trade.market.ice.final != null ? trade.market.ice.final : null;
+  const effectiveIce = finalIce != null ? finalIce : liveIce;
+  if (finalIce != null) num(finalIce, 'market.ice.final');
+  const effTrade = effectiveIce === liveIce
+    ? trade
+    : { ...trade, market: { ...trade.market, ice: { ...trade.market.ice, value: effectiveIce } } };
+
   // 1. Cargo FOB value & funding stack (equity ratio configurable, validated to 100%)
-  const unitFob = trade.market.ice.value + trade.market.fobPremium.value;
+  const unitFob = effectiveIce + trade.market.fobPremium.value;
   const cargoValue = unitFob * deliveredQty;
-  const financing = buildFinancing(trade, cargoValue);
+  const financing = buildFinancing(effTrade, cargoValue);
 
   // 2. FX rates. PARALLEL = economic (P&L); NAFEM = reference only. fxBump = payment-vs-pricing parallel.
   const fxBump = opts.fxBump ?? (trade.fx && trade.fx.paymentBumpPct) ?? 0;
@@ -89,8 +103,9 @@ function computeTrade(trade, opts = {}) {
     computedPositive(fx.parallelPayment, 'parallel (payment) rate');
   }
 
-  // 4. Cost build-up (storage active for depot tonnes; naira storage converted at parallel payment)
-  const cost = buildCostBuildup(trade, {
+  // 4. Cost build-up (storage active for depot tonnes; naira storage converted at parallel payment).
+  //    effTrade => cost line 1 ("ICE LSGO", rateFrom market.ice.value) resolves to the effective ICE.
+  const cost = buildCostBuildup(effTrade, {
     cargoValue, deliveredQty, depotTonnes, financing, parallelPayment: fx.parallelPayment,
   });
   const exShipLandedPerMT = cost.exShipLandedPerMT; // base, excl storage
@@ -172,7 +187,7 @@ function computeTrade(trade, opts = {}) {
   // 6. Hedges — two INDEPENDENT toggles. buildHedge is unchanged (shared with computeEquityPartner).
   const iceHedged = !!(trade.hedge && trade.hedge.iceHedged);
   const fxHedged = !!(trade.fxHedge && trade.fxHedge.fxHedged);
-  const hedge = buildHedge(trade, { tisRetainedTonnes });
+  const hedge = buildHedge(effTrade, { tisRetainedTonnes }); // effTrade => liveIce ref = effective (settlement) ICE
   const fxHedge = buildFxHedge(trade, { netNairaNgn, parallelPricing: fx.parallelPricing, parallelPayment: fx.parallelPayment });
 
   // Realized hedge impacts on standalone — only when the toggle is ON.

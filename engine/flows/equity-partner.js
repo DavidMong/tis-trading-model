@@ -48,15 +48,29 @@ function computeEquityPartner(trade, opts = {}) {
   const deliveredQty = opts.deliveredQtyOverride ?? trade.cargo.deliveredQtyMT;
   validateTrade(trade, deliveredQty);
 
+  // 0. Effective ICE. The physical FOB purchase FLOATS at ICE; `market.ice.final` is the
+  //    SETTLEMENT/at-payment print. When set, it is the single ICE that drives BOTH the landed
+  //    cost AND the swap reference — one shared value, never a second reference on the same tonnes,
+  //    so the swap (on hedged tonnes) and the physical (full cargo) offset cleanly. When BLANK it
+  //    is exactly the live value, so `effTrade === trade` by reference and every number is unchanged.
+  const liveIce = trade.market.ice.value;
+  const finalIce = trade.market.ice.final != null ? trade.market.ice.final : null;
+  const effectiveIce = finalIce != null ? finalIce : liveIce;
+  if (finalIce != null) num(finalIce, 'market.ice.final');
+  const effTrade = effectiveIce === liveIce
+    ? trade
+    : { ...trade, market: { ...trade.market, ice: { ...trade.market.ice, value: effectiveIce } } };
+
   // 1. Cargo FOB value (derived)
-  const unitFob = trade.market.ice.value + trade.market.fobPremium.value;
+  const unitFob = effectiveIce + trade.market.fobPremium.value;
   const cargoValue = unitFob * deliveredQty;
 
   // 2. Financing & funding stack
-  const financing = buildFinancing(trade, cargoValue);
+  const financing = buildFinancing(effTrade, cargoValue);
 
-  // 3. Cost build-up (recoverable VAT excluded from landed cost)
-  const cost = buildCostBuildup(trade, { cargoValue, deliveredQty, financing });
+  // 3. Cost build-up (recoverable VAT excluded from landed cost). effTrade => cost line 1
+  //    ("ICE LSGO", rateFrom market.ice.value) resolves to the effective ICE.
+  const cost = buildCostBuildup(effTrade, { cargoValue, deliveredQty, financing });
   const landedCostPerMT = cost.landedCostPerMT;
 
   // 4. Ex-storage landed cost. Storage lines (=0 unless depot) are already inside allInCost,
@@ -111,8 +125,10 @@ function computeEquityPartner(trade, opts = {}) {
     tisNetAfterSurcharge = tisNetProfit - taxBlock.surcharge.tisBorneUsd;
   }
 
-  // 9. Hedge
-  const hedge = buildHedge(trade, { tisRetainedTonnes });
+  // 9. Hedge. effTrade => hedge's liveIce reference resolves to the effective (settlement) ICE, so
+  //    iceCostDelta = hedgedPhysical x (fixedPrice - effectiveIce) is the realized swap outcome on
+  //    the RETAINED tonnes only (never full cargo, never partner tonnes).
+  const hedge = buildHedge(effTrade, { tisRetainedTonnes });
 
   // 10. TIS-side annualised return (NOT a partner metric). On cargo value, annualised by lockup.
   const tisAnnualisedReturnOnCargo =
