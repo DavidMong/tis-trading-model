@@ -902,13 +902,14 @@ body { display: flex; flex-direction: column; }
   display:grid;
   grid-template-columns: 1fr 1fr;
   gap:6px 8px;
-  padding:9px 10px 10px;
+  padding:9px 32px 10px 10px;  /* right: 32px reserves space for the × button */
   border:1px solid var(--border);
   border-radius:7px;
   background:var(--white);
   position:relative;
+  box-sizing:border-box;
 }
-.leg-row .leg-field { display:flex; flex-direction:column; gap:3px; }
+.leg-row .leg-field { display:flex; flex-direction:column; gap:3px; min-width:0; }
 .leg-row .leg-field.full { grid-column:1 / -1; }
 .leg-field-lbl {
   font-family:var(--f-display); font-size:9px; font-weight:700;
@@ -1170,7 +1171,7 @@ const tabHedge = `
       ${ir('inp-ice-margin', 'Initial margin %', ni('inp-ice-margin', pct2(hg.initialMarginPct || 0.10), 1, 0, 'ph'), 'PLACEHOLDER')}
     </div>
     ${ir('inp-ice-hedged-vol', 'Hedged volume MT', ni('inp-ice-hedged-vol', hg.hedgedVolumeMT != null ? hg.hedgedVolumeMT : '', 100, 0), 'INDICATIVE')}
-    <p class="defaults-note">Defaults to full cargo — assumes fixed-price partner repayment, so TIS carries ICE purchase-cost risk on all tonnes. Lower this to cash-sale tonnes only if partner repayment floats with the market.</p>
+    <p class="defaults-note">Defaults to TIS-retained tonnes — the fixed-price tonnes sold to clients. Partner principal is repaid at par (= landed cost), so ICE cancels on partner tonnes; only TIS's fixed-price tonnes carry ICE risk. Raise to full cargo only if partner repayment is fixed-VALUE rather than par/landed-cost.</p>
   </div>
 </div>
 <div class="sb-sec">
@@ -1372,6 +1373,7 @@ function show(id, vis) { const el = document.getElementById(id); if (el) el.hidd
 // Source of truth for the Sale section. Each entry:
 //   { channel:'ex-ship'|'depot', unit:'USD_PER_MT'|'NGN_PER_L', qtyMode:'tonnes'|'pct', qty:Number, price:Number|null }
 var _legs = [];
+var _lastRetainedTonnes = null; // updated after each recompute; drives hedge-vol placeholder
 
 function legBlank() { return { channel:'ex-ship', unit:'USD_PER_MT', qtyMode:'pct', qty:100, price:null }; }
 function legUnitLabel(unit) { return unit === 'NGN_PER_L' ? '₦/L' : '$/MT'; }
@@ -1467,12 +1469,12 @@ function legRowHtml(leg, i) {
       '<select class="leg-in" data-field="channel" data-idx="' + i + '">' + chanOpts + '</select></div>' +
     '<div class="leg-field"><span class="leg-field-lbl">Pricing unit</span>' +
       '<select class="leg-in" data-field="unit" data-idx="' + i + '"' + (depot ? ' disabled' : '') + '>' + unitOpts + '</select></div>' +
-    '<div class="leg-field"><span class="leg-field-lbl">Quantity</span>' +
+    '<div class="leg-field full"><span class="leg-field-lbl">Quantity</span>' +
       '<div class="leg-qty-group">' +
         '<input class="leg-in" type="number" step="any" min="0" data-field="qty" data-idx="' + i + '" value="' + qtyVal + '">' +
         '<select class="leg-in" data-field="qtyMode" data-idx="' + i + '">' + qtyModeOpts + '</select>' +
       '</div></div>' +
-    '<div class="leg-field"><span class="leg-field-lbl">Price (' + legUnitLabel(leg.unit) + ')' + priceFlag + '</span>' +
+    '<div class="leg-field full"><span class="leg-field-lbl">Price (' + legUnitLabel(leg.unit) + ')' + priceFlag + '</span>' +
       '<input class="leg-in' + (priced ? '' : ' leg-in-pending') + '" type="number" step="any" min="0" data-field="price" data-idx="' + i + '" value="' + priceVal + '" placeholder="optional">' +
       '<span id="leg-ngn-equiv-' + i + '" class="leg-ngn-equiv"></span></div>' +
     '</div>';
@@ -2617,6 +2619,8 @@ function clearResults() {
   if (nc) { nc.classList.remove('kpi-accent','kpi-loss'); }
 }
 function showEmptyState() {
+  _lastRetainedTonnes = null;
+  updateHedgedVolPlaceholder();
   clearResults();
   clearError();
   const el = document.getElementById('sec-waterfall');
@@ -2678,9 +2682,15 @@ function recompute() {
   // Suppress the synthetic price so the ladder shows no fake current-price marker.
   if (!hasSellPrice) res.price.exShipPricePerMT = null;
 
+  // Update retained-tonnes for the hedge-volume placeholder (engine default = retained, not full cargo).
+  _lastRetainedTonnes = (res.quantities && res.quantities.economic)
+    ? res.quantities.economic.tisRetainedTonnes
+    : null;
+
   clearError();
   renderAll(trade, res, ladder, hasSellPrice);
   updateLegNgnEquiv();
+  updateHedgedVolPlaceholder();
 }
 
 // ── Toggle switches ────────────────────────────────────────────────────────
@@ -2764,15 +2774,17 @@ function refreshHedgePh() {
     }
   });
 }
-// Keep hedged-volume placeholder in sync with delivered MT
+// // Keep hedged-volume placeholder in sync with retained tonnes from the last compute.
+// The engine default is retained (not full cargo); placeholder reflects the actual
+// computed value when available, or a label when not yet computed.
 function updateHedgedVolPlaceholder() {
-  const delivEl = document.getElementById('inp-delivered');
-  const volEl   = document.getElementById('inp-ice-hedged-vol');
+  const volEl = document.getElementById('inp-ice-hedged-vol');
   if (!volEl) return;
-  const qty = delivEl ? parseFloat(delivEl.value) : NaN;
-  volEl.placeholder = (!isNaN(qty) && qty > 0)
-    ? qty.toLocaleString('en-US', {maximumFractionDigits: 0}) + ' (full cargo)'
-    : 'full cargo';
+  if (_lastRetainedTonnes != null && isFinite(_lastRetainedTonnes) && _lastRetainedTonnes > 0) {
+    volEl.placeholder = _lastRetainedTonnes.toLocaleString('en-US', {maximumFractionDigits: 0}) + ' (retained)';
+  } else {
+    volEl.placeholder = 'retained tonnes';
+  }
 }
 
 function onInputChange(id) {
