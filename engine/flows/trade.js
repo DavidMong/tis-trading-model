@@ -206,7 +206,17 @@ function computeTrade(trade, opts = {}) {
   const iceHedged = !!(trade.hedge && trade.hedge.iceHedged);
   const fxHedged = !!(trade.fxHedge && trade.fxHedge.fxHedged);
   const hedge = buildHedge(effTrade, { tisRetainedTonnes }); // effTrade => liveIce ref = effective (settlement) ICE
-  const fxHedge = buildFxHedge(trade, { netNairaNgn, parallelPricing: fx.parallelPricing, parallelPayment: fx.parallelPayment, nafemRate });
+  // FX HEDGE BASE (RULE 3, 2026-06-23) = the bank's USD repayment obligation converted to naira at NAFEM.
+  // The hedge protects ONLY the naira TIS is FORCED to convert to USD to repay the bank's USD facility
+  // (LC principal + WC drawn + credit/WC interest) — NOT the full net naira position (netNairaNgn). The
+  // naira PROFIT above the bank obligation is retained in naira (TIS is Nigeria-based) and carries no
+  // forced-conversion FX risk; hedging it would over-hedge by the profit margin. GATE: a trade with NO
+  // naira revenue repays the bank directly from USD proceeds (no conversion, no FX risk) -> base 0, which
+  // keeps all-USD trades byte-for-byte identical (hasExposure stays false, exactly as under the old base).
+  const bankRepaymentUsd = round(financing.lc + financing.wc + financing.creditInterest + financing.wcInterest, 2);
+  const hasNairaRevenue = totalNairaRevenueNgn > 1e-6;
+  const fxHedgeBaseNgn = hasNairaRevenue ? round(bankRepaymentUsd * nafemRate, 2) : 0;
+  const fxHedge = buildFxHedge(trade, { hedgeBaseNgn: fxHedgeBaseNgn, bankRepaymentUsd, parallelPricing: fx.parallelPricing, parallelPayment: fx.parallelPayment, nafemRate });
 
   // Realized hedge impacts on standalone — only when the toggle is ON.
   //   ICE ON  : lock retained ICE at fixed (iceCostDelta) + all-in hedge cost -> reduces profit.

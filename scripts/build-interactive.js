@@ -2372,12 +2372,13 @@ function renderHedge(trade, res) {
     fxRows = infoRow('Note', fxh.noHedgeReason);
   } else {
     fxRows = \`
-      \${infoRow('Net ₦ exposure', fmtNum(fxh.exposureNgn, 0) + ' ₦')}
+      \${infoRow('Bank-repayment hedge base', fmtNum(fxh.exposureNgn, 0) + ' ₦' + (fxh.bankRepaymentUsd ? ' (= ' + fmtUsd(fxh.bankRepaymentUsd) + ' @ NAFEM)' : ''))}
       \${infoRow('Hedge ratio', fmtPct(fxh.hedgeRatio || 0))}
       \${infoRow('Forward rate', fxh.forwardRate ? fmtNum(fxh.forwardRate, 0) + ' ₦/USD' : badge('PLACEHOLDER'))}
       \${infoRow('FX realized delta', fmtUsdSign(fxh.fxRealizedDeltaUsd || 0) + (fxOn ? '' : ' (OFF)'))}
       \${infoRow('FX hedge cost', fmtUsd(fxh.extraFinancingCost || 0))}
       \${fxh.basis ? infoRow('Basis risk (benchmark vs NAFEM)', fmtNum(fxh.basis.gapNgnPerUsd, 2) + ' ₦/USD residual') : ''}
+      <div class="defaults-note">FX hedge covers the naira needed to repay the bank's USD facility (principal + interest). Naira profit is retained in naira and not hedged.</div>
     \`;
   }
   const fxWarning = (!fxh.noHedgeReason && fxNullFwd)

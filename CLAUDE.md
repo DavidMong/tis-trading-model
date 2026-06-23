@@ -163,10 +163,22 @@ Two **independent** per-trade toggles, both default **OFF**: `hedge.iceHedged` a
 - **OFF → no P&L effect** (leg floats at NAFEM/live, zero hedge cost) — current behavior exactly.
 - **Comparison:** `hedgeComparison` always shows the opposite toggle state (hedged vs unhedged TIS net),
   computed by re-running the engine with the toggle flipped, **recursion-guarded** via `opts.skipHedgeCompare`.
-- **FX hedge** locks a configurable portion of the **net naira exposure** at a named-benchmark forward
-  (NAFEM/NDF); unhedged remainder floats at **NAFEM** (RULE 1, 2026-06-23 — the economic settlement rate;
-  asserted: HX3). Dual route (bank_book spread / third_party bank-provided margin + broker fee),
-  apples-to-apples on the net-exposure basis (over-hedge excluded).
+- **FX hedge BASE = BANK REPAYMENT OBLIGATION** (RULE 3, 2026-06-23): the base is the bank's USD facility
+  repayment — `(financing.lc + financing.wc + financing.creditInterest + financing.wcInterest) × NAFEM`,
+  surfaced as `fxHedge.exposureNgn` (naira) + `fxHedge.bankRepaymentUsd` (USD). **Rationale:** the trader is
+  Nigeria-based and retains profit in naira, so the ONLY naira TIS is *forced* to convert to USD — the only
+  FX risk — is the naira needed to repay the bank's USD facility (principal + interest). The naira profit
+  above that is kept in naira and is NOT hedged; hedging the full net naira position (revenue − naira cost)
+  would **over-hedge by the naira profit** (~2× the real liability on the depot sample) and waste the FX
+  premium. `hedgeRatio` controls what fraction of the bank obligation to cover (1.0 = full repayment),
+  overridable per trade. **GATE:** a trade with no naira revenue repays the bank from USD proceeds (no
+  conversion, no FX risk) → base 0 → hedge inert, so **all-USD trades stay byte-for-byte unchanged**
+  (`bankRepaymentUsd` is omitted from their output; guard hash unchanged). The net naira *position* is still
+  reported in the FX block (`fx.netNairaExposureUsd`) for exposure/reconciliation — it just no longer sizes
+  the hedge. A configurable portion of the base locks at a named-benchmark forward (NAFEM/NDF); unhedged
+  remainder floats at **NAFEM** (RULE 1, 2026-06-23 — the economic settlement rate; asserted: HX3, PL4b).
+  Dual route (bank_book spread / third_party bank-provided margin + broker fee), apples-to-apples on the
+  bank-repayment base (over-hedge excluded).
 - **BASIS RISK (explicit):** the hedge settles against the benchmark forward, which differs from the
   **NAFEM settlement rate** the unhedged naira actually books at, so the benchmark↔NAFEM gap is a surfaced
   residual (`fxHedge.basis.residualBasisUsd` + ⚠ note; asserted: HX4) — measured against NAFEM because that

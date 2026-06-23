@@ -3,15 +3,24 @@
 const { round } = require('./rounding');
 
 // FX hedge on the naira leg(s) — mirrors the ICE hedge (engine/core/hedge.js).
-// Hedges a configurable portion of the NET naira exposure (naira revenue - naira cost, in NGN) at a
-// locked forward USD/NGN rate tied to a NAMED BENCHMARK (NAFEM forward / offshore NDF). The unhedged
-// remainder floats at NAFEM (RULE 1, 2026-06-23): naira proceeds settle to USD at NAFEM, so the
-// unhedged economic baseline is the NAFEM rate (the parallel rate is reference / display only).
+//
+// HEDGE BASE (RULE 3, 2026-06-23): the base is the BANK'S USD REPAYMENT OBLIGATION converted to naira at
+// NAFEM — i.e. the naira TIS is FORCED to convert to USD to repay the bank's USD facility (LC principal +
+// WC drawn + credit/WC interest). It is supplied by the caller as ctx.hedgeBaseNgn. This is NOT the full
+// net naira position (revenue - naira cost): the naira PROFIT above the bank obligation is retained in
+// naira (TIS is Nigeria-based) and is not a forced conversion, so hedging it would over-hedge by the
+// profit margin. A trade with no naira revenue repays the bank from USD proceeds (no conversion, no FX
+// risk) -> caller passes base 0 -> hedge inert (all-USD trades stay byte-for-byte unchanged).
+//
+// Hedges a configurable portion of that base at a locked forward USD/NGN rate tied to a NAMED BENCHMARK
+// (NAFEM forward / offshore NDF). The unhedged remainder floats at NAFEM (RULE 1, 2026-06-23): naira
+// proceeds settle to USD at NAFEM, so the unhedged economic baseline is the NAFEM rate (the parallel rate
+// is reference / display only).
 //
 //   Route A 'bank_book'   : bank books it -> cost = spread only (+ per-USD fee).
 //   Route B 'third_party' : bank PROVIDES margin as financing (margin = initialMarginPct x USD notional)
 //                           -> margin interest + broker fee. Bank-provided, never partner equity.
-//   Comparison is apples-to-apples on the NET naira exposure basis; hedge beyond exposure is a separate
+//   Comparison is apples-to-apples on the bank-repayment base; hedge beyond the base is a separate
 //   speculative position (overHedge), excluded from the comparison.
 //
 // BASIS RISK (explicit, never hidden): the economic exposure settles at NAFEM (RULE 1), and the hedge
@@ -24,7 +33,10 @@ const { round } = require('./rounding');
 
 function buildFxHedge(trade, ctx) {
   const h = trade.fxHedge || {};
-  const exposureNgn = ctx.netNairaNgn || 0; // net naira receivable (revenue - naira cost), in NGN
+  // Base = bank repayment obligation in naira (RULE 3, 2026-06-23). 0 when the trade has no naira revenue
+  // (TIS repays the bank from USD proceeds) -> hedge inert -> all-USD trades byte-for-byte unchanged.
+  const exposureNgn = ctx.hedgeBaseNgn || 0;
+  const bankRepaymentUsd = ctx.bankRepaymentUsd || 0; // USD obligation the base derives from (display/audit)
   const parallelPricing = ctx.parallelPricing; // reference / display only — drives no P&L
   const parallelPayment = ctx.parallelPayment; // reference / display only — drives no P&L
   const nafemRate = ctx.nafemRate; // economic conversion of unhedged naira proceeds (RULE 1)
@@ -54,7 +66,7 @@ function buildFxHedge(trade, ctx) {
     throw new Error(`Invalid fxHedge.forwardRate: must be > 0, got ${JSON.stringify(forwardRate)}`);
   }
 
-  // USD outcomes on the net naira exposure basis. Unhedged naira converts at NAFEM (RULE 1, the
+  // USD outcomes on the bank-repayment base. Unhedged naira converts at NAFEM (RULE 1, the
   // economic settlement rate); only the hedged portion locks at the benchmark forward.
   const floatingUsd = hasExposure ? exposureNgn / nafemRate : 0; // all unhedged -> floats at NAFEM
   const hedgedUsd = hasExposure ? hedgedNgn / forwardRate + unhedgedNgn / nafemRate : 0;
@@ -93,7 +105,13 @@ function buildFxHedge(trade, ctx) {
     enabled,
     benchmark,
     hasExposure,
+    // exposureNgn = the FX hedge BASE = bank repayment obligation in naira (RULE 3, 2026-06-23), NOT the
+    // full net naira position. bankRepaymentUsd is the USD obligation it derives from (base = obligation x NAFEM).
     exposureNgn: round(exposureNgn, 2),
+    baseLabel: 'bank repayment obligation (LC + WC + interest) @ NAFEM',
+    // bankRepaymentUsd is emitted ONLY for exposed (naira) trades. Omitting it on no-exposure (all-USD)
+    // trades keeps their numeric output byte-for-byte identical — same precedent as the nafemRate note below.
+    ...(hasExposure ? { bankRepaymentUsd: round(bankRepaymentUsd, 2) } : {}),
     hedgeRatio: ratio,
     hedgedNgn: round(hedgedNgn, 2),
     unhedgedNgn,

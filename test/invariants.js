@@ -394,8 +394,11 @@ check('PL3 all-naira partner: benchmark basis names a NAFEM channel', /NAFEM/.te
 check('PL3 all-naira partner: no USD ex-ship price reported', allNaira.price.exShipPricePerMT === null);
 check('PL3 all-naira reconciliation holds', allNaira.profit.reconciliation.ok === true);
 
-// PL4 — NGN AGGREGATION across >2 legs (two ex-ship-NGN + one depot-NGN) sums into the net naira exposure
-// that feeds the FX hedge (generalizes the old two-bucket sum to N arbitrary legs).
+// PL4 — NGN AGGREGATION across >2 legs (two ex-ship-NGN + one depot-NGN) sums into the FX EXPOSURE-
+// REPORTING block (fx.nairaRevenue / fx.netNairaExposureUsd), generalizing the old two-bucket sum to N
+// arbitrary legs. NOTE (RULE 3, 2026-06-23): this aggregated net naira position is NO LONGER the FX hedge
+// base — the hedge base is the bank repayment obligation (see PL4b). The aggregation test stays; only the
+// hedge-base assertion is re-pointed.
 const aggLegs = [
   { channel: 'ex-ship', pricingUnit: 'NGN_PER_L', tonnes: 3000, price: 1800 },
   { channel: 'ex-ship', pricingUnit: 'NGN_PER_L', tonnes: 4000, price: 1900 },
@@ -405,8 +408,27 @@ const agg = computeTrade({ ...bothChannels, revenueLegs: aggLegs, fxHedge: { ...
 const expectedNgnSum = 1800 * LITRES * 3000 + 1900 * LITRES * 4000 + 1850 * LITRES * 5000;
 check('PL4 >2 NGN legs: total naira revenue = Σ of all NGN legs', approx(agg.fx.nairaRevenue.ngn, expectedNgnSum, 0.5));
 check('PL4 >2 NGN legs: all three legs carry a naira amount', agg.revenue.legs.length === 3 && agg.revenue.legs.every((l) => l.ngn > 0));
-check('PL4 net naira exposure = Σ NGN revenue − naira cost', approx(agg.fxHedge.exposureNgn, agg.fx.nairaRevenue.ngn - agg.fx.nairaCost.ngn, 0.5));
-check('PL4 FX hedge consumes the aggregated exposure (hedged ≈ exposure at ratio 1)', agg.fxHedge.hasExposure === true && approx(agg.fxHedge.hedgedNgn, agg.fxHedge.exposureNgn, 1));
+check('PL4 net naira exposure (REPORTING) = Σ NGN revenue − naira cost', approx(agg.fx.netNairaExposureUsd, agg.fx.nairaRevenue.usdAtNafemReference - agg.fx.nairaCost.usdAtNafemReference, 0.5));
+check('PL4 FX hedge consumes its base (hedged ≈ base at ratio 1)', agg.fxHedge.hasExposure === true && approx(agg.fxHedge.hedgedNgn, agg.fxHedge.exposureNgn, 1));
+
+// PL4b — FX HEDGE BASE = BANK REPAYMENT OBLIGATION, not gross/net naira revenue (RULE 3, 2026-06-23).
+// The hedge protects ONLY the naira TIS is FORCED to convert to USD to repay the bank's USD facility
+// (LC principal + WC drawn + credit/WC interest), converted at NAFEM. The naira PROFIT above the bank
+// obligation is retained in naira (TIS is Nigeria-based) and is excluded from the hedge — hedging it
+// would over-hedge by the profit margin. Asserts: (1) base = (LC+WC+interest)×NAFEM; (2) base equals
+// bankRepaymentUsd×NAFEM; (3) base is STRICTLY LESS than both gross naira revenue and the net naira
+// position (profit excluded); (4) the excluded naira profit is positive on this trade.
+const aggNafem = agg.fx.rates.nafemReference;
+const aggBankUsd = agg.financing.lc + agg.financing.wc + agg.financing.creditInterest + agg.financing.wcInterest;
+const aggNetNairaNgn = agg.fx.nairaRevenue.ngn - agg.fx.nairaCost.ngn;
+// Proven in two exact steps (the engine rounds bankRepaymentUsd to cents BEFORE ×NAFEM, so a single
+// unrounded (LC+WC+interest)×NAFEM comparison would drift by up to NAFEM×0.005 ≈ a few naira):
+//   (i) the surfaced USD obligation = LC + WC + credit/WC interest;  (ii) base = that obligation × NAFEM.
+check('PL4b bankRepaymentUsd = LC + WC + credit interest + WC interest', approx(agg.fxHedge.bankRepaymentUsd, aggBankUsd, 0.01));
+check('PL4b hedge base = bankRepaymentUsd × NAFEM (= (LC+WC+interest)×NAFEM)', approx(agg.fxHedge.exposureNgn, agg.fxHedge.bankRepaymentUsd * aggNafem, 1));
+check('PL4b hedge base is NOT gross naira revenue (strictly less)', agg.fxHedge.exposureNgn < agg.fx.nairaRevenue.ngn - 1);
+check('PL4b hedge base is NOT the net naira position (strictly less — profit excluded)', agg.fxHedge.exposureNgn < aggNetNairaNgn - 1);
+check('PL4b excluded naira profit (net position − hedge base) is positive', aggNetNairaNgn - agg.fxHedge.exposureNgn > 1);
 
 // PL5 — per-leg validation (#1 tonnage sum, #5 missing/non-positive price, depot-never-USD).
 expectThrow('PL5 depot leg priced USD is rejected', () => computeTrade({ ...bothChannels, revenueLegs: [{ channel: 'depot', pricingUnit: 'USD_PER_MT', tonnes: 12000, price: 1300 }] }), 'depot legs must be priced NGN_PER_L');
