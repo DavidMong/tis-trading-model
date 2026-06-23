@@ -907,6 +907,8 @@ body { display: flex; flex-direction: column; }
 .loss { color: #991b1b; }
 .sens-neg        { background: var(--heat-neg); color: #4b5563; font-weight: 600; }
 .sens-neg-strong { background: var(--heat-neg-strong); color: #374151; font-weight: 700; }
+/* Subtle separator between lever groups in the sensitivities table (each lever's +/- pair) */
+.sens-group-start td { border-top: 2px solid var(--border); }
 .tn-neg .tn-val { color: #4b5563; }
 .tn-neg-val     { color: #717c89; }
 
@@ -1197,7 +1199,7 @@ const tabHedge = `
   <div id="ice-on-warn" class="hedge-warn-note"${!iceOn ? ' hidden' : ''}>Hedge ON — unconfirmed values are marked INDICATIVE. Verify all before live trading.</div>
   <div id="ice-off-note" class="hedge-off-note"${iceOn ? ' hidden' : ''}>Enable ICE Hedge in Deal tab to activate.</div>
   <div id="ice-params" class="${iceOn ? '' : 'hedge-off'}">
-    ${ir('sel-ice-route', 'Route', si('sel-ice-route', [['bank_book','Bank book (in-house)'],['third_party','Third party (margin financing)']], hg.route || 'bank_book'), '')}
+    ${ir('sel-ice-route', 'Route', si('sel-ice-route', [['bank_book','Bank forward'],['third_party','Third-party NDF']], hg.route || 'bank_book'), '')}
     ${ir('inp-ice-fixed',  'Fixed price $/MT',  ni('inp-ice-fixed',  hg.fixedPrice != null ? hg.fixedPrice : '', 0.01, 0, 'ph'), 'PLACEHOLDER')}
     ${ir('inp-ice-fee',    'Swap fee $/MT',      ni('inp-ice-fee',    hg.feePerMT || 1.5, 0.01, 0, 'ph'),   'PLACEHOLDER')}
     <div id="ice-spread-row"${hg.route === 'third_party' ? ' hidden' : ''}>
@@ -1217,12 +1219,20 @@ const tabHedge = `
   <div id="fx-on-warn" class="hedge-warn-note"${!fxOn ? ' hidden' : ''}>FX Hedge ON — unconfirmed values are marked INDICATIVE. Verify all before live trading.</div>
   <div id="fx-off-note" class="hedge-off-note"${fxOn ? ' hidden' : ''}>Enable FX Hedge in Deal tab to activate.</div>
   <div id="fx-params" class="${fxOn ? '' : 'hedge-off'}">
-    ${ir('sel-fx-route',   'Route',             si('sel-fx-route', [['bank_book','Bank book'],['third_party','Third party']], fxhg.route || 'bank_book'), '')}
+    ${ir('sel-fx-route',   'Route',             si('sel-fx-route', [['bank_book','Bank forward'],['third_party','Third-party NDF']], fxhg.route || 'bank_book'), '')}
     ${ir('inp-fx-forward', 'Forward rate ₦/USD',ni('inp-fx-forward', fxhg.forwardRate != null ? fxhg.forwardRate : '', 1, 1, 'ph'), 'PLACEHOLDER')}
     ${ir('inp-fx-ratio',   'Hedge ratio %',     ni('inp-fx-ratio',  pct2(fxhg.hedgeRatio != null ? fxhg.hedgeRatio : 1), 5, 0), 'INDICATIVE')}
     ${ir('inp-fx-fee',     'Fee $/USD (e.g. 0.004)',    ni('inp-fx-fee',    fxhg.feePerUsd || 0.004, 0.001, 0, 'ph'), 'PLACEHOLDER')}
-    ${ir('inp-fx-spread',  'Spread $/USD (e.g. 0.002)', ni('inp-fx-spread', fxhg.spreadPerUsd || 0.002, 0.001, 0, 'ph'), 'PLACEHOLDER')}
-    <p class="defaults-note">Each is a small <b>fraction of every USD of notional</b> — typically 0.001–0.004 ($1–$4 per $1,000 hedged), not whole dollars. 0.004 on a $19M hedge ≈ $76k cost. Entering whole-dollar figures (e.g. 2.0 = $2 per $1) overstates the cost by ~1000×.</p>
+    <div id="fx-spread-row"${fxhg.route === 'third_party' ? ' hidden' : ''}>
+      ${ir('inp-fx-spread',  'Spread $/USD (e.g. 0.002)', ni('inp-fx-spread', fxhg.spreadPerUsd || 0.002, 0.001, 0, 'ph'), 'PLACEHOLDER')}
+    </div>
+    <div id="fx-thirdparty-rows"${fxhg.route !== 'third_party' ? ' hidden' : ''}>
+      ${ir('inp-fx-margin', 'Initial margin %', ni('inp-fx-margin', pct2(fxhg.initialMarginPct != null ? fxhg.initialMarginPct : 0.05), 1, 0, 'ph'), 'PLACEHOLDER')}
+      ${ir('inp-fx-tenor',  'Tenor (days)',     ni('inp-fx-tenor',  fxhg.tenorDays != null ? fxhg.tenorDays : 30, 1, 0, 'ph'), 'PLACEHOLDER')}
+      ${ir('inp-fx-broker', 'Broker fee $',     ni('inp-fx-broker', fxhg.brokerFee != null ? fxhg.brokerFee : 0, 100, 0, 'ph'), 'PLACEHOLDER')}
+    </div>
+    <p class="defaults-note">Fee and spread are a small <b>fraction of every USD of notional</b> — typically 0.001–0.004 ($1–$4 per $1,000 hedged), not whole dollars. 0.004 on a $19M hedge ≈ $76k cost. Entering whole-dollar figures (e.g. 2.0 = $2 per $1) overstates the cost by ~1000×.</p>
+    <p class="defaults-note" id="fx-thirdparty-note"${fxhg.route !== 'third_party' ? ' hidden' : ''}>NDF cost drivers: the bank posts <b>initial margin %</b> of notional (financed at the credit rate over <b>tenor days</b>) plus a flat <b>broker fee</b>. Margin is bank-provided, never partner equity.</p>
     <div id="fx-fee-warn" class="h-unit-warn" hidden></div>
   </div>
 </div>
@@ -1765,6 +1775,9 @@ function collectTrade() {
       hedgeRatio:  gf('inp-fx-ratio') / 100,
       feePerUsd:   gf('inp-fx-fee'),
       spreadPerUsd:gf('inp-fx-spread'),
+      initialMarginPct: gf('inp-fx-margin') / 100,
+      tenorDays:        gi('inp-fx-tenor'),
+      brokerFee:        gf('inp-fx-broker'),
     },
     pricing: {
       ...INIT.pricing,
@@ -1837,6 +1850,14 @@ function updateIceRouteVisibility() {
   const r = gs('sel-ice-route');
   show('ice-spread-row', r !== 'third_party');
   show('ice-margin-row', r === 'third_party');
+}
+
+function updateFxRouteVisibility() {
+  const r = gs('sel-fx-route');
+  // Bank forward → spread only; Third-party NDF → margin/tenor/broker only.
+  show('fx-spread-row',       r !== 'third_party');
+  show('fx-thirdparty-rows',  r === 'third_party');
+  show('fx-thirdparty-note',  r === 'third_party');
 }
 
 // ── Modified state ─────────────────────────────────────────────────────────
@@ -1926,6 +1947,9 @@ function resetToDefaults() {
   sv('inp-fx-ratio',       +((fxh.hedgeRatio != null ? fxh.hedgeRatio : 1) * 100).toFixed(1));
   sv('inp-fx-fee',         fxh.feePerUsd || 0.004);
   sv('inp-fx-spread',      fxh.spreadPerUsd || 0.002);
+  sv('inp-fx-margin',      +((fxh.initialMarginPct != null ? fxh.initialMarginPct : 0.05) * 100).toFixed(1));
+  sv('inp-fx-tenor',       fxh.tenorDays != null ? fxh.tenorDays : 30);
+  sv('inp-fx-broker',      fxh.brokerFee != null ? fxh.brokerFee : 0);
   // Toggles
   activateToggle(document.getElementById('tog-ice-hedge'), !!h.iceHedged);
   activateToggle(document.getElementById('tog-fx-hedge'),  !!fxh.fxHedged);
@@ -1946,6 +1970,7 @@ function resetToDefaults() {
   updateSurchargeVisibility();
   updateHedgeTab();
   updateIceRouteVisibility();
+  updateFxRouteVisibility();
   updateHeader();
   setModified(false);
   recompute();
@@ -2386,8 +2411,8 @@ function renderHedge(trade, res) {
   function routeSeg(selectId, current) {
     const bb = current === 'bank_book';
     return \`<div class="route-seg">
-      <button class="seg-btn\${bb ? ' seg-active' : ''}" onclick="setHedgeRoute('\${selectId}','bank_book')">Bank book</button>
-      <button class="seg-btn\${!bb ? ' seg-active' : ''}" onclick="setHedgeRoute('\${selectId}','third_party')">3rd party</button>
+      <button class="seg-btn\${bb ? ' seg-active' : ''}" onclick="setHedgeRoute('\${selectId}','bank_book')">Bank forward</button>
+      <button class="seg-btn\${!bb ? ' seg-active' : ''}" onclick="setHedgeRoute('\${selectId}','third_party')">Third-party NDF</button>
     </div>\`;
   }
 
@@ -2540,11 +2565,11 @@ function renderTax(res) {
 }
 
 // ── 7. Sensitivities ───────────────────────────────────────────────────────
-function renderTornado(sens) {
-  const scenarios = sens.scenarios;
-  const maxAbs = Math.max(...scenarios.map(s => Math.abs(s.deltaVsBase)), 1);
-  const sorted  = [...scenarios].sort((a, b) => Math.abs(b.deltaVsBase) - Math.abs(a.deltaVsBase));
-
+// Pair each lever's +10% / -10% scenarios into one group {label, pos, neg, impact},
+// sorted by the lever's max absolute impact. Shared by the tornado chart and the
+// sensitivities table so the table can group each lever's two rows adjacently.
+function pairLeverScenarios(scenarios) {
+  const sorted = [...scenarios].sort((a, b) => Math.abs(b.deltaVsBase) - Math.abs(a.deltaVsBase));
   const seen = new Set();
   const rows = [];
   for (const s of sorted) {
@@ -2567,6 +2592,13 @@ function renderTornado(sens) {
     rows.push({ label, pos, neg, impact });
   }
   rows.sort((a, b) => b.impact - a.impact);
+  return rows;
+}
+
+function renderTornado(sens) {
+  const scenarios = sens.scenarios;
+  const maxAbs = Math.max(...scenarios.map(s => Math.abs(s.deltaVsBase)), 1);
+  const rows = pairLeverScenarios(scenarios);
 
   const BAR = 52, THRESH = 13;
   const rowHtml = rows.filter(r => r.impact > 1).map(row => {
@@ -2620,6 +2652,15 @@ function renderSens(res) {
     return \` style="background:\${bg}"\`;
   }
 
+  // Group each lever's +10% / -10% on adjacent rows (shared pairing logic with the tornado),
+  // ordered by the lever's max impact. Both directions stay visible; the first row of each
+  // group carries a subtle separator (.sens-group-start).
+  const groups = pairLeverScenarios(scenarios);
+  const sensRow = (s, first) => \`<tr\${first ? ' class="sens-group-start"' : ''}>
+      <td>\${esc(s.lever)}</td>
+      <td class="r">\${fmtUsd(s.tisNet)}</td>
+      <td class="r"\${heatStyle(s.deltaVsBase)}>\${s.deltaVsBase >= 0 ? '+' : ''}\${fmtUsd(s.deltaVsBase)}</td>
+    </tr>\`;
   const tableRows = [
     // Base-case row: neutral bg + "baseline" label (not "—" which looks broken)
     \`<tr class="sens-base">
@@ -2627,11 +2668,9 @@ function renderSens(res) {
       <td class="r"><b>\${fmtUsd(sens.baseNet)}</b></td>
       <td class="r" style="background:var(--bg);color:var(--slate);font-style:italic;font-size:11px">baseline</td>
     </tr>\`,
-    ...scenarios.map(s => \`<tr>
-      <td>\${esc(s.lever)}</td>
-      <td class="r">\${fmtUsd(s.tisNet)}</td>
-      <td class="r"\${heatStyle(s.deltaVsBase)}>\${s.deltaVsBase >= 0 ? '+' : ''}\${fmtUsd(s.deltaVsBase)}</td>
-    </tr>\`),
+    ...groups.flatMap(g => [g.pos, g.neg].filter(Boolean)
+      .sort((a, b) => a.lever < b.lever ? -1 : a.lever > b.lever ? 1 : 0)
+      .map((s, i) => sensRow(s, i === 0))),
   ].join('');
 
   const fxNote = !(sens.fx && sens.fx.hasNgnLegs)
@@ -2954,6 +2993,7 @@ function onInputChange(id) {
   updateSurchargeVisibility();
   updateHedgeTab();
   updateIceRouteVisibility();
+  updateFxRouteVisibility();
   updateHeader();
   refreshHedgePh();
   refreshHedgeSanity();
@@ -2984,6 +3024,7 @@ const DEFAULT_IDS = [
   'inp-vat-rate','inp-wht-rate','inp-taxable-prop',
   'inp-ice-fee','inp-ice-spread','inp-ice-margin',
   'inp-fx-ratio','inp-fx-fee','inp-fx-spread',
+  'inp-fx-margin','inp-fx-tenor','inp-fx-broker',
   'sel-ice-route','sel-fx-route',
 ];
 
@@ -3124,7 +3165,7 @@ function newTrade() {
   const selNT = document.getElementById('sel-saved-trades');
   if (selNT) selNT.value = '';
   updateLcDisplay(); updateDepotVisibility(); updateCurrencyVisibility();
-  updateSurchargeVisibility(); updateHedgeTab(); updateIceRouteVisibility();
+  updateSurchargeVisibility(); updateHedgeTab(); updateIceRouteVisibility(); updateFxRouteVisibility();
   updateHeader();
   setModified(false);
   recompute();
@@ -3237,7 +3278,7 @@ function loadSelectedTrade(explicit) {
   _isSample = snap['_isSample'] === 'true';
   _currentTradeName = targetName;
   updateLcDisplay(); updateDepotVisibility(); updateCurrencyVisibility();
-  updateSurchargeVisibility(); updateHedgeTab(); updateIceRouteVisibility();
+  updateSurchargeVisibility(); updateHedgeTab(); updateIceRouteVisibility(); updateFxRouteVisibility();
   updateHeader();
   setModified(false);
   recompute();
@@ -3313,6 +3354,7 @@ updateCurrencyVisibility();
 updateSurchargeVisibility();
 updateHedgeTab();
 updateIceRouteVisibility();
+updateFxRouteVisibility();
 updateHeader();
 renderSavedTradesList();
 updateStateBadge();
