@@ -323,8 +323,10 @@ function printTradeReport(res, trade, flags) {
   L(`     effective ${usd(h.effectiveIceCost)} vs unhedged ${usd(h.unhedgedIceCost)} (delta ${usd(h.iceCostDelta)})   realized P&L impact ${usd(res.hedges.iceHedgeNetImpact)}`);
   if (h.overHedgeTonnes > 0) L(`     over-hedge (speculative, excluded): ${mt(h.overHedgeTonnes)}`);
   if (hc) L(`     TIS net: hedged ${usd(hc.ice.hedgedTisNet)}  vs  unhedged ${usd(hc.ice.unhedgedTisNet)}   (hedging worth ${usd(hc.ice.hedgeWorthItVsUnhedged)})`);
-  L(`  FX hedge [${res.hedges.fxHedged ? 'ON' : 'OFF'}]  route ${fh.routeEconomics.type}  benchmark ${fh.benchmark}  exposure ${ngn(fh.exposureNgn)}`);
+  L(`  FX hedge [${res.hedges.fxHedged ? 'ON' : 'OFF'}]  route ${fh.routeEconomics.type}  benchmark ${fh.benchmark}  bank-repayment base ${ngn(fh.exposureNgn)}`);
   if (fh.hasExposure) {
+    L(`     base = bank repayment (LC + WC + interest) ${usd(fh.bankRepaymentUsd)} @ NAFEM ${res.fx.rates.nafemReference}`);
+    L(`     FX hedge covers the naira needed to repay the bank's USD facility (principal + interest). Naira profit is retained in naira and not hedged.`);
     L(`     hedged ${ngn(fh.hedgedNgn)} @ forward ${fh.forwardRate} -> ${usd(fh.hedgedUsd)}  vs floating @ NAFEM ${res.fx.rates.nafemReference} -> ${usd(fh.floatingUsd)}   realized P&L impact ${usd(res.hedges.fxHedgeNetImpact)}`);
     if (fh.overHedgeNgn > 0) L(`     over-hedge (speculative, excluded): ${ngn(fh.overHedgeNgn)}`);
     L(`     ⚠ BASIS RISK: ${fh.basis.note}`);
