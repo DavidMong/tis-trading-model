@@ -5,7 +5,8 @@ const { round } = require('./rounding');
 // FX hedge on the naira leg(s) — mirrors the ICE hedge (engine/core/hedge.js).
 // Hedges a configurable portion of the NET naira exposure (naira revenue - naira cost, in NGN) at a
 // locked forward USD/NGN rate tied to a NAMED BENCHMARK (NAFEM forward / offshore NDF). The unhedged
-// remainder floats at the live PARALLEL rate at payment.
+// remainder floats at NAFEM (RULE 1, 2026-06-23): naira proceeds settle to USD at NAFEM, so the
+// unhedged economic baseline is the NAFEM rate (the parallel rate is reference / basis only).
 //
 //   Route A 'bank_book'   : bank books it -> cost = spread only (+ per-USD fee).
 //   Route B 'third_party' : bank PROVIDES margin as financing (margin = initialMarginPct x USD notional)
@@ -23,11 +24,12 @@ const { round } = require('./rounding');
 function buildFxHedge(trade, ctx) {
   const h = trade.fxHedge || {};
   const exposureNgn = ctx.netNairaNgn || 0; // net naira receivable (revenue - naira cost), in NGN
-  const parallelPricing = ctx.parallelPricing;
-  const parallelPayment = ctx.parallelPayment;
+  const parallelPricing = ctx.parallelPricing; // reference / basis-risk rate only
+  const parallelPayment = ctx.parallelPayment; // reference / basis-risk rate only
+  const nafemRate = ctx.nafemRate; // economic conversion of unhedged naira proceeds (RULE 1)
 
   const enabled = !!h.fxHedged;
-  const hasExposure = Math.abs(exposureNgn) > 1e-6 && parallelPayment > 0;
+  const hasExposure = Math.abs(exposureNgn) > 1e-6 && nafemRate > 0;
 
   // Benchmark forward rate (placeholder ~ NAFEM/NDF forward). Defaults to parallel pricing if absent.
   const benchmark = h.benchmark || 'NAFEM forward';
@@ -48,9 +50,10 @@ function buildFxHedge(trade, ctx) {
     throw new Error(`Invalid fxHedge.forwardRate: must be > 0, got ${JSON.stringify(forwardRate)}`);
   }
 
-  // USD outcomes on the net naira exposure basis.
-  const floatingUsd = hasExposure ? exposureNgn / parallelPayment : 0; // all floats at parallel (unhedged)
-  const hedgedUsd = hasExposure ? hedgedNgn / forwardRate + unhedgedNgn / parallelPayment : 0;
+  // USD outcomes on the net naira exposure basis. Unhedged naira converts at NAFEM (RULE 1, the
+  // economic settlement rate); only the hedged portion locks at the benchmark forward.
+  const floatingUsd = hasExposure ? exposureNgn / nafemRate : 0; // all unhedged -> floats at NAFEM
+  const hedgedUsd = hasExposure ? hedgedNgn / forwardRate + unhedgedNgn / nafemRate : 0;
   const fxRealizedDeltaUsd = round(hedgedUsd - floatingUsd, 2); // realized P&L difference from hedging
   const usdNotional = hasExposure ? hedgedNgn / forwardRate : 0; // USD amount hedged
 
@@ -72,7 +75,10 @@ function buildFxHedge(trade, ctx) {
   }
   const extraFinancingCost = round(route.marginInterest + route.brokerFee + route.spread + feeUsd, 2);
 
-  // BASIS RISK — benchmark vs parallel. Explicit, never implies full parallel cover.
+  // BASIS RISK — benchmark forward vs the PARALLEL street reference. Surfaced as an explicit residual:
+  // the hedge settles at the benchmark forward, which differs from the parallel street rate. (P&L now
+  // books unhedged naira at NAFEM per RULE 1; this benchmark<->parallel basis is the separately-shown
+  // street residual, kept on the parallel reference so the desk still sees the forward-vs-street gap.)
   const gapNgnPerUsd = round(forwardRate - parallelPricing, 4);
   const residualBasisUsd = hasExposure
     ? round(hedgedNgn * (1 / forwardRate - 1 / parallelPricing), 2)

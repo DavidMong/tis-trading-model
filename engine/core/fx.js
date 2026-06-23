@@ -35,11 +35,15 @@ function ngnToUsd(amountNgn, ratePerUsd) {
   return amountNgn / ratePerUsd;
 }
 
-// Resolve the economic (PARALLEL) and reference (NAFEM) rates for a trade.
-//   - PARALLEL drives ALL P&L conversions.
-//   - NAFEM is reference / reconciliation only — never used in P&L.
-// fxBump models the PAYMENT-date parallel rate deviating from the PRICING-date parallel rate
-// (the +/-10% FX sensitivity). A naira receivable/payable fixed at pricing is revalued at payment.
+// Resolve the economic (NAFEM) and reference (PARALLEL) rates for a trade.
+//   - NAFEM drives ALL naira->USD P&L conversions. Business reality (RULE 1, 2026-06-23): the bank
+//     funds USD, TIS repays naira proceeds, and the bank converts those naira to USD at NAFEM — so
+//     NAFEM is the rate at which naira revenue/cost lands in TIS's USD P&L.
+//   - PARALLEL is pricing-reference / reconciliation only — still fully resolved and shown for the
+//     display / exposure / reconciliation blocks, but it no longer feeds any P&L number.
+// fxBump still models the PAYMENT-date parallel rate deviating from the PRICING-date parallel rate
+// (retained for the reference / exposure view). The live FX P&L lever is now the NAFEM rate
+// (bump NAFEM -> P&L moves; bump parallel -> P&L unchanged).
 function resolveFxRates(trade, fxBump = 0) {
   const parallel = resolveRate(trade.fx && trade.fx.parallel);
   const nafem = resolveRate(trade.fx && trade.fx.nafem);

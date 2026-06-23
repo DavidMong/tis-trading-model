@@ -8,11 +8,13 @@ const { round } = require('./rounding');
 //   FX bites only on naira/depot legs -> all-USD trades show $0 FX sensitivity.
 //   Plus: hedged-vs-unhedged ICE cost, and "depot sold at cost" downside (depot legs only).
 //
-// options.fxMode:
-//   'nafem'    (default) -> FX scenario bumps the NAFEM rate (no P&L effect; preserves the verified
-//                            equity-partner / reference-trade output byte-for-byte).
-//   'parallel'           -> FX scenario moves the PAYMENT parallel rate (paymentBumpPct), so it bites
-//                            naira legs in the unified trade flow.
+// options.fxMode (RULE 1, 2026-06-23 — NAFEM now drives naira P&L):
+//   'nafem'    (default) -> FX scenario bumps the NAFEM rate. This is the LIVE FX lever: it moves naira
+//                            P&L in the unified trade flow. For all-USD trades (incl. the equity-partner
+//                            / reference path, which has no naira legs) it is still a $0 no-op, so that
+//                            output stays byte-for-byte unchanged.
+//   'parallel'           -> FX scenario moves the PAYMENT parallel rate (paymentBumpPct). Parallel is now
+//                            reference-only, so this is ~$0 on P&L (kept for the reference/exposure view).
 
 const clone = (o) => JSON.parse(JSON.stringify(o));
 
@@ -54,10 +56,11 @@ function runSensitivities(trade, computeFn, options = {}) {
   // Depot sold-at-cost downside (depot legs only)
   let depotDownside = null;
   if (base.channels && base.channels.depotTonnes > 0) {
-    // Unified trade flow: set the depot NGN/L price so depot revenue = depot landed cost.
+    // Unified trade flow: set the depot NGN/L price so depot revenue = depot landed cost. Depot
+    // revenue now converts at NAFEM (RULE 1), so the break-even ₦/L is derived at NAFEM, not parallel.
     const litres = trade.pricing.conversion.litresPerMT;
-    const par = base.fx.rates.parallelPricing;
-    const atCostNgnPerL = (base.price.depotLandedPerMT * par) / litres;
+    const nafem = base.fx.rates.nafemReference;
+    const atCostNgnPerL = (base.price.depotLandedPerMT * nafem) / litres;
     const t = clone(trade);
     t.sell.depotPriceNgnPerL = { value: atCostNgnPerL, status: 'DOWNSIDE: depot sold at cost' };
     const r = computeFn(t);

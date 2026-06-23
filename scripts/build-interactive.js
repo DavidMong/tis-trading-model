@@ -1483,12 +1483,13 @@ function legRowHtml(leg, i) {
 }
 
 function updateLegNgnEquiv() {
-  var parEl = document.getElementById('inp-fxpar');
+  // RULE 1 (2026-06-23): naira<->USD conversion is at NAFEM, so the ₦/L-equiv hint uses the NAFEM rate.
+  var nafemEl = document.getElementById('inp-fxnafem');
   var litEl = document.getElementById('inp-litres-per-mt');
-  var parallelRate = parEl ? parseFloat(parEl.value) : NaN;
+  var nafemRate = nafemEl ? parseFloat(nafemEl.value) : NaN;
   var litresPerMT = (litEl && isFinite(parseFloat(litEl.value)) && parseFloat(litEl.value) > 0)
     ? parseFloat(litEl.value) : 1183;
-  var canCompute = isFinite(parallelRate) && parallelRate > 0 && isFinite(litresPerMT) && litresPerMT > 0;
+  var canCompute = isFinite(nafemRate) && nafemRate > 0 && isFinite(litresPerMT) && litresPerMT > 0;
   for (var i = 0; i < _legs.length; i++) {
     var leg = _legs[i];
     var el = document.getElementById('leg-ngn-equiv-' + i);
@@ -1496,7 +1497,7 @@ function updateLegNgnEquiv() {
     if (!canCompute || leg.unit !== 'USD_PER_MT' || leg.price == null || !isFinite(leg.price) || leg.price <= 0) {
       el.textContent = '';
     } else {
-      var ngnPerL = (leg.price * parallelRate) / litresPerMT;
+      var ngnPerL = (leg.price * nafemRate) / litresPerMT;
       el.textContent = '· ₦' + Math.round(ngnPerL).toLocaleString('en-US') + '/L equiv';
     }
   }
@@ -2682,7 +2683,8 @@ function recompute() {
   if (hasSellPrice) {
     try {
       const fn = t => TISEngine.computeTrade(t, { skipHedgeCompare: true });
-      res.sensitivities = TISEngine.runSensitivities(engineTrade, fn, { fxMode: 'parallel' });
+      // RULE 1 (2026-06-23): NAFEM drives naira P&L, so the live FX sensitivity is the NAFEM lever.
+      res.sensitivities = TISEngine.runSensitivities(engineTrade, fn, { fxMode: 'nafem' });
     } catch(_) { res.sensitivities = null; }
   } else {
     res.sensitivities = null;

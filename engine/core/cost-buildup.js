@@ -40,19 +40,20 @@ function buildCostBuildup(trade, ctx) {
   const tax = trade.tax;
 
   // Storage is active for DEPOT volume only (channel-driven, legacy depot.enabled fallback). Naira
-  // depot costs convert to USD at the PARALLEL payment rate (FX-exposed).
+  // depot costs convert to USD at NAFEM (RULE 1, 2026-06-23) — the same rate the naira proceeds settle
+  // at — so the naira cost side is FX-exposed to NAFEM, not the parallel rate.
   const depotTonnes = ctx.depotTonnes || 0;
   const storageActive = depotTonnes > 0 || !!(trade.depot && trade.depot.enabled);
   const storageQty = depotTonnes > 0 ? depotTonnes : storageActive ? deliveredQty : 0;
   const unitFob = cargoValue / deliveredQty;
   const depotCargoValue = unitFob * storageQty;
-  const parPay = ctx.parallelPayment;
+  const nafemRate = ctx.nafemRate;
   const ngnStorageToUsd = (ngn) => {
     if (!storageActive || !ngn) return 0;
-    if (!(typeof parPay === 'number' && Number.isFinite(parPay) && parPay > 0)) {
-      throw new Error(`buildCostBuildup: parallelPayment must be > 0 to convert naira depot costs, got ${parPay}`);
+    if (!(typeof nafemRate === 'number' && Number.isFinite(nafemRate) && nafemRate > 0)) {
+      throw new Error(`buildCostBuildup: nafemRate must be > 0 to convert naira depot costs, got ${nafemRate}`);
     }
-    return ngn / parPay;
+    return ngn / nafemRate;
   };
 
   const tcRate = trade.freight.tcRatePerDay;

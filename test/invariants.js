@@ -220,28 +220,32 @@ check('FX2 USD mode: naira share = 0', exTis.fx.nairaShare === 0);
 check('FX2 USD mode: parallel payment bump does not change TIS net',
   approx(computeTrade({ ...exshipTis, fx: { ...exshipTis.fx, paymentBumpPct: 0.1 } }).profit.tisNetProfit, exTis.profit.tisNetProfit, 0.01));
 
-// FX3 — PARALLEL drives P&L; NAFEM is reference only.
+// FX3 — RULE 1 (2026-06-23): NAFEM drives naira P&L; PARALLEL is pricing-reference only. INVERTED from
+// the prior "parallel drives P&L" behavior — the bank funds USD and converts the repaid naira at NAFEM,
+// so the NAFEM rate is the live FX lever and parallel no longer moves any P&L number.
 const dBase = computeTrade(depotOnly);
 const nafemBumped = computeTrade({ ...depotOnly, fx: { ...depotOnly.fx, nafem: { ...depotOnly.fx.nafem, value: depotOnly.fx.nafem.value * 1.5 } } });
-check('FX3 NAFEM is reference only (bump NAFEM 50% -> TIS net unchanged)', approx(nafemBumped.profit.tisNetProfit, dBase.profit.tisNetProfit, 0.01));
+check('FX3 NAFEM drives P&L (bump NAFEM 50% -> TIS net changes)', Math.abs(nafemBumped.profit.tisNetProfit - dBase.profit.tisNetProfit) > 1);
 const parBumped = computeTrade({ ...depotOnly, fx: { ...depotOnly.fx, parallel: { ...depotOnly.fx.parallel, value: depotOnly.fx.parallel.value * 1.1 } } });
-check('FX3 PARALLEL drives P&L (bump parallel 10% -> TIS net changes)', Math.abs(parBumped.profit.tisNetProfit - dBase.profit.tisNetProfit) > 1);
+check('FX3 PARALLEL is reference only (bump parallel 10% -> TIS net unchanged)', approx(parBumped.profit.tisNetProfit, dBase.profit.tisNetProfit, 0.01));
 
 // FX4 — depot landed cost > ex-ship landed cost (storage included only for depot).
 check('FX4 depot landed > ex-ship landed', dBase.price.depotLandedPerMT > dBase.price.exShipLandedPerMT);
 check('FX4 ex-ship-only trade: depot landed == ex-ship landed', approx(exTis.price.depotLandedPerMT, exTis.price.exShipLandedPerMT, 0.0001));
 
-// FX5 — FX sensitivity bites ONLY naira legs.
-const usdFx = runSensitivities(exshipTis, (t) => computeTrade(t), { fxMode: 'parallel' }).scenarios.filter((s) => /FX/.test(s.lever));
+// FX5 — FX sensitivity bites ONLY naira legs. RULE 1 (2026-06-23): the live FX lever is now NAFEM, so
+// the FX sensitivity uses fxMode 'nafem' (parallel is reference-only and shows ~0 — see NEW split test).
+const usdFx = runSensitivities(exshipTis, (t) => computeTrade(t), { fxMode: 'nafem' }).scenarios.filter((s) => /FX/.test(s.lever));
 check('FX5 USD trade: FX sensitivity delta = 0', usdFx.every((s) => Math.abs(s.deltaVsBase) < 0.01));
-const depotFx = runSensitivities(depotOnly, (t) => computeTrade(t), { fxMode: 'parallel' }).scenarios.filter((s) => /FX/.test(s.lever));
+const depotFx = runSensitivities(depotOnly, (t) => computeTrade(t), { fxMode: 'nafem' }).scenarios.filter((s) => /FX/.test(s.lever));
 check('FX5 depot trade: FX sensitivity delta != 0', depotFx.some((s) => Math.abs(s.deltaVsBase) > 1));
 
-// FX6 — naira DEPOT COSTS are FX-exposed (parallel payment bump moves naira storage USD).
+// FX6 — naira DEPOT COSTS are FX-exposed. RULE 1 (2026-06-23): they convert at NAFEM, so a weaker
+// (higher) NAFEM rate lowers their USD cost; the parallel payment bump no longer moves them.
 const stUsd = (res) => res.cost.lines.filter((l) => l.category === 'storage' && l.currency === 'NGN').reduce((s, l) => s + l.amountUsd, 0);
 const stBase = stUsd(dBase);
-const stBumped = stUsd(computeTrade({ ...depotOnly, fx: { ...depotOnly.fx, paymentBumpPct: 0.1 } }));
-check('FX6 naira depot costs FX-exposed (weaker naira -> lower USD cost)', stBase > 0 && stBumped < stBase);
+const stBumped = stUsd(computeTrade({ ...depotOnly, fx: { ...depotOnly.fx, nafem: { ...depotOnly.fx.nafem, value: depotOnly.fx.nafem.value * 1.1 } } }));
+check('FX6 naira depot costs FX-exposed (weaker NAFEM -> lower USD cost)', stBase > 0 && stBumped < stBase);
 
 // FX7 — depot reconciliations tie; depot-only TIS-funded => standalone = adjusted = TIS net.
 check('FX7 depot reconciliation ties', dBase.profit.reconciliation.ok === true);
@@ -258,16 +262,17 @@ check('FX8 equity ratio re-flow: LC = 80% of cargo', approx(both.financing.lc, 0
 check('FX8 equity ratio re-flow: partner funding = 20% of cargo', approx(both.financing.partnerFunding, 0.2 * both.cargoValue, 1));
 check('FX8 day-count Actual/360 used', both.financing.dayCountBasis === 360);
 
-// FX9 — partner in-kind benchmark = USD ex-ship price when a USD ex-ship leg exists (both channels).
-check('FX9 margin-foregone benchmark = ex-ship price (both channels)',
-  approx(both.profit.benchmarkPriceUSD, bothChannels.sell.exShipPricePerMT.value, 0.01));
-// RULE CHANGE 2026-06-20 (Stage-1 per-leg revenue): the no-USD-leg fallback is now the USD-EQUIVALENT
-// LANDED COST (was the depot realized/ex-storage price). Only this synthetic depot-only-PARTNER scenario
-// is affected; reference-trade and all USD/real trades are byte-for-byte unchanged. Old expected: depotPriceUSDperMT
-// ($1330.875); new expected: exShipLandedPerMT ($1037.0449). Check retained, re-pointed to the new rule.
+// FX9 — RULE 2 (2026-06-23): margin-foregone benchmark = MAX realized price across the channels present
+// (TIS forgoes its BEST channel). For both-channels the depot ₦1850/L @ NAFEM (~$1459.03) beats the USD
+// ex-ship price ($1300), so the benchmark is now depot @ NAFEM — NOT the ex-ship price.
+check('FX9 margin-foregone benchmark = depot @ NAFEM (MAX channel, both channels)',
+  approx(both.profit.benchmarkPriceUSD, both.price.depotPriceUSDperMT, 0.01) && both.profit.benchmarkBasis === 'depot price (NAFEM)');
+// RULE 2 (2026-06-23): a depot-only PARTNER trade values the in-kind product at the depot price @ NAFEM
+// (its only — and therefore best — sell channel), NOT the landed-cost fallback. Supersedes the 2026-06-20
+// "USD-equivalent landed cost" fallback ($1037.0449); new expected: depotPriceUSDperMT ($1419.60).
 const depotPartner = computeTrade({ ...depotOnly, partner: { ...depotOnly.partner, equityProvider: 'partner', profitSharePct: 0.3, productAllocationPct: 1.0 } });
-check('FX9 depot-only partner: benchmark falls back to USD-equivalent landed cost',
-  approx(depotPartner.profit.benchmarkPriceUSD, depotPartner.price.exShipLandedPerMT, 0.01));
+check('FX9 depot-only partner: benchmark = depot price @ NAFEM (MAX channel)',
+  approx(depotPartner.profit.benchmarkPriceUSD, depotPartner.price.depotPriceUSDperMT, 0.01) && depotPartner.profit.benchmarkBasis === 'depot price (NAFEM)');
 
 // FX10 — validation throws on bad funding stack / channel split.
 expectThrow('FX10 funding stack not summing to 1 throws', () => computeTrade({ ...bothChannels, partner: { ...bothChannels.partner, equityPct: 0.3 } }), 'sum to 1.0');
@@ -289,13 +294,15 @@ check('HX2 ICE-ON impact = -(iceCostDelta + hedge cost)', approx(iceOn.hedges.ic
 check('HX2 ICE-ON: standalone = float + ICE impact', approx(iceOn.profit.standaloneProfit, bOff.profit.standaloneProfit + iceOn.hedges.iceHedgeNetImpact, 0.02));
 check('HX2 ICE-ON: TIS net < OFF (cost of hedging)', iceOn.profit.tisNetProfit < bOff.profit.tisNetProfit);
 
-// HX3 — FX-ON drives realized P&L: hedged naira at forward, unhedged floats at parallel.
+// HX3 — FX-ON drives realized P&L. RULE 1 (2026-06-23): unhedged naira floats at NAFEM (was parallel);
+// only the hedged portion locks at the benchmark forward.
 const fxOn = computeTrade({ ...bothChannels, fxHedge: { ...bothChannels.fxHedge, fxHedged: true } });
+const nafemHX = fxOn.fx.rates.nafemReference;
 check('HX3 FX-ON impact = fxRealizedDelta - hedge cost', approx(fxOn.hedges.fxHedgeNetImpact, fxOn.fxHedge.fxRealizedDeltaUsd - fxOn.fxHedge.extraFinancingCost, 0.02));
-check('HX3 hedged portion locks at FORWARD rate', approx(fxOn.fxHedge.hedgedUsd, fxOn.fxHedge.hedgedNgn / fxOn.fxHedge.forwardRate + fxOn.fxHedge.unhedgedNgn / fxOn.fxHedge.parallelPayment, 0.5));
-check('HX3 floating USD = net naira / parallel', approx(fxOn.fxHedge.floatingUsd, fxOn.fxHedge.exposureNgn / fxOn.fxHedge.parallelPayment, 0.5));
+check('HX3 hedged portion locks at FORWARD, unhedged floats at NAFEM', approx(fxOn.fxHedge.hedgedUsd, fxOn.fxHedge.hedgedNgn / fxOn.fxHedge.forwardRate + fxOn.fxHedge.unhedgedNgn / nafemHX, 0.5));
+check('HX3 floating USD = net naira / NAFEM', approx(fxOn.fxHedge.floatingUsd, fxOn.fxHedge.exposureNgn / nafemHX, 0.5));
 const fxHalf = computeTrade({ ...bothChannels, fxHedge: { ...bothChannels.fxHedge, fxHedged: true, hedgeRatio: 0.5 } });
-check('HX3 hedgeRatio 0.5: unhedged half floats at parallel', approx(fxHalf.fxHedge.unhedgedNgn, 0.5 * fxHalf.fxHedge.exposureNgn, 1));
+check('HX3 hedgeRatio 0.5: unhedged half floats at NAFEM', approx(fxHalf.fxHedge.unhedgedNgn, 0.5 * fxHalf.fxHedge.exposureNgn, 1));
 
 // HX4 — basis residual surfaced; non-zero when benchmark != parallel; ~0 when equal.
 check('HX4 basis gap = forward - parallel', approx(fxOn.fxHedge.basis.gapNgnPerUsd, fxOn.fxHedge.forwardRate - fxOn.fxHedge.parallelPricing, 0.01));
@@ -341,9 +348,11 @@ const exNgn1 = computeTrade({ ...depotOnly, revenueLegs: [{ channel: 'ex-ship', 
 const depNgn1 = computeTrade({ ...depotOnly, revenueLegs: [{ channel: 'depot', pricingUnit: 'NGN_PER_L', tonnes: 10000, price: 1800 }] });
 const exLeg = exNgn1.revenue.legs[0];
 const depLeg = depNgn1.revenue.legs[0];
-const payment1 = exNgn1.fx.rates.parallelPayment;
+// PL1 — RULE 1 (2026-06-23): NGN legs convert at NAFEM (was parallelPayment); the conversion is still
+// shared identically between native ex-ship-NGN and depot-NGN legs.
+const nafem1 = exNgn1.fx.rates.nafemReference;
 check('PL1 ex-ship-NGN leg classified as ex-ship channel', exLeg.channel === 'ex-ship' && exNgn1.channels.exShipTonnes === 10000);
-check('PL1 ex-ship-NGN priceUsdPerMT = (ngnPerL × litres) / parallelPayment', approx(exLeg.priceUsdPerMT, (1800 * LITRES) / payment1, 0.001));
+check('PL1 ex-ship-NGN priceUsdPerMT = (ngnPerL × litres) / nafemRate', approx(exLeg.priceUsdPerMT, (1800 * LITRES) / nafem1, 0.001));
 check('PL1 ex-ship-NGN USD = depot-NGN USD (same conversion)', exLeg.usd === depLeg.usd);
 check('PL1 ex-ship-NGN priceUsdPerMT = depot-NGN priceUsdPerMT', exLeg.priceUsdPerMT === depLeg.priceUsdPerMT);
 check('PL1 ex-ship-NGN naira amount = ngnPerL × litres × tonnes', approx(exLeg.ngn, 1800 * LITRES * 10000, 0.01) && exLeg.ngn === depLeg.ngn);
@@ -362,17 +371,22 @@ check('PL2 3-leg mix: depotUSD = depot leg', approx(mix.revenue.depotUSD, mix.re
 check('PL2 3-leg mix pools into one P&L (standalone = rev − cost)', approx(mix.profit.standaloneProfit, mix.revenue.combinedUSD - mix.cost.allInCost, 0.02) && mix.profit.reconciliation.ok === true);
 check('PL2 3-leg mix: channels derive from legs (ex-ship 8000 / depot 4000)', mix.channels.exShipTonnes === 8000 && mix.channels.depotTonnes === 4000);
 check('PL2 3-leg mix: currency view = split (usdShare 5000/8000)', mix.fx.currencyMode === 'split' && approx(mix.fx.usdShare, 5000 / 8000, 1e-9));
-check('PL2 3-leg mix partner benchmark = USD ex-ship leg price (USD leg present)', approx(mix.profit.benchmarkPriceUSD, 1300, 0.01) && mix.profit.benchmarkBasis === 'ex-ship price');
+// PL2 — RULE 2 (2026-06-23): benchmark = MAX channel present. Depot ₦1850/L @ NAFEM (~$1459.03) beats
+// the USD ex-ship leg ($1300), so the depot channel wins the MAX (was: USD ex-ship price $1300).
+check('PL2 3-leg mix partner benchmark = depot @ NAFEM (MAX channel)',
+  approx(mix.profit.benchmarkPriceUSD, (1850 * LITRES) / mix.fx.rates.nafemReference, 0.01) && mix.profit.benchmarkBasis === 'depot price (NAFEM)');
 
-// PL3 — partner-benchmark FALLBACK: an all-naira trade (no USD ex-ship leg) values in-kind product at the
-// USD-EQUIVALENT LANDED COST (deterministic), not at any naira leg's realized price.
+// PL3 — RULE 2 (2026-06-23): an all-naira trade (no USD ex-ship leg) values the in-kind product at the
+// MAX of its NGN channels @ NAFEM (here ex-ship-NGN and depot-NGN are both ₦1850/L -> ~$1459.03; depot
+// wins the tie). Supersedes the 2026-06-20 USD-equivalent-landed-cost fallback ($1080.4857).
 const allNairaLegs = [
   { channel: 'ex-ship', pricingUnit: 'NGN_PER_L', tonnes: 7000, price: 1850 },
   { channel: 'depot', pricingUnit: 'NGN_PER_L', tonnes: 5000, price: 1850 },
 ];
 const allNaira = computeTrade({ ...bothChannels, revenueLegs: allNairaLegs });
-check('PL3 all-naira partner: benchmark = USD-equivalent landed cost', approx(allNaira.profit.benchmarkPriceUSD, allNaira.price.exShipLandedPerMT, 0.01));
-check('PL3 all-naira partner: benchmark basis names landed cost', /landed cost/.test(allNaira.profit.benchmarkBasis));
+check('PL3 all-naira partner: benchmark = MAX NGN channel @ NAFEM',
+  approx(allNaira.profit.benchmarkPriceUSD, (1850 * LITRES) / allNaira.fx.rates.nafemReference, 0.01));
+check('PL3 all-naira partner: benchmark basis names a NAFEM channel', /NAFEM/.test(allNaira.profit.benchmarkBasis));
 check('PL3 all-naira partner: no USD ex-ship price reported', allNaira.price.exShipPricePerMT === null);
 check('PL3 all-naira reconciliation holds', allNaira.profit.reconciliation.ok === true);
 
@@ -433,6 +447,30 @@ check('PL6 native depot ladder: tier net == direct engine run at repriced depot 
     const direct = computeTrade({ ...nativeDepot, revenueLegs: nativeDepot.revenueLegs.map((l) => (l.channel === 'depot' ? { ...l, price: t.priceNgnPerL } : l)) }, { skipHedgeCompare: true });
     return approx(t.tisNetProfit, direct.profit.tisNetProfit, 0.5);
   }));
+
+// ============================================================================================
+// MX — NEW (2026-06-23): RULE 1 + RULE 2 together on a SPLIT trade (ex-ship USD + depot). Confirms the
+// MAX-channel margin-foregone benchmark and that NAFEM (not parallel) is the live FX P&L lever.
+// ============================================================================================
+// Split: a high USD ex-ship price ($1600) deliberately BEATS the depot ₦1850/L @ NAFEM (~$1459.03), so
+// the MAX benchmark must pick the EX-SHIP channel here (proves the MAX actually selects, isn't always-depot).
+const splitTrade = { ...bothChannels, revenueLegs: [
+  { channel: 'ex-ship', pricingUnit: 'USD_PER_MT', tonnes: 6000, price: 1600 },
+  { channel: 'depot', pricingUnit: 'NGN_PER_L', tonnes: 6000, price: 1850 },
+] };
+const split = computeTrade(splitTrade, { skipHedgeCompare: true });
+const mxDepotAtNafem = (1850 * LITRES) / split.fx.rates.nafemReference;
+check('MX split benchmark = MAX(ex-ship USD, depot @ NAFEM)',
+  approx(split.profit.benchmarkPriceUSD, Math.max(1600, mxDepotAtNafem), 0.01));
+check('MX split: MAX picks the higher ex-ship USD channel (1600 > ~1459 depot @ NAFEM)',
+  approx(split.profit.benchmarkPriceUSD, 1600, 0.01) && split.profit.benchmarkBasis === 'ex-ship price');
+check('MX split: margin foregone = partnerTonnes × (benchmark − ex-ship landed)',
+  approx(split.profit.marginForegone, split.quantities.economic.partnerTonnes * (split.profit.benchmarkPriceUSD - split.price.exShipLandedPerMT), 1));
+const mxFn = (t) => computeTrade(t, { skipHedgeCompare: true });
+const mxPar = runSensitivities(splitTrade, mxFn, { fxMode: 'parallel' }).scenarios.filter((s) => /FX/.test(s.lever));
+const mxNafem = runSensitivities(splitTrade, mxFn, { fxMode: 'nafem' }).scenarios.filter((s) => /FX/.test(s.lever));
+check('MX split: PARALLEL FX sensitivity ≈ 0 (reference only)', mxPar.length > 0 && mxPar.every((s) => Math.abs(s.deltaVsBase) < 0.01));
+check('MX split: NAFEM FX sensitivity is the live lever (≠ 0)', mxNafem.some((s) => Math.abs(s.deltaVsBase) > 1));
 
 // ============================================================================================
 // Config-driven cost/tax lines (policy-change-proofing) — type/rate/base editable via config only.

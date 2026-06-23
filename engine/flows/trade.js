@@ -14,24 +14,26 @@ const { num, positive, nonNegative, proportion, oneOf, sumToOne, computedPositiv
 // a trade holds a LIST of revenue legs, each priced in ONE unit —
 //   { channel: 'ex-ship'|'depot', pricingUnit: 'USD_PER_MT'|'NGN_PER_L', tonnes (or share), price }
 // Any MIX is supported: ex-ship-USD ($/MT), ex-ship-NGN (native ₦/L), depot-NGN (₦/L, always — depot is
-// never USD). Every NGN_PER_L leg → USD via (ngnPerL × litresPerMT) / parallelPayment (depot-identical;
+// never USD). Every NGN_PER_L leg → USD via (ngnPerL × litresPerMT) / nafemRate (depot-identical;
 // ex-ship-NGN reuses the same conversion). Legacy trades (channels.exShipPct/depotPct + sell.currencyMode
-// /splitUsdPct) are ADAPTED onto this model and compute byte-for-byte identically — see revenue.js.
+// /splitUsdPct) are ADAPTED onto this model — see revenue.js.
 //
 // Other INDEPENDENT dimensions, every combination computes:
 //   - EQUITY PROVIDER: 'partner' (equity-split waterfall) or 'TIS' (self-funded; standalone = TIS net).
 //   - EQUITY RATIO   : bond/equity/LC fully configurable; funding stack validated to 100%.
-//   - CURRENCY       : per-leg pricing unit (above). PARALLEL drives P&L; NAFEM reference only.
-//   - DEPOT          : margin vs ALL-IN DEPOT landed; naira storage costs FX-exposed.
+//   - CURRENCY       : per-leg pricing unit (above). NAFEM drives naira P&L; PARALLEL reference only
+//                      (RULE 1, 2026-06-23: the bank funds USD and converts repaid naira at NAFEM).
+//   - DEPOT          : margin vs ALL-IN DEPOT landed; naira storage costs FX-exposed (at NAFEM).
 //
-// The engine is USD-internal; the FX layer converts naira legs to USD-equivalent at the PARALLEL rate
-// and reports FX exposure separately. computeEquityPartner stays the verified reference-trade path; this flow
-// reproduces it exactly for {ex-ship, partner, USD, 25%} (see test/invariants.js cross-check).
+// The engine is USD-internal; the FX layer converts naira legs to USD-equivalent at the NAFEM rate
+// and reports the parallel-rate exposure separately. computeEquityPartner stays the verified reference
+// path; this flow reproduces it exactly for {ex-ship, partner, USD, 25%} (see test/invariants.js cross-check).
 //
-// PARTNER IN-KIND BENCHMARK: the partner's in-kind product is valued in USD — at the USD ex-ship price
-// when a USD ex-ship leg exists; otherwise at the USD-equivalent landed cost. Deterministic, no arbitrary
-// pick. (The product is lifted ex-ship at the tank farm, so TIS keeps the depot premium it earns by
-// taking storage/holding/FX risk.)
+// MARGIN-FOREGONE BENCHMARK (RULE 2, 2026-06-23): TIS forgoes the BEST alternative use of the partner's
+// tonnes, so the partner's in-kind product is valued in USD at the MAX realized price across the channels
+// actually present in the trade — ex-ship USD price, depot @ NAFEM, or ex-ship-NGN @ NAFEM, whichever is
+// highest (true edge case: no sell channel at all -> ex-ship landed cost). Solely ex-ship -> ex-ship;
+// solely depot -> depot; split -> the higher-margin channel. Deterministic, no arbitrary pick.
 
 function validateTrade(trade, deliveredQty, ch, native) {
   positive(deliveredQty, 'cargo.deliveredQtyMT');
@@ -84,37 +86,41 @@ function computeTrade(trade, opts = {}) {
   const cargoValue = unitFob * deliveredQty;
   const financing = buildFinancing(effTrade, cargoValue);
 
-  // 2. FX rates. PARALLEL = economic (P&L); NAFEM = reference only. fxBump = payment-vs-pricing parallel.
+  // 2. FX rates. NAFEM = economic (drives naira P&L); PARALLEL = reference only (RULE 1). fxBump =
+  //    payment-vs-pricing parallel deviation, retained for the reference/exposure view (no P&L effect).
   const fxBump = opts.fxBump ?? (trade.fx && trade.fx.paymentBumpPct) ?? 0;
   const fx = resolveFxRates(trade, fxBump);
+  const nafemRate = fx.nafemReference; // the ONE rate that converts naira legs into USD P&L
   // Legacy currency split only applies to the legacy adapter (native trades carry per-leg pricing units).
   const exShares = native ? null : exShipCurrencyShares(trade);
 
   // 3. Per-leg revenue model (native trade.revenueLegs, else legacy channels+currencyMode adapter).
   const { legs, litresPerMT } = normalizeLegs(trade, {
-    deliveredQty, ch, exShares, parallelPricing: fx.parallelPricing,
+    deliveredQty, ch, exShares, nafemRate,
   });
   const exShipTonnes = legs.filter((l) => l.channel === 'ex-ship').reduce((s, l) => s + l.tonnes, 0);
   const depotTonnes = legs.filter((l) => l.channel === 'depot').reduce((s, l) => s + l.tonnes, 0);
 
   const needNaira = legs.some((l) => l.pricingUnit === 'NGN_PER_L');
   if (needNaira) {
+    computedPositive(nafemRate, 'NAFEM rate'); // drives naira P&L (RULE 1)
+    // Parallel stays resolved for the reference / exposure blocks even though it no longer feeds P&L.
     computedPositive(fx.parallelPricing, 'parallel (pricing) rate');
     computedPositive(fx.parallelPayment, 'parallel (payment) rate');
   }
 
-  // 4. Cost build-up (storage active for depot tonnes; naira storage converted at parallel payment).
+  // 4. Cost build-up (storage active for depot tonnes; naira storage converted at NAFEM — RULE 1).
   //    effTrade => cost line 1 ("ICE LSGO", rateFrom market.ice.value) resolves to the effective ICE.
   const cost = buildCostBuildup(effTrade, {
-    cargoValue, deliveredQty, depotTonnes, financing, parallelPayment: fx.parallelPayment,
+    cargoValue, deliveredQty, depotTonnes, financing, nafemRate,
   });
   const exShipLandedPerMT = cost.exShipLandedPerMT; // base, excl storage
   const depotLandedPerMT = cost.depotLandedPerMT; // base + storage/depotTonnes
   computedPositive(exShipLandedPerMT, 'ex-ship landed cost / MT');
 
   // 5. Revenue — sum the legs. USD_PER_MT legs carry no FX risk; every NGN_PER_L leg (depot OR native
-  // ex-ship-NGN) converts identically: (ngnPerL × litresPerMT) / parallelPayment, naira fixed for exposure.
-  const legResults = legs.map((l) => ({ leg: l, rev: computeLegRevenue(l, { parallelPayment: fx.parallelPayment, litresPerMT }) }));
+  // ex-ship-NGN) converts identically: (ngnPerL × litresPerMT) / nafemRate, naira fixed for exposure.
+  const legResults = legs.map((l) => ({ leg: l, rev: computeLegRevenue(l, { nafemRate, litresPerMT }) }));
   let exShipRevenueUSD = 0;
   let depotRevenueUSD = 0;
   let totalNairaRevenueNgnRaw = 0;
@@ -176,10 +182,22 @@ function computeTrade(trade, opts = {}) {
     principalAsProduct = partnerPrincipal * productAllocationPct;
     principalAsCash = partnerPrincipal - principalAsProduct;
     partnerTonnes = principalAsProduct / exShipLandedPerMT; // in-kind valued at EX-SHIP landed
-    // PARTNER IN-KIND BENCHMARK (#4): USD ex-ship price when a USD ex-ship leg exists; otherwise the
-    // USD-equivalent landed cost. Deterministic — never an arbitrary pick of a naira leg's realized price.
-    if (exShipUsdLeg) { benchmarkPriceUSD = exShipUsdLeg.price; benchmarkBasis = 'ex-ship price'; }
-    else { benchmarkPriceUSD = exShipLandedPerMT; benchmarkBasis = 'USD-equivalent landed cost (no USD ex-ship leg)'; }
+    // MARGIN-FOREGONE BENCHMARK (RULE 2, 2026-06-23): TIS forgoes its BEST alternative use of the
+    // partner's tonnes, so the benchmark = the MAX realized USD-equivalent price across the channels
+    // ACTUALLY PRESENT in the trade (each leg's priceUsdPerMT — naira legs already converted at NAFEM):
+    //   ex-ship USD leg -> its USD price;  depot leg -> depotNgnPerL × litres / nafem;
+    //   ex-ship NGN leg -> exShipNgnPerL × litres / nafem.
+    // On ties the depot/later channel wins (legs are ordered ex-ship then depot). True edge case — no
+    // sell channel at all -> fall back to ex-ship landed cost. Deterministic, never an arbitrary pick.
+    const basisName = (leg) => leg.channel === 'depot'
+      ? 'depot price (NAFEM)'
+      : (leg.pricingUnit === 'USD_PER_MT' ? 'ex-ship price' : 'ex-ship price (NAFEM)');
+    let bestLeg = null;
+    for (const { leg, rev } of legResults) {
+      if (bestLeg === null || rev.priceUsdPerMT >= bestLeg.price) bestLeg = { price: rev.priceUsdPerMT, leg };
+    }
+    if (bestLeg) { benchmarkPriceUSD = bestLeg.price; benchmarkBasis = basisName(bestLeg.leg); }
+    else { benchmarkPriceUSD = exShipLandedPerMT; benchmarkBasis = 'ex-ship landed cost (no sell channel)'; }
     profitSharePct = trade.partner.profitSharePct;
   }
   const tisRetainedTonnes = deliveredQty - partnerTonnes;
@@ -188,7 +206,7 @@ function computeTrade(trade, opts = {}) {
   const iceHedged = !!(trade.hedge && trade.hedge.iceHedged);
   const fxHedged = !!(trade.fxHedge && trade.fxHedge.fxHedged);
   const hedge = buildHedge(effTrade, { tisRetainedTonnes }); // effTrade => liveIce ref = effective (settlement) ICE
-  const fxHedge = buildFxHedge(trade, { netNairaNgn, parallelPricing: fx.parallelPricing, parallelPayment: fx.parallelPayment });
+  const fxHedge = buildFxHedge(trade, { netNairaNgn, parallelPricing: fx.parallelPricing, parallelPayment: fx.parallelPayment, nafemRate });
 
   // Realized hedge impacts on standalone — only when the toggle is ON.
   //   ICE ON  : lock retained ICE at fixed (iceCostDelta) + all-in hedge cost -> reduces profit.
@@ -242,7 +260,8 @@ function computeTrade(trade, opts = {}) {
       },
     };
   }
-  const nafem = fx.nafemReference;
+  const nafem = fx.nafemReference; // == nafemRate; economic (P&L) rate
+  const parPay = fx.parallelPayment; // parallel = reference / reconciliation only
   const fxBlock = {
     currencyMode: currencyView.mode,
     usdShare: currencyView.usdShare,
@@ -256,12 +275,15 @@ function computeTrade(trade, opts = {}) {
       parallelAsOf: fx.parallel ? fx.parallel.asOf : null,
     },
     fxIncidence: fx.fxIncidence,
-    nairaRevenue: { ngn: totalNairaRevenueNgn, usdAtParallel: nairaRevenueUsd, usdAtNafemReference: nafem ? round(totalNairaRevenueNgn / nafem, 2) : null },
-    nairaCost: { ngn: nairaCostNgn, usdAtParallel: nairaCostUsd, usdAtNafemReference: nafem ? round(nairaCostNgn / nafem, 2) : null },
-    netNairaExposureUsd: round(nairaRevenueUsd - nairaCostUsd, 2),
+    // P&L conversions are at NAFEM (RULE 1); `usdAtNafemReference` is the figure that hits P&L. The
+    // `usdAtParallel` column is the parallel-rate reference only — fully resolved, never in P&L.
+    nairaRevenue: { ngn: totalNairaRevenueNgn, usdAtParallel: parPay ? round(totalNairaRevenueNgn / parPay, 2) : null, usdAtNafemReference: nairaRevenueUsd },
+    nairaCost: { ngn: nairaCostNgn, usdAtParallel: parPay ? round(nairaCostNgn / parPay, 2) : null, usdAtNafemReference: nairaCostUsd },
+    netNairaExposureUsd: round(nairaRevenueUsd - nairaCostUsd, 2), // at NAFEM (the P&L basis)
+    // Gap between the NAFEM P&L net and the parallel-reference net (reconciliation / exposure only).
     nafemReconciliationGapUsd:
-      nafem != null ? round((nairaRevenueUsd - nairaCostUsd) - ((totalNairaRevenueNgn - nairaCostNgn) / nafem), 2) : null,
-    note: 'PARALLEL drives all P&L; NAFEM shown for bank reconciliation only (never in P&L).',
+      parPay ? round((nairaRevenueUsd - nairaCostUsd) - ((totalNairaRevenueNgn - nairaCostNgn) / parPay), 2) : null,
+    note: 'NAFEM drives all naira P&L; PARALLEL shown for pricing-reference / reconciliation only (never in P&L).',
   };
 
   // 9. Annualised return — base depends on funding source

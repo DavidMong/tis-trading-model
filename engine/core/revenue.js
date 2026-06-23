@@ -10,18 +10,21 @@ const { positive, oneOf } = require('./validate');
 //   - depot   legs are NGN_PER_L ONLY — you cannot retail USD in Nigeria (USD depot is rejected).
 //
 // CONVERSION (the ONE place a leg becomes USD): every NGN_PER_L leg → USD via
-//   priceUsdPerMT = (ngnPerL × litresPerMT) / parallelPayment   (depot-identical; ex-ship-NGN reuses it)
+//   priceUsdPerMT = (ngnPerL × litresPerMT) / nafemRate        (depot-identical; ex-ship-NGN reuses it)
 //   usdRevenue    = tonnes × priceUsdPerMT
-//   nairaNgn      = ngnPerL × litresPerMT × tonnes               (fixed in NGN — drives FX exposure)
+//   nairaNgn      = ngnPerL × litresPerMT × tonnes             (fixed in NGN — drives FX exposure)
 // A USD_PER_MT leg carries no naira exposure (usdRevenue = price × tonnes, nairaNgn = 0).
+// RULE 1 (2026-06-23): naira→USD P&L conversion is at NAFEM (the bank converts repaid naira at NAFEM),
+// NOT the parallel rate. Parallel stays resolved for the reference / exposure blocks only.
 //
 // BACKWARD MAP: legacy trades (channels.exShipPct/depotPct + sell.currencyMode/splitUsdPct + prices)
-// are adapted onto this model and compute byte-for-byte identically. A USD-priced/naira-SETTLED
-// ex-ship share (currencyMode NGN/split) maps to a native NGN_PER_L leg with
-//   ngnPerL = exShipUSD × parallelPricing / litresPerMT
-// which reproduces the legacy "naira fixed at pricing, revalued at payment" USD and NGN amounts exactly
-// (the USD price is retained as `usdPriceRef` for display/back-compat only — it is NOT a USD leg, so it
-// does not satisfy the partner-benchmark USD-leg rule).
+// are adapted onto this model. A USD-priced/naira-SETTLED ex-ship share (currencyMode NGN/split) maps
+// to a native NGN_PER_L leg with
+//   ngnPerL = exShipUSD × nafemRate / litresPerMT
+// so the converter (which divides by the SAME nafemRate) round-trips the leg's USD revenue back to the
+// original USD price exactly (the USD amount is invariant to the rate; only the fixed NGN exposure
+// amount tracks NAFEM). The USD price is retained as `usdPriceRef` for display/back-compat only — it is
+// NOT a USD leg, so it does not satisfy the partner-benchmark USD-leg rule.
 
 const VALID_CHANNELS = ['ex-ship', 'depot'];
 const VALID_UNITS = ['USD_PER_MT', 'NGN_PER_L'];
@@ -61,7 +64,7 @@ function nativeLegs(trade, { deliveredQty }) {
 }
 
 // LEGACY adapter: derive legs from channels + sell.currencyMode/splitUsdPct + prices.
-function legacyLegs(trade, { deliveredQty, ch, exShares, parallelPricing }) {
+function legacyLegs(trade, { deliveredQty, ch, exShares, nafemRate }) {
   const exShipTonnes = deliveredQty * ch.exShipPct;
   const depotTonnes = deliveredQty * ch.depotPct;
   const hasNgn = depotTonnes > 0 || (exShipTonnes > 0 && exShares.nairaShare > 0);
@@ -74,11 +77,11 @@ function legacyLegs(trade, { deliveredQty, ch, exShares, parallelPricing }) {
       legs.push({ channel: 'ex-ship', pricingUnit: 'USD_PER_MT', tonnes: exShares.usdShare * exShipTonnes, price: P, usdPriceRef: P });
     }
     if (exShares.nairaShare > 0) {
-      // USD-priced/naira-settled share → native NGN_PER_L leg (exact backward map; see header).
+      // USD-priced/naira-settled share → native NGN_PER_L leg (backward map at NAFEM; see header).
       legs.push({
         channel: 'ex-ship', pricingUnit: 'NGN_PER_L',
         tonnes: exShares.nairaShare * exShipTonnes,
-        price: (P * parallelPricing) / litresPerMT,
+        price: (P * nafemRate) / litresPerMT,
         usdPriceRef: P, // display/back-compat only — NOT a USD leg for the benchmark rule
       });
     }
@@ -106,13 +109,14 @@ function normalizeLegs(trade, ctx) {
   return { legs, litresPerMT, native };
 }
 
-// The ONE place a leg becomes USD. NGN legs use the depot-identical conversion.
-function computeLegRevenue(leg, { parallelPayment, litresPerMT }) {
+// The ONE place a leg becomes USD. NGN legs use the depot-identical conversion, at NAFEM (RULE 1).
+function computeLegRevenue(leg, { nafemRate, litresPerMT }) {
   if (leg.pricingUnit === 'USD_PER_MT') {
     return { usdRevenue: leg.price * leg.tonnes, nairaNgn: 0, priceUsdPerMT: leg.price };
   }
-  // NGN_PER_L (depot or native ex-ship-NGN) — identical conversion.
-  const priceUsdPerMT = (leg.price * litresPerMT) / parallelPayment;
+  // NGN_PER_L (depot or native ex-ship-NGN) — identical conversion at NAFEM: the bank converts the
+  // naira proceeds it is repaid to USD at NAFEM, so NAFEM (not parallel) drives this leg's P&L.
+  const priceUsdPerMT = (leg.price * litresPerMT) / nafemRate;
   return {
     usdRevenue: leg.tonnes * priceUsdPerMT,
     nairaNgn: leg.price * litresPerMT * leg.tonnes,

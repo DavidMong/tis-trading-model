@@ -131,17 +131,25 @@ route into it. The engine is USD-internal; the FX layer converts naira legs at t
 3. **Equity ratio** — `financing.lcPctOfCargo` + `partner.bondPct` + `partner.equityPct`, **validated to
    sum to 1.0** (throws otherwise). Default 0.75/0.05/0.20. Change advanceRate → equity/LC/interest/returns re-flow.
 4. **Currency** — `sell.currencyMode ∈ {USD, NGN, split}` (+ `splitUsdPct`) on the **ex-ship** leg; depot
-   is always ₦/L. **PARALLEL drives all P&L; NAFEM is reference/reconciliation only** (asserted: FX3). FX risk:
-   naira receivable fixed at pricing-parallel, revalued at payment-parallel; `fx.paymentBumpPct` (±10% sensitivity)
-   bites only naira legs (asserted: FX2/FX5). `fx.fxIncidence` default `TIS`.
-5. **Depot channel** — priced ₦/L → USD via parallel × `litresPerMT`. Margin vs **all-in depot landed cost**
-   (`depotLanded = exShipLanded + storage/depotTonnes`, > ex-ship landed: FX4). Storage lines go live for depot
-   volume; **throughput + tank rental are naira-paid and FX-exposed on the cost side** (asserted: FX6); evaporation
-   + tank insurance are USD (% of depot cargo value). Depot ₦/L ladder + ex-ship-vs-depot comparison go live.
+   is always ₦/L. **NAFEM drives all naira→USD P&L; PARALLEL is pricing-reference/reconciliation only**
+   (RULE 1, 2026-06-23; asserted: FX3). Business reality: the bank funds USD, TIS repays naira proceeds, and
+   the bank converts those naira to USD at NAFEM — so NAFEM is the rate at which naira revenue/cost lands in
+   P&L (naira costs are naira-funded, Option B). Parallel stays fully resolved and shown for the display /
+   exposure / reconciliation blocks but feeds **zero** P&L. The live FX sensitivity lever is the **NAFEM**
+   rate (`fxMode: 'nafem'`); `fx.paymentBumpPct` now moves only the parallel reference (≈0 P&L). FX bites only
+   naira legs (asserted: FX2/FX5). `fx.fxIncidence` default `TIS`.
+5. **Depot channel** — priced ₦/L → USD via **NAFEM** × `litresPerMT` (RULE 1). Margin vs **all-in depot
+   landed cost** (`depotLanded = exShipLanded + storage/depotTonnes`, > ex-ship landed: FX4). Storage lines go
+   live for depot volume; **throughput + tank rental are naira-paid and FX-exposed at NAFEM on the cost side**
+   (asserted: FX6); evaporation + tank insurance are USD (% of depot cargo value). Depot ₦/L ladder +
+   ex-ship-vs-depot comparison go live.
 
-**Margin-foregone benchmark = EX-SHIP price** (partner's in-kind product is lifted ex-ship at the tank farm,
-so TIS keeps the depot premium it earns by taking storage/holding/FX risk). **Edge case:** a depot-only trade
-(no ex-ship channel) falls back to the depot realized (ex-storage) price as the benchmark (asserted: FX9).
+**Margin-foregone benchmark = MAX channel** (RULE 2, 2026-06-23): TIS forgoes the **BEST** alternative use of
+the partner's tonnes, so the in-kind product is valued in USD at the **highest realized price across the
+channels actually present** — ex-ship USD price, depot @ NAFEM (`depotNgnPerL × litres / nafem`), or ex-ship-NGN
+@ NAFEM, whichever is greater. Solely ex-ship → ex-ship price; solely depot → depot @ NAFEM; split → the
+higher-margin channel (`benchmarkBasis` names the winner, e.g. `"depot price (NAFEM)"` / `"ex-ship price"`).
+**Edge case:** no sell channel at all → falls back to ex-ship landed cost (asserted: FX9, PL2, PL3, MX).
 
 Sample trades: `sample-depot-only` (depot/TIS/NGN), `sample-both-channels` (both/partner/split, advanceRate 0.80),
 `sample-exship-tis` (ex-ship/TIS/USD), plus `reference-trade-001` (the unchanged verified baseline).
@@ -152,15 +160,18 @@ Two **independent** per-trade toggles, both default **OFF**: `hedge.iceHedged` a
 - **ON → drives realized P&L:** the net hedge impact flows into `standalone → adjusted → TIS net`
   (shared via the partner split when partner-funded). ICE: `−(iceCostDelta + all-in hedge cost)`;
   FX: `+(forward-vs-parallel delta on the hedged naira) − hedge cost`.
-- **OFF → no P&L effect** (leg floats at parallel/live, zero hedge cost) — current behavior exactly.
+- **OFF → no P&L effect** (leg floats at NAFEM/live, zero hedge cost) — current behavior exactly.
 - **Comparison:** `hedgeComparison` always shows the opposite toggle state (hedged vs unhedged TIS net),
   computed by re-running the engine with the toggle flipped, **recursion-guarded** via `opts.skipHedgeCompare`.
 - **FX hedge** locks a configurable portion of the **net naira exposure** at a named-benchmark forward
-  (NAFEM/NDF); unhedged remainder floats at parallel. Dual route (bank_book spread / third_party
-  bank-provided margin + broker fee), apples-to-apples on the net-exposure basis (over-hedge excluded).
-- **BASIS RISK (explicit):** the hedge settles against the benchmark, not parallel, so realized P&L carries
-  the benchmark↔parallel basis as a surfaced residual (`fxHedge.basis.residualBasisUsd` + ⚠ note). The hedge
-  never implies full parallel cover. All hedge params are PLACEHOLDER — confirm with bank/broker.
+  (NAFEM/NDF); unhedged remainder floats at **NAFEM** (RULE 1, 2026-06-23 — the economic settlement rate;
+  asserted: HX3). Dual route (bank_book spread / third_party bank-provided margin + broker fee),
+  apples-to-apples on the net-exposure basis (over-hedge excluded).
+- **BASIS RISK (explicit):** the hedge settles against the benchmark forward, which differs from the
+  **parallel street reference**, so the benchmark↔parallel gap is a surfaced residual
+  (`fxHedge.basis.residualBasisUsd` + ⚠ note) — kept on the parallel reference so the desk still sees the
+  forward-vs-street gap (P&L itself now books unhedged naira at NAFEM, RULE 1). The hedge never implies full
+  street cover. All hedge params are PLACEHOLDER — confirm with bank/broker.
 - The reference-trade runs on `computeEquityPartner` (toggles n/a) → byte-for-byte unchanged.
 
 ## Final / settlement ICE (`market.ice.final`)

@@ -256,14 +256,14 @@ function printTradeReport(res, trade, flags) {
 
   // FX block
   const fx = res.fx;
-  L('\n4. FX  (PARALLEL drives P&L; NAFEM reference only)');
+  L('\n4. FX  (NAFEM drives naira P&L; PARALLEL reference only)');
   L(hr());
   L(`  Currency mode: ${fx.currencyMode}  (USD share ${pct(fx.usdShare)} / naira share ${pct(fx.nairaShare)})   fxIncidence: ${fx.fxIncidence}`);
-  L(`  PARALLEL (pricing) ${fx.rates.parallelPricing} NGN/USD   payment ${fx.rates.parallelPayment} (bump ${pct(fx.rates.paymentBumpPct)})   [${fx.rates.parallelSource || 'n/a'}, ${fx.rates.parallelAsOf || 'n/a'}]`);
-  L(`  NAFEM (reference)  ${fx.rates.nafemReference} NGN/USD  — reconciliation only, never in P&L`);
-  L(`  Naira revenue ${ngn(fx.nairaRevenue.ngn)}  =>  parallel ${usd(fx.nairaRevenue.usdAtParallel)}  |  at NAFEM ref ${usd(fx.nairaRevenue.usdAtNafemReference)}`);
-  L(`  Naira cost    ${ngn(fx.nairaCost.ngn)}  =>  parallel ${usd(fx.nairaCost.usdAtParallel)}  |  at NAFEM ref ${usd(fx.nairaCost.usdAtNafemReference)}`);
-  L(`  Net naira exposure (USD): ${usd(fx.netNairaExposureUsd)}   NAFEM reconciliation gap: ${usd(fx.nafemReconciliationGapUsd)}`);
+  L(`  NAFEM (P&L)        ${fx.rates.nafemReference} NGN/USD  — drives all naira->USD P&L conversion`);
+  L(`  PARALLEL (reference) ${fx.rates.parallelPricing} NGN/USD   payment ${fx.rates.parallelPayment} (bump ${pct(fx.rates.paymentBumpPct)})   [${fx.rates.parallelSource || 'n/a'}, ${fx.rates.parallelAsOf || 'n/a'}]  — reference only, never in P&L`);
+  L(`  Naira revenue ${ngn(fx.nairaRevenue.ngn)}  =>  P&L @ NAFEM ${usd(fx.nairaRevenue.usdAtNafemReference)}  |  parallel ref ${usd(fx.nairaRevenue.usdAtParallel)}`);
+  L(`  Naira cost    ${ngn(fx.nairaCost.ngn)}  =>  P&L @ NAFEM ${usd(fx.nairaCost.usdAtNafemReference)}  |  parallel ref ${usd(fx.nairaCost.usdAtParallel)}`);
+  L(`  Net naira exposure @ NAFEM (USD): ${usd(fx.netNairaExposureUsd)}   parallel reconciliation gap: ${usd(fx.nafemReconciliationGapUsd)}`);
 
   // Revenue & price
   L('\n5. REVENUE & PRICE');
@@ -325,7 +325,7 @@ function printTradeReport(res, trade, flags) {
   if (hc) L(`     TIS net: hedged ${usd(hc.ice.hedgedTisNet)}  vs  unhedged ${usd(hc.ice.unhedgedTisNet)}   (hedging worth ${usd(hc.ice.hedgeWorthItVsUnhedged)})`);
   L(`  FX hedge [${res.hedges.fxHedged ? 'ON' : 'OFF'}]  route ${fh.routeEconomics.type}  benchmark ${fh.benchmark}  exposure ${ngn(fh.exposureNgn)}`);
   if (fh.hasExposure) {
-    L(`     hedged ${ngn(fh.hedgedNgn)} @ forward ${fh.forwardRate} -> ${usd(fh.hedgedUsd)}  vs floating @ parallel ${fh.parallelPayment} -> ${usd(fh.floatingUsd)}   realized P&L impact ${usd(res.hedges.fxHedgeNetImpact)}`);
+    L(`     hedged ${ngn(fh.hedgedNgn)} @ forward ${fh.forwardRate} -> ${usd(fh.hedgedUsd)}  vs floating @ NAFEM ${res.fx.rates.nafemReference} -> ${usd(fh.floatingUsd)}   realized P&L impact ${usd(res.hedges.fxHedgeNetImpact)}`);
     if (fh.overHedgeNgn > 0) L(`     over-hedge (speculative, excluded): ${ngn(fh.overHedgeNgn)}`);
     L(`     ⚠ BASIS RISK: ${fh.basis.note}`);
     L(`        benchmark-vs-parallel gap ${fh.basis.gapNgnPerUsd} NGN/USD  ->  residual basis ${usd(fh.basis.residualBasisUsd)} (uncovered)`);
@@ -484,10 +484,11 @@ function main() {
     process.exit(1);
   }
 
-  // Unified trade flow uses the parallel-payment FX sensitivity; equity-partner keeps NAFEM (no-op),
-  // preserving the verified reference-trade output byte-for-byte.
+  // FX sensitivity runs on the NAFEM lever (RULE 1, 2026-06-23): NAFEM drives naira P&L, so a NAFEM bump
+  // is the live FX move. For all-USD trades (incl. the equity-partner / reference path, which has no naira
+  // legs) it is a $0 no-op, preserving the verified reference-trade output byte-for-byte.
   const isUnified = res.channels !== undefined && res.revenue !== undefined;
-  const sensOptions = isUnified ? { fxMode: 'parallel' } : {};
+  const sensOptions = isUnified ? { fxMode: 'nafem' } : {};
   res.sensitivities = runSensitivities(trade, (t) => compute(t, opts), sensOptions);
 
   if (isUnified) printTradeReport(res, trade, flags);
