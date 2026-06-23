@@ -1199,7 +1199,7 @@ const tabHedge = `
   <div id="ice-on-warn" class="hedge-warn-note"${!iceOn ? ' hidden' : ''}>Hedge ON — unconfirmed values are marked INDICATIVE. Verify all before live trading.</div>
   <div id="ice-off-note" class="hedge-off-note"${iceOn ? ' hidden' : ''}>Enable ICE Hedge in Deal tab to activate.</div>
   <div id="ice-params" class="${iceOn ? '' : 'hedge-off'}">
-    ${ir('sel-ice-route', 'Route', si('sel-ice-route', [['bank_book','Bank forward'],['third_party','Third-party NDF']], hg.route || 'bank_book'), '')}
+    ${ir('sel-ice-route', 'Route', si('sel-ice-route', [['bank_book','Bank book'],['third_party','Third-party (margin)']], hg.route || 'bank_book'), '')}
     ${ir('inp-ice-fixed',  'Fixed price $/MT',  ni('inp-ice-fixed',  hg.fixedPrice != null ? hg.fixedPrice : '', 0.01, 0, 'ph'), 'PLACEHOLDER')}
     ${ir('inp-ice-fee',    'Swap fee $/MT',      ni('inp-ice-fee',    hg.feePerMT || 1.5, 0.01, 0, 'ph'),   'PLACEHOLDER')}
     <div id="ice-spread-row"${hg.route === 'third_party' ? ' hidden' : ''}>
@@ -2410,9 +2410,13 @@ function renderHedge(trade, res) {
   // Route segmented control rendered inline on each card header
   function routeSeg(selectId, current) {
     const bb = current === 'bank_book';
+    // ICE is a SWAP (bank books in-house vs third-party margin financing); FX is a forward/NDF.
+    const isFx = selectId === 'sel-fx-route';
+    const bankLbl  = isFx ? 'Bank forward'     : 'Bank book';
+    const thirdLbl = isFx ? 'Third-party NDF'  : 'Third-party (margin)';
     return \`<div class="route-seg">
-      <button class="seg-btn\${bb ? ' seg-active' : ''}" onclick="setHedgeRoute('\${selectId}','bank_book')">Bank forward</button>
-      <button class="seg-btn\${!bb ? ' seg-active' : ''}" onclick="setHedgeRoute('\${selectId}','third_party')">Third-party NDF</button>
+      <button class="seg-btn\${bb ? ' seg-active' : ''}" onclick="setHedgeRoute('\${selectId}','bank_book')">\${bankLbl}</button>
+      <button class="seg-btn\${!bb ? ' seg-active' : ''}" onclick="setHedgeRoute('\${selectId}','third_party')">\${thirdLbl}</button>
     </div>\`;
   }
 
