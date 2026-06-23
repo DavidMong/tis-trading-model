@@ -19,5 +19,8 @@ node_modules/
 out/
 out/
 
+# UI audit screenshots (local review only — not tracked)
+ui-audit-shots/
+
 # Claude Code internal (worktrees, local config)
 .claude/
