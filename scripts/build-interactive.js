@@ -2377,7 +2377,7 @@ function renderHedge(trade, res) {
       \${infoRow('Forward rate', fxh.forwardRate ? fmtNum(fxh.forwardRate, 0) + ' ₦/USD' : badge('PLACEHOLDER'))}
       \${infoRow('FX realized delta', fmtUsdSign(fxh.fxRealizedDeltaUsd || 0) + (fxOn ? '' : ' (OFF)'))}
       \${infoRow('FX hedge cost', fmtUsd(fxh.extraFinancingCost || 0))}
-      \${fxh.basis ? infoRow('Basis risk (benchmark vs parallel)', fmtNum(fxh.basis.gapNgnPerUsd, 2) + ' ₦/USD residual') : ''}
+      \${fxh.basis ? infoRow('Basis risk (benchmark vs NAFEM)', fmtNum(fxh.basis.gapNgnPerUsd, 2) + ' ₦/USD residual') : ''}
     \`;
   }
   const fxWarning = (!fxh.noHedgeReason && fxNullFwd)

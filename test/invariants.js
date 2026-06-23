@@ -304,13 +304,17 @@ check('HX3 floating USD = net naira / NAFEM', approx(fxOn.fxHedge.floatingUsd, f
 const fxHalf = computeTrade({ ...bothChannels, fxHedge: { ...bothChannels.fxHedge, fxHedged: true, hedgeRatio: 0.5 } });
 check('HX3 hedgeRatio 0.5: unhedged half floats at NAFEM', approx(fxHalf.fxHedge.unhedgedNgn, 0.5 * fxHalf.fxHedge.exposureNgn, 1));
 
-// HX4 — basis residual surfaced; non-zero when benchmark != parallel; ~0 when equal.
-check('HX4 basis gap = forward - parallel', approx(fxOn.fxHedge.basis.gapNgnPerUsd, fxOn.fxHedge.forwardRate - fxOn.fxHedge.parallelPricing, 0.01));
-check('HX4 basis residual non-zero (benchmark != parallel)', Math.abs(fxOn.fxHedge.basis.residualBasisUsd) > 1);
-check('HX4 basis note flags incomplete parallel cover', /does NOT fully cover parallel/.test(fxOn.fxHedge.basis.note));
-const par = computeTrade(bothChannels).fx.rates.parallelPricing;
-const fxNoBasis = computeTrade({ ...bothChannels, fxHedge: { ...bothChannels.fxHedge, fxHedged: true, forwardRate: par } });
-check('HX4 basis residual ~0 when benchmark == parallel', Math.abs(fxNoBasis.fxHedge.basis.residualBasisUsd) < 0.5);
+// HX4 — RULE 1 (2026-06-23): the FX hedge protects against NAFEM (the settlement rate), so the surfaced
+// basis residual is forward<->NAFEM, NOT forward<->parallel. Parallel is reference/display only and drives
+// nothing in the hedge. Residual is non-zero when the benchmark forward != NAFEM, and ~0 when they match.
+check('HX4 basis gap = forward - NAFEM', approx(fxOn.fxHedge.basis.gapNgnPerUsd, fxOn.fxHedge.forwardRate - nafemHX, 0.01));
+check('HX4 basis residual = hedgedNgn × (1/forward − 1/NAFEM)',
+  approx(fxOn.fxHedge.basis.residualBasisUsd, fxOn.fxHedge.hedgedNgn * (1 / fxOn.fxHedge.forwardRate - 1 / nafemHX), 0.5));
+check('HX4 basis residual non-zero (benchmark != NAFEM)', Math.abs(fxOn.fxHedge.basis.residualBasisUsd) > 1);
+check('HX4 basis note flags incomplete NAFEM cover', /does NOT fully cover NAFEM/.test(fxOn.fxHedge.basis.note));
+const nafemSettle = computeTrade(bothChannels).fx.rates.nafemReference;
+const fxNoBasis = computeTrade({ ...bothChannels, fxHedge: { ...bothChannels.fxHedge, fxHedged: true, forwardRate: nafemSettle } });
+check('HX4 basis residual ~0 when benchmark == NAFEM', Math.abs(fxNoBasis.fxHedge.basis.residualBasisUsd) < 0.5);
 
 // HX5 — route A (bank_book) vs B (third_party) cost difference; bank-provided margin only on B.
 const fxA = computeTrade({ ...bothChannels, fxHedge: { ...bothChannels.fxHedge, fxHedged: true, route: 'bank_book' } });

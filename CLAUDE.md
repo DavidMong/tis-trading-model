@@ -168,10 +168,10 @@ Two **independent** per-trade toggles, both default **OFF**: `hedge.iceHedged` a
   asserted: HX3). Dual route (bank_book spread / third_party bank-provided margin + broker fee),
   apples-to-apples on the net-exposure basis (over-hedge excluded).
 - **BASIS RISK (explicit):** the hedge settles against the benchmark forward, which differs from the
-  **parallel street reference**, so the benchmark↔parallel gap is a surfaced residual
-  (`fxHedge.basis.residualBasisUsd` + ⚠ note) — kept on the parallel reference so the desk still sees the
-  forward-vs-street gap (P&L itself now books unhedged naira at NAFEM, RULE 1). The hedge never implies full
-  street cover. All hedge params are PLACEHOLDER — confirm with bank/broker.
+  **NAFEM settlement rate** the unhedged naira actually books at, so the benchmark↔NAFEM gap is a surfaced
+  residual (`fxHedge.basis.residualBasisUsd` + ⚠ note; asserted: HX4) — measured against NAFEM because that
+  is the rate the hedge protects (RULE 1). Parallel is reference/display only and drives nothing in the
+  hedge. The hedge never implies full NAFEM cover. All hedge params are PLACEHOLDER — confirm with bank/broker.
 - The reference-trade runs on `computeEquityPartner` (toggles n/a) → byte-for-byte unchanged.
 
 ## Final / settlement ICE (`market.ice.final`)

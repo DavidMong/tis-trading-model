@@ -6,7 +6,7 @@ const { round } = require('./rounding');
 // Hedges a configurable portion of the NET naira exposure (naira revenue - naira cost, in NGN) at a
 // locked forward USD/NGN rate tied to a NAMED BENCHMARK (NAFEM forward / offshore NDF). The unhedged
 // remainder floats at NAFEM (RULE 1, 2026-06-23): naira proceeds settle to USD at NAFEM, so the
-// unhedged economic baseline is the NAFEM rate (the parallel rate is reference / basis only).
+// unhedged economic baseline is the NAFEM rate (the parallel rate is reference / display only).
 //
 //   Route A 'bank_book'   : bank books it -> cost = spread only (+ per-USD fee).
 //   Route B 'third_party' : bank PROVIDES margin as financing (margin = initialMarginPct x USD notional)
@@ -14,9 +14,10 @@ const { round } = require('./rounding');
 //   Comparison is apples-to-apples on the NET naira exposure basis; hedge beyond exposure is a separate
 //   speculative position (overHedge), excluded from the comparison.
 //
-// BASIS RISK (explicit, never hidden): the economic exposure is on PARALLEL, but the hedge settles
-// against the BENCHMARK (NAFEM/NDF). A benchmark-based hedge does NOT perfectly offset parallel-rate
-// exposure; the benchmark<->parallel basis is a residual that is surfaced and flagged.
+// BASIS RISK (explicit, never hidden): the economic exposure settles at NAFEM (RULE 1), and the hedge
+// settles against the BENCHMARK forward (NAFEM/NDF). A benchmark-based hedge does NOT perfectly offset the
+// NAFEM settlement; the benchmark<->NAFEM basis is a residual that is surfaced and flagged. Parallel is
+// reference/display only and drives nothing in the hedge.
 //
 // PLACEHOLDERS (flag + verify before any live hedge): forwardRate, benchmark, feePerUsd, initialMarginPct,
 // tenorDays, brokerFee, spreadPerUsd.
@@ -24,16 +25,19 @@ const { round } = require('./rounding');
 function buildFxHedge(trade, ctx) {
   const h = trade.fxHedge || {};
   const exposureNgn = ctx.netNairaNgn || 0; // net naira receivable (revenue - naira cost), in NGN
-  const parallelPricing = ctx.parallelPricing; // reference / basis-risk rate only
-  const parallelPayment = ctx.parallelPayment; // reference / basis-risk rate only
+  const parallelPricing = ctx.parallelPricing; // reference / display only — drives no P&L
+  const parallelPayment = ctx.parallelPayment; // reference / display only — drives no P&L
   const nafemRate = ctx.nafemRate; // economic conversion of unhedged naira proceeds (RULE 1)
 
   const enabled = !!h.fxHedged;
   const hasExposure = Math.abs(exposureNgn) > 1e-6 && nafemRate > 0;
 
-  // Benchmark forward rate (placeholder ~ NAFEM/NDF forward). Defaults to parallel pricing if absent.
+  // Benchmark forward rate (placeholder ~ NAFEM/NDF forward). When unset for a real (exposed) hedge it
+  // defaults to the NAFEM settlement rate — never the parallel rate, so parallel drives nothing in the
+  // hedge (RULE 1). For a no-exposure trade the hedge is inert; the default stays at the parallel
+  // reference there purely so all-USD output stays byte-for-byte unchanged.
   const benchmark = h.benchmark || 'NAFEM forward';
-  const forwardRate = h.forwardRate != null ? h.forwardRate : parallelPricing;
+  const forwardRate = h.forwardRate != null ? h.forwardRate : (hasExposure ? nafemRate : parallelPricing);
 
   const ratio = h.hedgeRatio != null ? h.hedgeRatio : 1; // fraction of exposure hedged (default full)
   if (typeof ratio !== 'number' || !Number.isFinite(ratio) || ratio < 0) {
@@ -75,13 +79,14 @@ function buildFxHedge(trade, ctx) {
   }
   const extraFinancingCost = round(route.marginInterest + route.brokerFee + route.spread + feeUsd, 2);
 
-  // BASIS RISK — benchmark forward vs the PARALLEL street reference. Surfaced as an explicit residual:
-  // the hedge settles at the benchmark forward, which differs from the parallel street rate. (P&L now
-  // books unhedged naira at NAFEM per RULE 1; this benchmark<->parallel basis is the separately-shown
-  // street residual, kept on the parallel reference so the desk still sees the forward-vs-street gap.)
-  const gapNgnPerUsd = round(forwardRate - parallelPricing, 4);
+  // BASIS RISK — benchmark forward vs the NAFEM settlement rate (RULE 1, 2026-06-23). NAFEM is the rate
+  // the unhedged naira proceeds actually settle at and the rate the hedge is meant to protect, so the
+  // uncovered basis is the forward<->NAFEM gap on the hedged notional — NOT forward<->parallel. Parallel
+  // is reference/display only and drives nothing here. The gap is gated on exposure so a no-naira trade
+  // (no FX exposure) shows a zero basis (forwardRate there defaults to a reference rate, not a real hedge).
+  const gapNgnPerUsd = hasExposure ? round(forwardRate - nafemRate, 4) : 0;
   const residualBasisUsd = hasExposure
-    ? round(hedgedNgn * (1 / forwardRate - 1 / parallelPricing), 2)
+    ? round(hedgedNgn * (1 / forwardRate - 1 / nafemRate), 2)
     : 0;
 
   return {
@@ -106,11 +111,14 @@ function buildFxHedge(trade, ctx) {
     basis: {
       benchmark,
       forwardRate,
-      parallelRate: parallelPricing,
-      gapNgnPerUsd, // forward (benchmark) - parallel
-      residualBasisUsd, // uncovered benchmark<->parallel basis on the hedged notional
-      note: `Hedge settles against ${benchmark}, NOT the parallel rate. The benchmark<->parallel basis `
-        + `(${gapNgnPerUsd} NGN/USD) is residual and uncovered — the hedge does NOT fully cover parallel exposure.`,
+      // basis is measured against the NAFEM settlement rate (RULE 1); read it from fx.rates.nafemReference.
+      // No nafemRate field is added here — that would change the output shape of all-USD trades, which must
+      // stay byte-for-byte identical. parallelRate stays as a street-reference display value (drives nothing).
+      parallelRate: parallelPricing, // street reference, display only — drives nothing
+      gapNgnPerUsd, // forward (benchmark) - NAFEM (settlement)
+      residualBasisUsd, // uncovered benchmark<->NAFEM basis on the hedged notional
+      note: `Hedge settles against ${benchmark}, NOT the NAFEM settlement rate. The benchmark<->NAFEM basis `
+        + `(${gapNgnPerUsd} NGN/USD) is residual and uncovered — the hedge does NOT fully cover NAFEM exposure.`,
     },
     placeholders: {
       forwardRate: { value: forwardRate, note: 'PLACEHOLDER ~ NAFEM/NDF forward — confirm with bank/broker' },
