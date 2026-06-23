@@ -478,6 +478,21 @@ body { display: flex; flex-direction: column; }
   margin-bottom: 12px;
   line-height: 1.4;
 }
+/* Unit-sanity guard: implausibly large fee/spread (likely a units typo). Deeper amber than the
+   INDICATIVE notes so it reads as "stop and check", not a routine placeholder hint. */
+.h-unit-warn {
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  border-left: 3px solid #b45309;
+  border-radius: 5px;
+  color: #7c2d12;
+  font-family: var(--f-body);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 8px 11px;
+  margin: 2px 0 10px;
+  line-height: 1.45;
+}
 /* Comparison: always visible */
 .h-cmp {
   padding: 12px 18px;
@@ -845,6 +860,17 @@ body { display: flex; flex-direction: column; }
   vertical-align:middle;
 }
 
+/* ── FX rate role tags (settlement vs reference) ─────────────────────────── */
+.rate-tag {
+  display:inline-block; margin-left:6px; padding:1px 5px; border-radius:3px;
+  font-family:var(--f-display); font-size:7.5px; font-weight:700;
+  letter-spacing:.06em; text-transform:uppercase; vertical-align:middle;
+}
+/* settlement / P&L driver — green (positive / active, per palette) */
+.rate-settle { background:#dcfce7; color:#15803d; border:1px solid #86efac; }
+/* reference only — neutral slate, visibly secondary */
+.rate-ref    { background:var(--bg); color:#717c89; border:1px solid var(--border); }
+
 /* ── C4 (Batch C) / D2 (Batch D): 3-state taxonomy badge overrides ─────────── */
 /* Defensive: keep bdg-placeholder styled amber even though badge() no longer emits it */
 :root { --placeholder-c: #92400e; --placeholder-bg: #fef3c7; }
@@ -1052,7 +1078,11 @@ ${sec('Pricing <span class="live-badge">Live</span>', [
   ir('inp-ice-final', 'Final ICE $/MT (settlement)', ni('inp-ice-final', t.market.ice.final != null ? t.market.ice.final : '', 0.01, 0, 'ph'), 'INDICATIVE'),
   '<p class="defaults-note">Leave blank to use live ICE. Enter the settled ICE at payment to see the realized hedge outcome — your purchase floats at this price; the swap offsets it on hedged tonnes.</p>',
   ir('inp-fob',       'FOB Premium $/MT',    ni('inp-fob',       t.market.fobPremium.value,    0.01),        '', true),
-  ir('inp-fxpar',     'FX Parallel ₦/USD',   ni('inp-fxpar',     t.fx.parallel.value,          1, 1),        t.fx.parallel.status, true),
+  `<div class="ir pri">
+    <label class="ir-lbl" for="inp-fxnafem">${pip(t.fx.nafem.status)}FX NAFEM ₦/USD <span class="rate-tag rate-settle">settlement · P&amp;L</span></label>
+    ${ni('inp-fxnafem', t.fx.nafem.value, 1, 1)}
+  </div>`,
+  '<p class="defaults-note" style="margin-top:-2px">Settlement rate — bank converts naira proceeds to USD at NAFEM, so this drives <b>all naira P&amp;L</b> (RULE 1). The live FX sensitivity lever.</p>',
   ir('inp-delivered', 'Delivered MT',        ni('inp-delivered', t.cargo.deliveredQtyMT,        1, 1),        '', true),
 ].join(''))}
 ${sec('Sale — Revenue Legs', [
@@ -1071,8 +1101,12 @@ ${sec('Toggles', `<div class="tgl-set">
 ${tdiv('Deal Terms')}
 
 ${sec('FX & Currency', [
-  ir('inp-fxnafem',       'FX NAFEM ₦/USD',   ni('inp-fxnafem', t.fx.nafem.value, 1, 1), t.fx.nafem.status),
-  '<p class="defaults-note" style="margin-top:-2px">Currency mode is derived from the revenue legs above (USD-only, naira-only, or split).</p>',
+  `<div class="ir">
+    <label class="ir-lbl" for="inp-fxpar">${pip(t.fx.parallel.status)}FX Parallel ₦/USD <span class="rate-tag rate-ref">reference only</span></label>
+    ${ni('inp-fxpar', t.fx.parallel.value, 1, 1)}
+  </div>`,
+  '<p class="defaults-note" style="margin-top:-2px">Street / parallel rate — display, exposure and reconciliation only. Drives <b>zero P&amp;L</b> (RULE 1). NAFEM (Pricing, above) is the settlement rate.</p>',
+  '<p class="defaults-note">Currency mode is derived from the revenue legs above (USD-only, naira-only, or split).</p>',
   ir('inp-taxable-prop', 'Taxable Supply Prop.', ni('inp-taxable-prop', t.tax.taxableSupplyProportion, 0.05, 0), 'INDICATIVE'),
 ].join(''))}
 ${sec('Freight', [
@@ -1173,6 +1207,8 @@ const tabHedge = `
       ${ir('inp-ice-margin', 'Initial margin %', ni('inp-ice-margin', pct2(hg.initialMarginPct || 0.10), 1, 0, 'ph'), 'PLACEHOLDER')}
     </div>
     ${ir('inp-ice-hedged-vol', 'Hedged volume MT', ni('inp-ice-hedged-vol', hg.hedgedVolumeMT != null ? hg.hedgedVolumeMT : '', 100, 0), 'INDICATIVE')}
+    <p class="defaults-note">Swap fee and bank spread are absolute <b>$/MT</b> amounts (×&nbsp;hedged tonnes), not a fraction of notional — typically ~$0.5–$2/MT.</p>
+    <div id="ice-fee-warn" class="h-unit-warn" hidden></div>
     <p class="defaults-note">Defaults to TIS-retained tonnes — the fixed-price tonnes sold to clients. Partner principal is repaid at par (= landed cost), so ICE cancels on partner tonnes; only TIS's fixed-price tonnes carry ICE risk. Raise to full cargo only if partner repayment is fixed-VALUE rather than par/landed-cost.</p>
   </div>
 </div>
@@ -1184,8 +1220,10 @@ const tabHedge = `
     ${ir('sel-fx-route',   'Route',             si('sel-fx-route', [['bank_book','Bank book'],['third_party','Third party']], fxhg.route || 'bank_book'), '')}
     ${ir('inp-fx-forward', 'Forward rate ₦/USD',ni('inp-fx-forward', fxhg.forwardRate != null ? fxhg.forwardRate : '', 1, 1, 'ph'), 'PLACEHOLDER')}
     ${ir('inp-fx-ratio',   'Hedge ratio %',     ni('inp-fx-ratio',  pct2(fxhg.hedgeRatio != null ? fxhg.hedgeRatio : 1), 5, 0), 'INDICATIVE')}
-    ${ir('inp-fx-fee',     'Fee per USD',       ni('inp-fx-fee',    fxhg.feePerUsd || 0.004, 0.001, 0, 'ph'), 'PLACEHOLDER')}
-    ${ir('inp-fx-spread',  'Spread per USD',    ni('inp-fx-spread', fxhg.spreadPerUsd || 0.002, 0.001, 0, 'ph'), 'PLACEHOLDER')}
+    ${ir('inp-fx-fee',     'Fee $/USD (e.g. 0.004)',    ni('inp-fx-fee',    fxhg.feePerUsd || 0.004, 0.001, 0, 'ph'), 'PLACEHOLDER')}
+    ${ir('inp-fx-spread',  'Spread $/USD (e.g. 0.002)', ni('inp-fx-spread', fxhg.spreadPerUsd || 0.002, 0.001, 0, 'ph'), 'PLACEHOLDER')}
+    <p class="defaults-note">Each is a small <b>fraction of every USD of notional</b> — typically 0.001–0.004 ($1–$4 per $1,000 hedged), not whole dollars. 0.004 on a $19M hedge ≈ $76k cost. Entering whole-dollar figures (e.g. 2.0 = $2 per $1) overstates the cost by ~1000×.</p>
+    <div id="fx-fee-warn" class="h-unit-warn" hidden></div>
   </div>
 </div>
 `;
@@ -1267,7 +1305,7 @@ ${sharedCss}
         <span class="kpi-sub"  id="kpi-annret-sub">—</span>
       </div>
       <div class="kpi-chip">
-        <span class="kpi-label">Ex-Ship Margin</span>
+        <span class="kpi-label" id="kpi-margin-label">Ex-Ship Margin</span>
         <span class="kpi-value" id="kpi-margin-val">—</span>
         <span class="kpi-sub"  id="kpi-margin-sub">—</span>
       </div>
@@ -1955,6 +1993,11 @@ function renderKPIs(res, hasSellPrice) {
   const as_ = document.getElementById('kpi-annret-sub');
   const mv = document.getElementById('kpi-margin-val');
   const ms = document.getElementById('kpi-margin-sub');
+  const ml = document.getElementById('kpi-margin-label');
+  // The margin KPI tracks whichever channel the trade actually sells through: ex-ship $/MT margin
+  // when an ex-ship leg is priced, else depot ₦/L margin on a depot trade. Avoids a dead "Ex-Ship
+  // Margin ——" slot on depot-only trades.
+  const depotActiveKpi = !!(res && res.channels && res.channels.depotPct > 0);
 
   // Colour the TIS Net chip by sign: green only for a positive net; deep-red for a genuine
   // loss; neutral when pending (no value). Green is never used for a real negative (Batch C).
@@ -1972,6 +2015,7 @@ function renderKPIs(res, hasSellPrice) {
     if (ks) ks.textContent = 'enter leg prices for P&L';
     if (av) av.textContent = '—';
     if (as_) as_.textContent = 'enter leg prices';
+    if (ml) ml.textContent = depotActiveKpi ? 'Depot Margin' : 'Ex-Ship Margin';
     if (mv) mv.textContent = '—';
     if (ms) ms.textContent = 'enter leg prices';
     return;
@@ -1989,9 +2033,28 @@ function renderKPIs(res, hasSellPrice) {
 
   const landed = res.price.exShipLandedPerMT;
   const price  = res.price.exShipPricePerMT;
-  const margin = (price && landed) ? (price - landed) / price : null;
-  if (mv) mv.textContent = margin != null ? fmtPct(margin) : '—';
-  if (ms) ms.textContent = price ? fmtUsd(price) + '/MT sell' : '—';
+  const exMargin = (price && landed) ? (price - landed) / price : null;
+  if (exMargin != null) {
+    // Ex-ship leg priced — show ex-ship margin (unchanged behaviour for ex-ship/split trades).
+    if (ml) ml.textContent = 'Ex-Ship Margin';
+    if (mv) mv.textContent = fmtPct(exMargin);
+    if (ms) ms.textContent = fmtUsd(price) + '/MT sell';
+  } else if (depotActiveKpi
+      && isFinite(res.price.depotPriceUSDperMT) && res.price.depotPriceUSDperMT > 0
+      && isFinite(res.price.depotLandedPerMT)) {
+    // Depot-only (or no ex-ship price) — show the depot margin instead of a dead slot.
+    const dp_ = res.price.depotPriceUSDperMT;
+    const dMargin = (dp_ - res.price.depotLandedPerMT) / dp_;
+    if (ml) ml.textContent = 'Depot Margin';
+    if (mv) mv.textContent = fmtPct(dMargin);
+    if (ms) ms.textContent = isFinite(res.price.depotPriceNgnPerL)
+      ? fmtNum(res.price.depotPriceNgnPerL, 0) + ' ₦/L sell'
+      : fmtUsd(dp_) + '/MT sell';
+  } else {
+    if (ml) ml.textContent = depotActiveKpi ? 'Depot Margin' : 'Ex-Ship Margin';
+    if (mv) mv.textContent = '—';
+    if (ms) ms.textContent = '—';
+  }
 }
 
 // ── 1. Profit Waterfall ────────────────────────────────────────────────────
@@ -2075,10 +2138,12 @@ function renderLadder(trade, res, ladder) {
   const landed   = res.price.exShipLandedPerMT;
 
   // Naira-equivalent converter for ex-ship USD prices (trader-on-a-call reference).
-  const ladderParallel = (trade && trade.fx && trade.fx.parallel && isFinite(trade.fx.parallel.value) && trade.fx.parallel.value > 0) ? trade.fx.parallel.value : null;
+  // RULE 1 (2026-06-23): naira<->USD settles at NAFEM, so this ₦/L-equiv uses NAFEM — matching the
+  // leg-editor ₦/L hint and the depot ladder. (Display-only reference; per-tier P&L is engine-computed.)
+  const ladderNafem  = (trade && trade.fx && trade.fx.nafem && isFinite(trade.fx.nafem.value) && trade.fx.nafem.value > 0) ? trade.fx.nafem.value : null;
   const ladderLitres   = (trade && trade.pricing && trade.pricing.conversion && isFinite(trade.pricing.conversion.litresPerMT) && trade.pricing.conversion.litresPerMT > 0) ? trade.pricing.conversion.litresPerMT : null;
-  const ngnEquivSpan = usd => (ladderParallel && ladderLitres)
-    ? \` <span class="ladder-ngn-equiv muted">· ₦\${Math.round((usd * ladderParallel) / ladderLitres).toLocaleString('en-US')}/L</span>\`
+  const ngnEquivSpan = usd => (ladderNafem && ladderLitres)
+    ? \` <span class="ladder-ngn-equiv muted">· ₦\${Math.round((usd * ladderNafem) / ladderLitres).toLocaleString('en-US')}/L</span>\`
     : '';
 
   // ----- Ex-ship $/MT ladder (only when an ex-ship leg exists) -----
@@ -2150,10 +2215,14 @@ function renderLadder(trade, res, ladder) {
     </table></div>\`;
   }
 
-  // ----- Cross-leg comparison (engine output; only when both legs exist) -----
+  // ----- Cross-leg comparison (engine output; only when BOTH legs actually exist) -----
+  // The engine still emits a comparison (with a hypothetical ex-ship tier) on a depot-only trade,
+  // but an ex-ship-vs-depot spread is meaningless without a real ex-ship channel. Gate the display
+  // on bothLadders so depot-only / ex-ship-only trades don't show a phantom cross-leg comparison.
+  // (UI-only — the engine output is untouched.)
   let compBlock = '';
   const cmp = ladder.comparison;
-  if (cmp && cmp.applicable && cmp.exShip && cmp.depot) {
+  if (bothLadders && cmp && cmp.applicable && cmp.exShip && cmp.depot) {
     const winner = cmp.depotEarnsMoreAbsolute ? 'Depot' : 'Ex-ship';
     compBlock = \`<div class="ladder-compare">
       <b>Cross-leg spread</b> (common ₦/L): Ex-ship <b>\${esc(cmp.exShip.tier)}</b> \${fmtNum(cmp.exShip.spreadNgnPerL, 1)} ₦/L
@@ -2627,7 +2696,8 @@ function clearResults() {
   ['sec-waterfall','sec-ladder','sec-cost','sec-partner','sec-hedge','sec-tax','sec-sens']
     .forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
   [['kpi-tisnet-val','—'],['kpi-annret-val','—'],['kpi-margin-val','—'],
-   ['kpi-tisnet-sub','—'],['kpi-annret-sub','—'],['kpi-margin-sub','—']]
+   ['kpi-tisnet-sub','—'],['kpi-annret-sub','—'],['kpi-margin-sub','—'],
+   ['kpi-margin-label','Ex-Ship Margin']]
     .forEach(([id,t]) => { const el = document.getElementById(id); if (el) el.textContent = t; });
   // No value → neutral chip (never the green profit box).
   const nv = document.getElementById('kpi-tisnet-val');
@@ -2640,7 +2710,7 @@ function showEmptyState() {
   clearResults();
   clearError();
   const el = document.getElementById('sec-waterfall');
-  if (el) el.innerHTML = '<section class="section empty-state-section"><div class="empty-state"><p class="empty-state-title">Enter trade data to see results</p><p class="empty-state-sub">Required: ICE price · FX parallel rate · delivered MT</p></div></section>';
+  if (el) el.innerHTML = '<section class="section empty-state-section"><div class="empty-state"><p class="empty-state-title">Enter trade data to see results</p><p class="empty-state-sub">Required: ICE price · FX NAFEM rate · delivered MT</p></div></section>';
 }
 
 // ── Recompute ──────────────────────────────────────────────────────────────
@@ -2792,6 +2862,58 @@ function refreshHedgePh() {
     }
   });
 }
+// Unit-sanity guard for hedge fee/spread inputs. These multiply USD notional (FX) or hedged
+// tonnes (ICE); a units typo (e.g. 2.0 meaning "$2 per $1" instead of 0.002) silently produces a
+// catastrophic cost rather than an error. We surface an amber "check units" warning instead of
+// letting the bad number flow into P&L. Pure display — no engine math touched.
+function refreshHedgeSanity() {
+  // FX fee/spread are a FRACTION OF USD NOTIONAL. Sane range ~0.001-0.004; >0.05 (5% of notional)
+  // is almost certainly a units error (whole dollars typed where a small fraction belongs).
+  const FX_MAX = 0.05;
+  const fxFee = parseFloat((document.getElementById('inp-fx-fee') || {}).value);
+  const fxSpread = parseFloat((document.getElementById('inp-fx-spread') || {}).value);
+  const fxBad = [];
+  if (isFinite(fxFee) && fxFee > FX_MAX) fxBad.push('Fee ' + fxFee);
+  if (isFinite(fxSpread) && fxSpread > FX_MAX) fxBad.push('Spread ' + fxSpread);
+  const fxWarn = document.getElementById('fx-fee-warn');
+  if (fxWarn) {
+    if (fxBad.length) {
+      fxWarn.hidden = false;
+      fxWarn.innerHTML = '⚠ ' + fxBad.join(' / ') + ' $/USD is implausibly high (>' + FX_MAX
+        + ' = ' + Math.round(FX_MAX * 100) + '% of notional). These are a small fraction per USD '
+        + '(e.g. 0.004), not whole dollars — check the units before this flows into P&L.';
+    } else {
+      fxWarn.hidden = true;
+      fxWarn.textContent = '';
+    }
+  }
+
+  // ICE swap fee / bank spread are ABSOLUTE $/MT (different exposure: x hedged tonnes, not a
+  // fraction of notional). A typo here is bounded but can still be large, so we guard proportionally
+  // against the ICE price: >10% of ICE $/MT (sane values are ~$0.5-$2/MT) signals a likely error.
+  const iceEl = document.getElementById('inp-ice-final');
+  const iceLiveEl = document.getElementById('inp-ice');
+  let icePrice = iceEl && iceEl.value.trim() !== '' ? parseFloat(iceEl.value) : NaN;
+  if (!(isFinite(icePrice) && icePrice > 0) && iceLiveEl) icePrice = parseFloat(iceLiveEl.value);
+  const iceCap = (isFinite(icePrice) && icePrice > 0) ? icePrice * 0.10 : 100; // $/MT
+  const iceFee = parseFloat((document.getElementById('inp-ice-fee') || {}).value);
+  const iceSpread = parseFloat((document.getElementById('inp-ice-spread') || {}).value);
+  const iceBad = [];
+  if (isFinite(iceFee) && iceFee > iceCap) iceBad.push('Swap fee ' + iceFee);
+  if (isFinite(iceSpread) && iceSpread > iceCap) iceBad.push('Bank spread ' + iceSpread);
+  const iceWarn = document.getElementById('ice-fee-warn');
+  if (iceWarn) {
+    if (iceBad.length) {
+      iceWarn.hidden = false;
+      iceWarn.innerHTML = '⚠ ' + iceBad.join(' / ') + ' $/MT is implausibly high (>'
+        + (Math.round(iceCap * 100) / 100) + ' $/MT ≈ 10% of ICE). Sane swap fee/spread is '
+        + '~$0.5–$2/MT — check the units.';
+    } else {
+      iceWarn.hidden = true;
+      iceWarn.textContent = '';
+    }
+  }
+}
 // // Keep hedged-volume placeholder in sync with retained tonnes from the last compute.
 // The engine default is retained (not full cargo); placeholder reflects the actual
 // computed value when available, or a label when not yet computed.
@@ -2833,6 +2955,7 @@ function onInputChange(id) {
   updateIceRouteVisibility();
   updateHeader();
   refreshHedgePh();
+  refreshHedgeSanity();
   updateHedgedVolPlaceholder();
   updateFinalIcePlaceholder();
   updateLegTotal();   // delivered MT feeds the leg tonnage total
@@ -2987,6 +3110,7 @@ function newTrade() {
   const defs = TISStorage.loadDefaults();
   if (defs) { applyInputSnapshot(defs); }
   refreshHedgePh();
+  refreshHedgeSanity();
   updateHedgedVolPlaceholder();
   updateFinalIcePlaceholder();
 
@@ -3103,6 +3227,7 @@ function loadSelectedTrade(explicit) {
   _legs = legsFromSnapshot(snap);   // new snaps carry _legs; legacy snaps rebuild from old fields
   renderLegEditor();
   refreshHedgePh();
+  refreshHedgeSanity();
   updateHedgedVolPlaceholder();
   updateFinalIcePlaceholder();
   if (snap['_tog-ice-hedge'] != null) activateToggle(document.getElementById('tog-ice-hedge'), snap['_tog-ice-hedge'] === 'true');
@@ -3192,6 +3317,7 @@ renderSavedTradesList();
 updateStateBadge();
 recompute();
 refreshHedgePh();
+refreshHedgeSanity();
 updateHedgedVolPlaceholder();
 updateFinalIcePlaceholder();
 
