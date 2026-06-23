@@ -1019,7 +1019,7 @@ function profitWaterfall(res) {
   }).join('');
 
   const annRet = res.tisAnnualisedReturnOnCargo ?? res.tisAnnualisedReturn;
-  const annBase = res.annualReturnBaseLabel || 'cargo value (INDICATIVE)';
+  const annBase = res.annualReturnBaseLabel || 'bank LC mobilised';
 
   return `
 <section class="section" aria-labelledby="waterfall-heading">

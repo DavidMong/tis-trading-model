@@ -77,6 +77,23 @@ value = principal at par) and (2) cash (profit share). Margin foregone is shown 
 cost; no partner-side market-upside / cost-of-capital / net-return interpretation is attributed.
 `capitalLockupDays` drives a **TIS-side** annualised return, not a partner metric.
 
+## Annualised return (RULE, 2026-06-23)
+
+```
+tisAnnualisedReturn = tisNetProfit / financing.lc × (365 / capitalLockupDays)
+annualReturnBaseLabel = "bank LC mobilised"   (BOTH equity providers — consistent)
+```
+
+The base is the **bank LC mobilised** (`financing.lc`) for **both** the partner and the TIS self-funded
+case — **not** cargo value and **not** the equity slot. **Rationale:** TIS's lever in the deal is the bank
+financing it brings (via TIS's banking relationship); the partner brings the equity. So TIS's return is
+measured against the facility TIS actually mobilised. Absolute **TIS Net Profit** remains the headline KPI;
+the annualised return is the secondary efficiency metric. (Old base: `cargo value (INDICATIVE)` for partner
+/ `TIS equity (self-funded)` for self-funded — re-pointed on 2026-06-23; asserted FX7/FX8. The change moves
+naira/partner annualised-return NUMBERS by design but leaves all-USD **profit** byte-for-byte unchanged —
+only the metric moves there too; all-USD fingerprint guard re-baselined to `a90288…408162` in
+`scripts/fingerprint.js`, old `b622d3cb…c398`.)
+
 ## Paper vs economic quantities
 
 - **Economic** tonnes are exact (partner tonnes = principal ÷ ex-storage landed) and **drive ALL P&L**.
@@ -127,7 +144,8 @@ route into it. The engine is USD-internal; the FX layer converts naira legs at t
    `standalone = combinedRevenue − combinedCost` (generalizes the baseline revenue−cost identity exactly).
 2. **Equity provider** — `partner.equityProvider ∈ {partner, TIS}`. `partner` runs the in-kind / margin-
    foregone / profit-share waterfall; `TIS` self-funded → `standalone = adjusted = TIS net`, partnerTonnes 0,
-   annualised return on **TIS equity** (vs cargo value, INDICATIVE, when partner-funded).
+   annualised return on the **bank LC mobilised** (`financing.lc`) — same base for both providers
+   (see *Annualised return* above; RULE 2026-06-23).
 3. **Equity ratio** — `financing.lcPctOfCargo` + `partner.bondPct` + `partner.equityPct`, **validated to
    sum to 1.0** (throws otherwise). Default 0.75/0.05/0.20. Change advanceRate → equity/LC/interest/returns re-flow.
 4. **Currency** — `sell.currencyMode ∈ {USD, NGN, split}` (+ `splitUsdPct`) on the **ex-ship** leg; depot

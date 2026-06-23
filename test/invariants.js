@@ -252,7 +252,14 @@ check('FX7 depot reconciliation ties', dBase.profit.reconciliation.ok === true);
 check('FX7 TIS self-funded: standalone = adjusted = TIS net',
   approx(dBase.profit.standaloneProfit, dBase.profit.tisNetProfit, 0.01) && approx(dBase.profit.adjustedProfit, dBase.profit.tisNetProfit, 0.01));
 check('FX7 TIS self-funded: partner tonnes = 0', dBase.quantities.economic.partnerTonnes === 0);
-check('FX7 TIS self-funded: annualised return on TIS equity', dBase.annualReturnBaseLabel.includes('TIS equity'));
+// RULE (2026-06-23): annualised return is measured against the BANK LC TIS MOBILISED (financing.lc) for
+// BOTH equity providers — TIS's lever in the deal is the bank financing it brings, not cargo value or the
+// equity slot. (Re-pointed from the old 'TIS equity (self-funded)' / 'cargo value (INDICATIVE)' bases.)
+check('FX7 TIS self-funded: annualised-return base = bank LC mobilised', dBase.annualReturnBaseLabel === 'bank LC mobilised');
+check('FX7 TIS self-funded: annualReturnBase === financing.lc', dBase.annualReturnBase === dBase.financing.lc);
+check('FX7 TIS self-funded: annualised return = tisNet / financing.lc × (365/lockup)',
+  approx(dBase.tisAnnualisedReturn,
+    (dBase.profit.tisNetProfit / dBase.financing.lc) * (365 / dBase.financing.capitalLockupDays), 1e-3));
 
 // FX8 — both-channels pooling + configurable equity ratio (advanceRate 0.80) re-flows.
 const both = computeTrade(bothChannels);
@@ -261,6 +268,14 @@ check('FX8 both channels pool into one P&L (rev - cost = standalone)',
 check('FX8 equity ratio re-flow: LC = 80% of cargo', approx(both.financing.lc, 0.8 * both.cargoValue, 1));
 check('FX8 equity ratio re-flow: partner funding = 20% of cargo', approx(both.financing.partnerFunding, 0.2 * both.cargoValue, 1));
 check('FX8 day-count Actual/360 used', both.financing.dayCountBasis === 360);
+// RULE (2026-06-23): the annualised-return base is financing.lc for the PARTNER case too — the SAME base
+// as the TIS self-funded case (FX7), so the metric is consistent across equity providers. Confirms the
+// denominator is the bank LC mobilised, not cargo value (old INDICATIVE base) and not the equity slot.
+check('FX8 partner case: annualised-return base = bank LC mobilised', both.annualReturnBaseLabel === 'bank LC mobilised');
+check('FX8 partner case: annualReturnBase === financing.lc (consistent with self-funded)', both.annualReturnBase === both.financing.lc);
+check('FX8 partner case: annualised return = tisNet / financing.lc × (365/lockup)',
+  approx(both.tisAnnualisedReturn,
+    (both.profit.tisNetProfit / both.financing.lc) * (365 / both.financing.capitalLockupDays), 1e-3));
 
 // FX9 — RULE 2 (2026-06-23): margin-foregone benchmark = MAX realized price across the channels present
 // (TIS forgoes its BEST channel). For both-channels the depot ₦1850/L @ NAFEM (~$1459.03) beats the USD
