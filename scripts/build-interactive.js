@@ -654,6 +654,11 @@ body { display: flex; flex-direction: column; }
 .seg-btn:hover { background: var(--bg); color: var(--ink); }
 .seg-btn.seg-active { background: var(--ink); color: #fff; }
 
+/* ── Storage line unit toggle (₦/L | $/MT) — mirrors the route segmented control ── */
+.storage-unit-ctl { display: flex; align-items: center; gap: 8px; }
+.storage-unit-ctl input { flex: 1; min-width: 0; }
+.storage-unit-lbl { font-family: var(--f-body); font-size: 10px; font-weight: 700; color: var(--slate); }
+
 /* ── Responsive: drawer at < 1000px ────────────────────────────── */
 @media (max-width: 1000px) {
   .app-body { flex-direction: column; }
@@ -1056,6 +1061,27 @@ function sec(title, rows) {
 function tdiv(label) {
   return `<div class="tier-div"><span class="tier-div-lbl">${esc(label)}</span><span class="tier-div-line"></span></div>`;
 }
+// Storage line with a per-line unit toggle (₦/L | $/MT). The hidden <select> holds the persistent state
+// (snapshotted as a house default); the segmented buttons drive it via setStorageUnit. Label relabels live.
+function storageUnitLabel(unit) { return unit === 'USD_PER_MT' ? '$/MT' : '₦/L'; }
+function storageRow(inpId, selId, lblId, baseLabel, val, unit, step) {
+  const u = unit === 'USD_PER_MT' ? 'USD_PER_MT' : 'NGN_PER_L';
+  const ngn = u === 'NGN_PER_L';
+  return `<div class="ir">
+  <label class="ir-lbl" for="${inpId}">${pip('OK')}${esc(baseLabel)} <span id="${lblId}" class="storage-unit-lbl">${storageUnitLabel(u)}</span></label>
+  <div class="storage-unit-ctl">
+    <div class="route-seg" id="${selId}-seg">
+      <button type="button" class="seg-btn${ngn ? ' seg-active' : ''}" onclick="setStorageUnit('${selId}','NGN_PER_L')">₦/L</button>
+      <button type="button" class="seg-btn${ngn ? '' : ' seg-active'}" onclick="setStorageUnit('${selId}','USD_PER_MT')">$/MT</button>
+    </div>
+    ${ni(inpId, val, step, 0)}
+    <select id="${selId}" class="storage-unit-sel" style="display:none">
+      <option value="NGN_PER_L"${ngn ? ' selected' : ''}>NGN_PER_L</option>
+      <option value="USD_PER_MT"${ngn ? '' : ' selected'}>USD_PER_MT</option>
+    </select>
+  </div>
+</div>`;
+}
 
 // ── 6. Sidebar HTML ──────────────────────────────────────────────────────────
 const lcPctInit = dp(1 - p.bondPct - p.equityPct, 2) * 100;
@@ -1178,8 +1204,13 @@ ${sec('Banking & Admin', [
 ].join(''))}
 <div id="storage-sec"${!depotActive ? ' hidden' : ''}>
 ${sec('Storage (depot active)', [
-  ir('inp-throughput',     'Throughput ₦/MT',       ni('inp-throughput',     cl.throughputNgnPerMT || cl.throughput    || 0,  100,   0), 'OK'),
-  ir('inp-storage-rental', 'Storage rental ₦ total',ni('inp-storage-rental', cl.storageRentalNgn   || cl.storageRental || 0,  10000, 0), 'OK'),
+  storageRow('inp-throughput',     'sel-throughput-unit', 'lbl-throughput-unit', 'Throughput',
+    (cl.throughputUnit ? cl.throughputRate : (cl.throughputNgnPerMT || cl.throughput || 0)),
+    cl.throughputUnit || 'NGN_PER_L', 0.1),
+  storageRow('inp-storage-rental', 'sel-storage-unit',    'lbl-storage-unit',    'Storage rental',
+    (cl.storageRentalUnit ? cl.storageRentalRate : (cl.storageRentalNgn || cl.storageRental || 0)),
+    cl.storageRentalUnit || 'NGN_PER_L', 0.1),
+  '<p class="defaults-note">Unit per line: <b>₦/L</b> (naira per litre, converted via density at NAFEM) or <b>$/MT</b> (direct USD). Real depot quotes use one of these — never ₦/MT.</p>',
   ir('inp-evaporation',    'Evaporation %',          ni('inp-evaporation',    pct4(cl.evaporationPct),     0.01, 0), 'INDICATIVE'),
   ir('inp-tank-insurance', 'Tank insurance %',       ni('inp-tank-insurance', pct4(cl.tankInsurancePct),   0.001,0), 'INDICATIVE'),
   ir('inp-litres-per-mt',  'Litres per MT (density)',ni('inp-litres-per-mt',  t.pricing.conversion.litresPerMT, 1, 100), 'INDICATIVE'),
@@ -1803,8 +1834,10 @@ function collectTrade() {
       overhead:             gf('inp-overhead'),
       contingency:          gf('inp-contingency'),
       collateralManager:    gf('inp-collateral-mgr'),
-      throughputNgnPerMT:   depotOn ? gf('inp-throughput')      : 0,
-      storageRentalNgn:     depotOn ? gf('inp-storage-rental')  : 0,
+      throughputUnit:       gs('sel-throughput-unit') || 'NGN_PER_L',
+      throughputRate:       depotOn ? gf('inp-throughput')     : 0,
+      storageRentalUnit:    gs('sel-storage-unit') || 'NGN_PER_L',
+      storageRentalRate:    depotOn ? gf('inp-storage-rental') : 0,
       evaporationPct:       gf('inp-evaporation')    / 100,
       tankInsurancePct:     gf('inp-tank-insurance') / 100,
     },
@@ -1930,8 +1963,11 @@ function resetToDefaults() {
   sv('inp-overhead',       cl.overhead);
   sv('inp-contingency',    cl.contingency);
   sv('inp-collateral-mgr', cl.collateralManager);
-  sv('inp-throughput',     cl.throughputNgnPerMT || cl.throughput || 0);
-  sv('inp-storage-rental', cl.storageRentalNgn || cl.storageRental || 0);
+  sv('inp-throughput',     cl.throughputUnit ? cl.throughputRate : (cl.throughputNgnPerMT || cl.throughput || 0));
+  sv('inp-storage-rental', cl.storageRentalUnit ? cl.storageRentalRate : (cl.storageRentalNgn || cl.storageRental || 0));
+  sd('sel-throughput-unit',cl.throughputUnit || 'NGN_PER_L');
+  sd('sel-storage-unit',   cl.storageRentalUnit || 'NGN_PER_L');
+  syncAllStorageUnits();
   sv('inp-evaporation',    +(cl.evaporationPct * 100).toFixed(4));
   sv('inp-tank-insurance', +(cl.tankInsurancePct * 100).toFixed(4));
   sv('inp-litres-per-mt',  I.pricing.conversion.litresPerMT);
@@ -2869,6 +2905,30 @@ window.setHedgeRoute = function(selectId, route) {
   if (el) { el.value = route; onInputChange(selectId); }
 };
 
+// ── Storage line unit toggle (₦/L | $/MT) — drives the hidden select, relabels, recomputes ──
+const STORAGE_UNIT_LBL = { 'sel-throughput-unit': 'lbl-throughput-unit', 'sel-storage-unit': 'lbl-storage-unit' };
+function syncStorageUnitUI(selId) {
+  const sel = document.getElementById(selId);
+  if (!sel) return;
+  const unit = sel.value === 'USD_PER_MT' ? 'USD_PER_MT' : 'NGN_PER_L';
+  const seg = document.getElementById(selId + '-seg');
+  if (seg) {
+    const btns = seg.querySelectorAll('.seg-btn');
+    if (btns[0]) btns[0].classList.toggle('seg-active', unit === 'NGN_PER_L');
+    if (btns[1]) btns[1].classList.toggle('seg-active', unit === 'USD_PER_MT');
+  }
+  const lblEl = document.getElementById(STORAGE_UNIT_LBL[selId]);
+  if (lblEl) lblEl.textContent = unit === 'USD_PER_MT' ? '$/MT' : '₦/L';
+}
+function syncAllStorageUnits() { syncStorageUnitUI('sel-throughput-unit'); syncStorageUnitUI('sel-storage-unit'); }
+window.setStorageUnit = function(selId, unit) {
+  const sel = document.getElementById(selId);
+  if (!sel) return;
+  sel.value = unit;
+  syncStorageUnitUI(selId);
+  onInputChange(selId);
+};
+
 // ── Disclosure toggles ─────────────────────────────────────────────────────
 window.toggleDisc = function(btn) {
   const body = btn.nextElementSibling;
@@ -3026,6 +3086,7 @@ const DEFAULT_IDS = [
   'inp-marine-icc','inp-sgs','inp-port-agency','inp-alloc-security',
   'inp-bank-charges','inp-overhead','inp-contingency','inp-collateral-mgr',
   'inp-throughput','inp-storage-rental','inp-evaporation','inp-tank-insurance',
+  'sel-throughput-unit','sel-storage-unit',
   'inp-litres-per-mt',
   'inp-vat-rate','inp-wht-rate','inp-taxable-prop',
   'inp-ice-fee','inp-ice-spread','inp-ice-margin',
@@ -3157,6 +3218,7 @@ function newTrade() {
   // Apply saved house defaults for cost lines, tax rates, hedge params
   const defs = TISStorage.loadDefaults();
   if (defs) { applyInputSnapshot(defs); }
+  syncAllStorageUnits();
   refreshHedgePh();
   refreshHedgeSanity();
   updateHedgedVolPlaceholder();
@@ -3272,6 +3334,7 @@ function loadSelectedTrade(explicit) {
   const snap = TISStorage.loadTrade(targetName);
   if (!snap) { showToast('Trade not found in storage'); return; }
   applyInputSnapshot(snap);
+  syncAllStorageUnits();
   _legs = legsFromSnapshot(snap);   // new snaps carry _legs; legacy snaps rebuild from old fields
   renderLegEditor();
   refreshHedgePh();
@@ -3356,6 +3419,7 @@ renderLegEditor();
 wireLegEditor();
 updateLcDisplay();
 updateDepotVisibility();
+syncAllStorageUnits();
 updateCurrencyVisibility();
 updateSurchargeVisibility();
 updateHedgeTab();

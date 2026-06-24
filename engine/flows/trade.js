@@ -112,7 +112,7 @@ function computeTrade(trade, opts = {}) {
   // 4. Cost build-up (storage active for depot tonnes; naira storage converted at NAFEM — RULE 1).
   //    effTrade => cost line 1 ("ICE LSGO", rateFrom market.ice.value) resolves to the effective ICE.
   const cost = buildCostBuildup(effTrade, {
-    cargoValue, deliveredQty, depotTonnes, financing, nafemRate,
+    cargoValue, deliveredQty, depotTonnes, financing, nafemRate, litresPerMT,
   });
   const exShipLandedPerMT = cost.exShipLandedPerMT; // base, excl storage
   const depotLandedPerMT = cost.depotLandedPerMT; // base + storage/depotTonnes

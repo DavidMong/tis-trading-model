@@ -316,6 +316,55 @@ expectThrow('FX10 channel split not summing to 1 throws', () => computeTrade({ .
 expectThrow('FX10 invalid currencyMode throws', () => computeTrade({ ...exshipTis, sell: { ...exshipTis.sell, currencyMode: 'EUR' } }), 'currencyMode');
 
 // ============================================================================================
+// STORAGE UNIT TOGGLE (SU) — Throughput & Storage rental are quoted ₦/L (naira per litre) or $/MT
+// (USD per tonne), never ₦/MT. ₦/L converts via density (litresPerMT) at NAFEM; $/MT is direct USD.
+// No unit field => legacy ₦/MT (throughput) / ₦ total (rental), byte-for-byte (see SU6).
+// ============================================================================================
+const suNafem  = depotOnly.fx.nafem.value;                 // 1500
+const suLitres = depotOnly.pricing.conversion.litresPerMT; // 1183
+const suQty    = depotOnly.cargo.deliveredQtyMT;           // 10000 (depot-only: storageQty = delivered)
+const suThru = (rate, unit) =>
+  computeTrade({ ...depotOnly, costLines: { ...depotOnly.costLines, throughputUnit: unit, throughputRate: rate } }).cost.byId[25];
+const suRent = (rate, unit) =>
+  computeTrade({ ...depotOnly, costLines: { ...depotOnly.costLines, storageRentalUnit: unit, storageRentalRate: rate } }).cost.byId[26];
+
+// SU1 — throughput ₦/L: amountUsd = rate × MT × litresPerMT / NAFEM, currency NGN (FX-exposed).
+const su1 = suThru(3.5, 'NGN_PER_L');
+check('SU1 throughput ₦/L = rate × MT × litresPerMT / NAFEM',
+  approx(su1.amountUsd, 3.5 * suQty * suLitres / suNafem, 0.01) && su1.currency === 'NGN' && su1.ngnAmount > 0);
+
+// SU2 — throughput $/MT: amountUsd = rate × MT, no conversion, currency USD, no naira amount.
+const su2 = suThru(4, 'USD_PER_MT');
+check('SU2 throughput $/MT = rate × MT (no FX conversion)',
+  approx(su2.amountUsd, 4 * suQty, 0.01) && su2.currency === 'USD' && su2.ngnAmount === null);
+
+// SU3 — storage rental ₦/L: same density+NAFEM conversion as throughput.
+const su3 = suRent(5, 'NGN_PER_L');
+check('SU3 storage rental ₦/L = rate × MT × litresPerMT / NAFEM',
+  approx(su3.amountUsd, 5 * suQty * suLitres / suNafem, 0.01) && su3.currency === 'NGN' && su3.ngnAmount > 0);
+
+// SU4 — storage rental $/MT: direct USD, no conversion.
+const su4 = suRent(3, 'USD_PER_MT');
+check('SU4 storage rental $/MT = rate × MT (no FX conversion)',
+  approx(su4.amountUsd, 3 * suQty, 0.01) && su4.currency === 'USD' && su4.ngnAmount === null);
+
+// SU5 — toggling the unit at the SAME numeric rate changes the cost (the whole point of the fix:
+// a ₦/L quote entered as $/MT, or vice-versa, must NOT silently produce the same number).
+check('SU5 toggling unit changes the cost (₦/L != $/MT at same rate)',
+  Math.abs(suThru(4, 'NGN_PER_L').amountUsd - suThru(4, 'USD_PER_MT').amountUsd) > 1);
+
+// SU6 — BACKWARD-COMPAT: no unit field => legacy ₦/MT (throughput) / ₦ total (rental), byte-for-byte.
+const suLegacy = computeTrade(depotOnly);
+check('SU6 backward-compat throughput (no unit) = legacy ₦/MT: rate × MT / NAFEM',
+  approx(suLegacy.cost.byId[25].amountUsd, (depotOnly.costLines.throughputNgnPerMT * suQty) / suNafem, 0.01));
+check('SU6 backward-compat storage rental (no unit) = legacy ₦ total / NAFEM',
+  approx(suLegacy.cost.byId[26].amountUsd, depotOnly.costLines.storageRentalNgn / suNafem, 0.01));
+
+// SU7 — a $/MT storage line is NOT FX-exposed (currency USD); a ₦/L line IS (currency NGN).
+check('SU7 $/MT storage line not FX-exposed, ₦/L is',
+  suThru(4, 'USD_PER_MT').currency === 'USD' && suThru(4, 'NGN_PER_L').currency === 'NGN');
+
+// ============================================================================================
 // FX hedge + ICE hedge toggles (realized-P&L, comparison, basis risk)
 // ============================================================================================
 const bOff = computeTrade(bothChannels); // sample has both toggles OFF by default

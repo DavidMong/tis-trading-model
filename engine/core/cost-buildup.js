@@ -12,7 +12,16 @@ const SCHEMA = require('../config/cost-line-schema.json');
 //
 //   type: pct_of_freight | pct_of_cargo_value | pct_of_services | pct_of_LC | pct_of_sell | fixed | derived
 //   derived derivation: per_mt | tc_hire | demurrage | credit_interest | wc_interest |
-//                       ngn_per_mt | ngn_fixed | pct_of_depot_cargo_value
+//                       ngn_per_mt | ngn_fixed | pct_of_depot_cargo_value | storage_unit_rate
+//
+// storage_unit_rate (Throughput, Storage rental): real terminal quoting is ONLY ₦/L (naira per litre)
+// or $/MT (USD per tonne) — never ₦/MT. The line reads a per-line UNIT from the trade (e.unitFrom) and
+// the rate from e.rateFromUnit:
+//   NGN_PER_L  -> amountUsd = rate × storageQtyMT × litresPerMT / nafemRate   (₦/L → USD via density at NAFEM)
+//   USD_PER_MT -> amountUsd = rate × storageQtyMT                              (direct USD, no conversion)
+// BACKWARD-COMPAT: when no unit is set (existing fixtures / saved trades), the line falls back to its
+// e.legacyDerivation (ngn_per_mt | ngn_fixed) using the legacy rate/amount path, computing byte-for-byte
+// identically to before this toggle existed. New trades default to NGN_PER_L (set by the dashboard).
 //
 // Recoverable input VAT is EXCLUDED from landed cost (cash-flow timing only, s.155(4)); the
 // irrecoverable proportion (1 - taxableSupplyProportion) IS a cost (s.155(4) proviso (a)).
@@ -55,6 +64,18 @@ function buildCostBuildup(trade, ctx) {
     }
     return ngn / nafemRate;
   };
+  // Density (litres per MT) — needed ONLY to convert a ₦/L storage rate to USD. Sourced from the trade's
+  // pricing conversion (already used for naira revenue legs); validated lazily so a $/MT or legacy-unit
+  // line never requires it.
+  const litresPerMT = ctx.litresPerMT != null
+    ? ctx.litresPerMT
+    : (trade.pricing && trade.pricing.conversion ? trade.pricing.conversion.litresPerMT : null);
+  const requireLitresPerMT = () => {
+    if (!(typeof litresPerMT === 'number' && Number.isFinite(litresPerMT) && litresPerMT > 0)) {
+      throw new Error(`buildCostBuildup: litresPerMT must be > 0 to convert ₦/L storage costs, got ${litresPerMT}`);
+    }
+    return litresPerMT;
+  };
 
   const tcRate = trade.freight.tcRatePerDay;
   const tcHire = tcRate * trade.freight.charterDays;
@@ -85,7 +106,10 @@ function buildCostBuildup(trade, ctx) {
 
     if (isStorage && !storageActive) {
       // Inactive storage line: zero, USD, no FX status. (rate retained for display parity.)
-      out.rate = e.derivation === 'ngn_fixed' ? null : (rateOf(e) ?? null);
+      // A lump-sum line (ngn_fixed, or storage_unit_rate falling back to it) carries no per-unit rate.
+      const lumpSum = e.derivation === 'ngn_fixed'
+        || (e.derivation === 'storage_unit_rate' && e.legacyDerivation === 'ngn_fixed');
+      out.rate = lumpSum ? null : (rateOf(e) ?? null);
       out.base = 0; out.amountUsd = 0; out.status = 'OK';
       return out;
     }
@@ -117,6 +141,34 @@ function buildCostBuildup(trade, ctx) {
           case 'wc_interest': out.rate = financing.creditRate; out.base = financing.wc; out.amountUsd = round(financing.wcInterest, 2); break;
           case 'ngn_per_mt': { const rate = rateOf(e); const ngn = (rate || 0) * storageQty; out.rate = rate; out.base = storageQty; out.currency = 'NGN'; out.ngnAmount = round(ngn, 2); out.amountUsd = round(ngnStorageToUsd(ngn), 2); break; }
           case 'ngn_fixed': { const ngn = amountOf(e) || 0; out.currency = 'NGN'; out.ngnAmount = round(ngn, 2); out.amountUsd = round(ngnStorageToUsd(ngn), 2); break; }
+          case 'storage_unit_rate': {
+            const unit = resolvePath(trade, e.unitFrom);
+            if (unit === 'NGN_PER_L' || unit === 'USD_PER_MT') {
+              const rate = resolvePath(trade, e.rateFromUnit);
+              out.rate = rate != null ? rate : null;
+              out.base = storageQty;
+              if (unit === 'NGN_PER_L') {
+                const lpm = requireLitresPerMT();
+                const ngn = (rate || 0) * storageQty * lpm; // ₦/L × MT × L/MT = NGN total
+                out.currency = 'NGN'; out.ngnAmount = round(ngn, 2); out.amountUsd = round(ngnStorageToUsd(ngn), 2);
+              } else { // USD_PER_MT — direct, no FX conversion
+                out.currency = 'USD'; out.ngnAmount = null; out.amountUsd = round((rate || 0) * storageQty, 2);
+              }
+            } else {
+              // BACKWARD-COMPAT: no unit set -> legacy derivation, byte-for-byte identical to pre-toggle.
+              if (e.legacyDerivation === 'ngn_per_mt') {
+                const rate = rateOf(e); const ngn = (rate || 0) * storageQty;
+                out.rate = rate; out.base = storageQty; out.currency = 'NGN';
+                out.ngnAmount = round(ngn, 2); out.amountUsd = round(ngnStorageToUsd(ngn), 2);
+              } else if (e.legacyDerivation === 'ngn_fixed') {
+                const ngn = amountOf(e) || 0; out.currency = 'NGN';
+                out.ngnAmount = round(ngn, 2); out.amountUsd = round(ngnStorageToUsd(ngn), 2);
+              } else {
+                throw new Error(`buildCostBuildup: storage_unit_rate line ${e.id} has no unit and unknown legacyDerivation '${e.legacyDerivation}'`);
+              }
+            }
+            break;
+          }
           case 'pct_of_depot_cargo_value': { const rate = rateOf(e); out.rate = rate; out.base = depotCargoValue; out.amountUsd = round(rate * depotCargoValue, 2); break; }
           default: throw new Error(`buildCostBuildup: unknown derivation '${e.derivation}' for line ${e.id}`);
         }
