@@ -3615,29 +3615,54 @@ function importTrades() {
   if (inp) { inp.value = ''; inp.click(); }
 }
 
+// True only for a non-null, non-array plain object — guards against typeof null / typeof [] both === 'object'.
+function isPlainObject(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
 function importTradesFromFile(inp) {
   const file = inp.files[0];
   if (!file) return;
   const reader = new FileReader();
   reader.onload = function(e) {
     let payload;
-    try { payload = JSON.parse(e.target.result); } catch(_) { alert('Invalid file — not valid JSON.'); return; }
-    if (!payload || payload.version !== 1 || typeof payload.trades !== 'object') {
-      alert('Invalid file — not a TIS trade export.');
+    try { payload = JSON.parse(e.target.result); } catch(_) { alert('Import failed: the file is not valid JSON.'); return; }
+
+    // ── Validate the full shape BEFORE writing anything (atomic — no partial writes) ──
+    if (!isPlainObject(payload) || payload.version !== 1 || !isPlainObject(payload.trades)) {
+      alert('Import failed: this is not a TIS trade export (expected version 1 with a trades object).');
       return;
     }
-    const incoming  = Object.keys(payload.trades);
+    if (payload.defaults !== undefined && payload.defaults !== null && !isPlainObject(payload.defaults)) {
+      alert('Import failed: the export is corrupt (defaults block is malformed).');
+      return;
+    }
+    const incoming = Object.keys(payload.trades);
+    if (incoming.length === 0) {
+      alert('Import failed: the file contains no saved trades.');
+      return;
+    }
+    // Every entry must be a {snap:{…}} object — if ANY is malformed, abort with the store untouched.
+    for (const name of incoming) {
+      const entry = payload.trades[name];
+      if (!isPlainObject(entry) || !isPlainObject(entry.snap)) {
+        alert('Import failed: the export is corrupt (trade "' + name + '" has no valid snapshot). Nothing was changed.');
+        return;
+      }
+    }
+
+    // ── Shape is valid — only same-name trades are overwritten; all other existing trades are kept ──
     const existing  = TISStorage.loadTrades();
     const conflicts = incoming.filter(function(n) { return !!existing[n]; });
     if (conflicts.length > 0) {
-      if (!confirm('These trades already exist and will be overwritten: ' + conflicts.join(', ') + '. Continue?')) return;
+      if (!confirm('These trades already exist and will be overwritten: ' + conflicts.join(', ') + '. Other saved trades are kept. Continue?')) return;
     }
     let count = 0;
     for (const name of incoming) {
-      const entry = payload.trades[name];
-      if (entry && entry.snap) { TISStorage.saveTrade(name, entry.snap); count++; }
+      TISStorage.saveTrade(name, payload.trades[name].snap);   // merges into the store; non-conflicting trades survive
+      count++;
     }
-    if (payload.defaults) TISStorage.saveDefaults(payload.defaults);
+    if (isPlainObject(payload.defaults)) TISStorage.saveDefaults(payload.defaults);
     renderSavedTradesList();
     showToast('Imported ' + count + ' trade' + (count === 1 ? '' : 's'));
   };
