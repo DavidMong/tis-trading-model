@@ -2054,7 +2054,7 @@ function renderKPIs(res, hasSellPrice) {
 
   const ann = res.tisAnnualisedReturn;
   if (av) av.textContent = ann != null ? fmtPct(ann) : '—';
-  if (as_) as_.textContent = \`on cargo value · \${res.financing.capitalLockupDays}d lockup\`;
+  if (as_) as_.textContent = \`on \${res.annualReturnBaseLabel||'bank LC mobilised'} · \${res.financing.capitalLockupDays}d lockup\`;
 
   const landed = res.price.exShipLandedPerMT;
   const price  = res.price.exShipPricePerMT;
@@ -2138,7 +2138,7 @@ function renderWaterfall(res) {
     <div class="wf-reconcile">
       \${hedgeNote}
       \${reconcile}
-      &nbsp;·&nbsp; Annualised return: <b>\${fmtPct(res.tisAnnualisedReturn)}</b> on \${esc(res.annualReturnBaseLabel||'cargo value')} · \${res.financing.capitalLockupDays}d lockup
+      &nbsp;·&nbsp; Annualised return: <b>\${fmtPct(res.tisAnnualisedReturn)}</b> on \${esc(res.annualReturnBaseLabel||'bank LC mobilised')} · \${res.financing.capitalLockupDays}d lockup
     </div>
     <div class="card-footer">
       Unit FOB: <b>\${fmtUsd(res.unitFob)}/MT</b> &nbsp;·&nbsp;

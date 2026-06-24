@@ -300,9 +300,13 @@ function computeTrade(trade, opts = {}) {
   let tisAnnualisedReturn = null;
   let annualReturnBase = null;
   let annualReturnBaseLabel = null;
+  // Base = BANK LC MOBILISED (financing.lc) for BOTH equity providers — consistent. TIS's lever in the
+  // deal is the bank financing it brings (via TIS's banking relationship); the partner brings equity. So
+  // TIS's return is measured on the facility TIS brought, not cargo value or the equity slot.
+  // (annualised-return base changed cargo-value/equity -> financing.lc on 2026-06-23.)
   if (financing.capitalLockupDays) {
-    if (equityProvider === 'TIS') { annualReturnBase = financing.partnerFunding; annualReturnBaseLabel = 'TIS equity (self-funded)'; }
-    else { annualReturnBase = cargoValue; annualReturnBaseLabel = 'cargo value (INDICATIVE)'; }
+    annualReturnBase = financing.lc;
+    annualReturnBaseLabel = 'bank LC mobilised';
     if (annualReturnBase > 0) tisAnnualisedReturn = round((tisNetProfit / annualReturnBase) * (365 / financing.capitalLockupDays), 4);
   }
 

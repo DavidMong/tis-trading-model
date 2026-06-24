@@ -29,6 +29,15 @@ const FLOWS = {
 // All-USD ex-ship trades (no naira legs) — these MUST NOT move numerically.
 const ALL_USD = new Set(['reference-trade-001', 'sample-equity-partner', 'sample-exship-tis']);
 
+// Expected combined hash of the all-USD guard set. The run exits non-zero on mismatch, so this baseline
+// is enforced, not tribal. RE-BASELINED 2026-06-23: the annualised-return denominator changed from cargo
+// value / equity slot to the bank LC mobilised (financing.lc) for both equity providers. This is the
+// ONLY all-USD movement, and it moved ONLY the metric — verified profit/cost/tax byte-for-byte identical:
+//   sample-exship-tis: annualReturnBase 2,287,500 -> 6,862,500 ; tisAnnualisedReturn 6.749 -> 2.2497
+//   (reference-trade-001 and sample-equity-partner run computeEquityPartner, untouched -> hash unchanged)
+//   OLD guard: b622d3cbdc8e53915687aa0403dd37d4d1b4c5280d1bd2dffc3ade1b0cafc398
+const EXPECTED_GUARD = 'a90288524a4c1d599a343959e978f9ae5df91d0fbbf6cd27e346feb9d5408162';
+
 function collectNumbers(obj, prefix, out) {
   if (obj == null) return;
   if (typeof obj === 'number') {
@@ -78,3 +87,11 @@ const guardHash = crypto.createHash('sha256')
   .update(all.filter((a) => ALL_USD.has(a.name)).map((a) => `${a.name}:${a.hash}`).join('|'))
   .digest('hex');
 console.log(`\n  ALL-USD GUARD COMBINED: ${guardHash}`);
+
+if (guardHash === EXPECTED_GUARD) {
+  console.log('  ALL-USD GUARD: OK (matches expected baseline)');
+} else {
+  console.error(`  ALL-USD GUARD: MISMATCH — expected ${EXPECTED_GUARD}`);
+  console.error('  All-USD trades moved numerically. If unintended, STOP and investigate before committing.');
+  process.exit(1);
+}
