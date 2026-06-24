@@ -35,9 +35,17 @@ const logo = logoSvgRaw
   .replace(/fill:#242331/g, 'fill:#f0f1f2');
 // aria-label on the container provides accessibility; no <title> injected into inline SVG
 
+// Report-style logo (matches build-report.js readLogo() exactly): same XML/DOCTYPE strip +
+// 260×31 sizing + ink→off-white fill. Injected into the client as LOGO_SVG so the
+// "Download Report" button feeds the bundled generateHtml the same logo the static report uses.
+const reportLogo = logoSvgRaw
+  .replace(/<\?xml[^?]*\?>/g,'').replace(/<!DOCTYPE[^>]*>/g,'').trim()
+  .replace(/width="[^"]*"/, 'width="260"').replace(/height="[^"]*"/, 'height="31"')
+  .replace(/fill:#242331/g, 'fill:#f0f1f2');
+
 // ── 4. CSS ───────────────────────────────────────────────────────────────────
 function css() {
-  const { reportCss } = require('./build-report');
+  const { reportCss } = require('./report-renderer');
   return reportCss + `
 /* ════ INTERACTIVE: full-viewport sidebar layout ══════════════════════════ */
 html, body { height: 100%; overflow: hidden; }
@@ -805,6 +813,16 @@ body { display: flex; flex-direction: column; }
   display:flex; align-items:center; gap:5px; padding:8px 14px;
   box-sizing:border-box; width:100%; overflow:hidden;
 }
+.sb-report-row {
+  padding:0 14px 10px; box-sizing:border-box; width:100%; overflow:hidden;
+}
+.btn-report {
+  display:block; width:100%; padding:8px 12px; background:var(--ink); border:none;
+  border-radius:4px; font-family:var(--f-body); font-size:11px; font-weight:600;
+  letter-spacing:.02em; color:#fff; cursor:pointer; transition:background .12s;
+  white-space:nowrap; box-sizing:border-box;
+}
+.btn-report:hover { background:#3a3545; }
 
 .btn-new {
   flex:1; padding:5px 8px; background:none; border:1px solid var(--border);
@@ -1296,6 +1314,9 @@ const sidebarHtml = `<aside class="sidebar" id="sidebar">
       <button class="btn-lib btn-lib-ren"   onclick="renameTrade()"           title="Rename selected trade">✎</button>
       <button class="btn-lib btn-lib-del"   onclick="deleteSelectedTrade()"   title="Delete selected trade">✕</button>
     </div>
+    <div class="sb-report-row">
+      <button class="btn-report" onclick="downloadReport()" title="Open a print-ready branded report for the current trade (Cmd+P → Save as PDF)">Download Report</button>
+    </div>
   </div>
 </aside>`;
 
@@ -1399,6 +1420,9 @@ ${sharedCss}
 const INIT = ${JSON.stringify(initialTrade)};
 const INIT_IS_SAMPLE = /REGRESSION|FIXTURE|dummy|test|sample/i.test((INIT.meta || {}).tradeName || '');
 
+// Branded report logo (report-style 260×31 inline SVG) — fed to TISEngine.generateHtml.
+const LOGO_SVG = ${JSON.stringify(reportLogo)};
+
 // ── Shared set-value helpers (used by resetToDefaults, newTrade, loadTrade) ─
 function sv(id, v) { const el = document.getElementById(id); if (el) el.value = v; }
 function sd(id, v) { const el = document.getElementById(id); if (el) el.value = v; }
@@ -1455,6 +1479,11 @@ function show(id, vis) { const el = document.getElementById(id); if (el) el.hidd
 //   { channel:'ex-ship'|'depot', unit:'USD_PER_MT'|'NGN_PER_L', qtyMode:'tonnes'|'pct', qty:Number, price:Number|null }
 var _legs = [];
 var _lastRetainedTonnes = null; // updated after each recompute; drives hedge-vol placeholder
+
+// Last successful FULL-PRICE compute — cached so "Download Report" can render the live trade.
+// Only set when every leg is priced (hasSellPrice); cleared on empty/error so a stale report
+// can never be generated against a half-entered trade.
+var _lastTrade = null, _lastRes = null, _lastLadder = null;
 
 function legBlank() { return { channel:'ex-ship', unit:'USD_PER_MT', qtyMode:'pct', qty:100, price:null }; }
 function legUnitLabel(unit) { return unit === 'NGN_PER_L' ? '₦/L' : '$/MT'; }
@@ -2856,6 +2885,10 @@ function showEmptyState() {
 
 // ── Recompute ──────────────────────────────────────────────────────────────
 function recompute() {
+  // Invalidate the cached report inputs up front — any early return (empty / collect error /
+  // compute error / unpriced legs) then leaves them null, so "Download Report" can never fire
+  // against a stale or partial trade. Re-set at the end only on a full-price success.
+  _lastTrade = _lastRes = _lastLadder = null;
   // Gate on key per-trade input — blank form (New Trade) shows empty state, no stale numbers
   const delivEl = document.getElementById('inp-delivered');
   if (!delivEl || !delivEl.value.trim()) { showEmptyState(); return; }
@@ -2925,6 +2958,10 @@ function recompute() {
   updateLegNgnEquiv();
   updateHedgedVolPlaceholder();
   updateFinalIcePlaceholder();
+
+  // Cache the live inputs for "Download Report" — only on a fully-priced compute, so the report
+  // always reflects a complete, displayed P&L (never the synthetic-placeholder price path).
+  if (hasSellPrice) { _lastTrade = trade; _lastRes = res; _lastLadder = ladder; }
 }
 
 // ── Toggle switches ────────────────────────────────────────────────────────
@@ -3484,6 +3521,38 @@ function showToast(msg) {
   _toastTimer = setTimeout(() => el.classList.remove('visible'), 2500);
 }
 
+// ── Download Report ────────────────────────────────────────────────────────
+// Renders the branded report for the LIVE trade using the cached full-price compute
+// (_lastTrade/_lastRes/_lastLadder from recompute) and the current identity fields, which
+// collectTrade does not flow into the trade. Opens a new window; user does Cmd+P → Save as PDF.
+function downloadReport() {
+  if (!_lastRes || !_lastTrade) { alert('Compute a trade first.'); return; }
+
+  const gv = id => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+  const tradeName = gv('inp-trade-name') || _lastRes.meta.tradeName || 'Trade';
+  const parties = {
+    partner:   gv('inp-partner-name'),
+    supplier:  gv('inp-supplier-name'),
+    inspector: gv('inp-inspector-name'),
+  };
+
+  // Inject live identity into both the trade and the result meta (the report reads identity
+  // from res.meta.{tradeName,parties}); all numbers come straight from the cached compute.
+  const liveTrade = { ..._lastTrade, meta: { ..._lastTrade.meta, tradeName }, parties };
+  const liveRes   = { ..._lastRes,   meta: { ..._lastRes.meta,   tradeName, parties } };
+  const generatedAt = new Date().toISOString().replace('T',' ').slice(0,16) + ' UTC';
+
+  let htmlStr;
+  try { htmlStr = TISEngine.generateHtml(LOGO_SVG, liveTrade, liveRes, _lastLadder, generatedAt); }
+  catch (e) { alert('Report generation failed: ' + e.message); return; }
+
+  const w = window.open('', '_blank');
+  if (!w) { alert('Pop-up blocked — allow pop-ups for this page to open the report.'); return; }
+  w.document.open();
+  w.document.write(htmlStr);
+  w.document.close();
+}
+
 // ── Window exposes ────────────────────────────────────────────────────────
 window.newTrade            = newTrade;
 window.saveTrade           = saveTrade;
@@ -3492,6 +3561,7 @@ window.renameTrade         = renameTrade;
 window.loadSelectedTrade   = loadSelectedTrade;
 window.deleteSelectedTrade = deleteSelectedTrade;
 window.saveAsDefaults      = saveAsDefaults;
+window.downloadReport      = downloadReport;
 
 // ── Boot ───────────────────────────────────────────────────────────────────
 _storageLegacy = detectStorageLegacyFromCostLines(INIT.costLines);   // bundled fixture may be old-format
