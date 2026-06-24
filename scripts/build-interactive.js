@@ -1222,12 +1222,12 @@ const tabHedge = `
     ${ir('sel-fx-route',   'Route',             si('sel-fx-route', [['bank_book','Bank forward'],['third_party','Third-party NDF']], fxhg.route || 'bank_book'), '')}
     ${ir('inp-fx-forward', 'Forward rate ₦/USD',ni('inp-fx-forward', fxhg.forwardRate != null ? fxhg.forwardRate : '', 1, 1, 'ph'), 'PLACEHOLDER')}
     ${ir('inp-fx-ratio',   'Hedge ratio %',     ni('inp-fx-ratio',  pct2(fxhg.hedgeRatio != null ? fxhg.hedgeRatio : 1), 5, 0), 'INDICATIVE')}
-    ${ir('inp-fx-fee',     'Fee $/USD (e.g. 0.004)',    ni('inp-fx-fee',    fxhg.feePerUsd || 0.004, 0.001, 0, 'ph'), 'PLACEHOLDER')}
+    ${ir('inp-fx-fee',     'Fee $/USD (e.g. 0.003)',    ni('inp-fx-fee',    0.003, 0.001, 0, 'ph'), 'PLACEHOLDER')}
     <div id="fx-spread-row"${fxhg.route === 'third_party' ? ' hidden' : ''}>
-      ${ir('inp-fx-spread',  'Spread $/USD (e.g. 0.002)', ni('inp-fx-spread', fxhg.spreadPerUsd || 0.002, 0.001, 0, 'ph'), 'PLACEHOLDER')}
+      ${ir('inp-fx-spread',  'Spread $/USD (e.g. 0.001)', ni('inp-fx-spread', 0.001, 0.001, 0, 'ph'), 'PLACEHOLDER')}
     </div>
     <div id="fx-thirdparty-rows"${fxhg.route !== 'third_party' ? ' hidden' : ''}>
-      ${ir('inp-fx-margin', 'Initial margin %', ni('inp-fx-margin', pct2(fxhg.initialMarginPct != null ? fxhg.initialMarginPct : 0.05), 1, 0, 'ph'), 'PLACEHOLDER')}
+      ${ir('inp-fx-margin', 'Initial margin %', ni('inp-fx-margin', pct2(0.10), 1, 0, 'ph'), 'PLACEHOLDER')}
       ${ir('inp-fx-tenor',  'Tenor (days)',     ni('inp-fx-tenor',  fxhg.tenorDays != null ? fxhg.tenorDays : 30, 1, 0, 'ph'), 'PLACEHOLDER')}
       ${ir('inp-fx-broker', 'Broker fee $',     ni('inp-fx-broker', fxhg.brokerFee != null ? fxhg.brokerFee : 0, 100, 0, 'ph'), 'PLACEHOLDER')}
     </div>
@@ -1945,9 +1945,9 @@ function resetToDefaults() {
   sd('sel-fx-route',       fxh.route || 'bank_book');
   sv('inp-fx-forward',     fxh.forwardRate != null ? fxh.forwardRate : '');
   sv('inp-fx-ratio',       +((fxh.hedgeRatio != null ? fxh.hedgeRatio : 1) * 100).toFixed(1));
-  sv('inp-fx-fee',         fxh.feePerUsd || 0.004);
-  sv('inp-fx-spread',      fxh.spreadPerUsd || 0.002);
-  sv('inp-fx-margin',      +((fxh.initialMarginPct != null ? fxh.initialMarginPct : 0.05) * 100).toFixed(1));
+  sv('inp-fx-fee',         0.003);
+  sv('inp-fx-spread',      0.001);
+  sv('inp-fx-margin',      +(0.10 * 100).toFixed(1));
   sv('inp-fx-tenor',       fxh.tenorDays != null ? fxh.tenorDays : 30);
   sv('inp-fx-broker',      fxh.brokerFee != null ? fxh.brokerFee : 0);
   // Toggles

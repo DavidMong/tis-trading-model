@@ -38,7 +38,7 @@
   },
   "partner": { "equityProvider": "TIS", "bondPct": 0.05, "equityPct": 0.20, "totalFundingPct": 0.25 },
   "hedge": { "iceHedged": false, "route": "bank_book", "hedgedVolumeMT": null, "fixedPrice": null, "feePerMT": 1.5, "initialMarginPct": 0.10, "thirdPartyFee": 0, "bankSpreadPerMT": 0.5, "status": "PLACEHOLDER — confirm with bank/broker" },
-  "fxHedge": { "fxHedged": false, "hedgeRatio": 1.0, "forwardRate": 1530, "benchmark": "offshore NDF", "route": "third_party", "feePerUsd": 0.004, "spreadPerUsd": 0.002, "initialMarginPct": 0.05, "tenorDays": 30, "brokerFee": 2500, "status": "PLACEHOLDER — confirm with bank/broker" },
+  "fxHedge": { "fxHedged": false, "hedgeRatio": 1.0, "forwardRate": 1530, "benchmark": "offshore NDF", "route": "third_party", "feePerUsd": 0.003, "spreadPerUsd": 0.001, "initialMarginPct": 0.10, "tenorDays": 30, "brokerFee": 2500, "status": "PLACEHOLDER — confirm with bank/broker" },
   "tax": { "vatRate": 0.075, "taxableSupplyProportion": 1.0, "whtFreightRate": 0.05, "surcharge": { "enabled": false, "rate": 0.05, "commencementGazetted": false, "incidence": "cost" } },
   "servicesBucket": [15, 16, 24],
   "pricing": {

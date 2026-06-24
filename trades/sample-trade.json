@@ -74,7 +74,7 @@
     "bankSpreadPerMT": 0.5,
     "status": "EXAMPLE / PLACEHOLDER (verify before any live hedge)"
   },
-  "fxHedge": { "fxHedged": false, "hedgeRatio": 1.0, "forwardRate": null, "benchmark": "NAFEM forward", "route": "bank_book", "feePerUsd": 0.004, "spreadPerUsd": 0.002, "initialMarginPct": 0.05, "tenorDays": 30, "brokerFee": 0, "status": "PLACEHOLDER — confirm with bank/broker (default OFF; this example flow ignores FX hedge)" },
+  "fxHedge": { "fxHedged": false, "hedgeRatio": 1.0, "forwardRate": null, "benchmark": "NAFEM forward", "route": "bank_book", "feePerUsd": 0.003, "spreadPerUsd": 0.001, "initialMarginPct": 0.10, "tenorDays": 30, "brokerFee": 0, "status": "PLACEHOLDER — confirm with bank/broker (default OFF; this example flow ignores FX hedge)" },
   "tax": {
     "vatRate": 0.075,
     "taxableSupplyProportion": 1.0,
