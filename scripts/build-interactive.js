@@ -853,6 +853,17 @@ body { display: flex; flex-direction: column; }
 .btn-lib:hover { background:var(--bg); color:var(--ink); }
 .btn-lib-del:hover { background:var(--slate-bg); color:var(--ink); border-color:var(--slate); }
 
+.sb-export-row {
+  display:flex; align-items:center; gap:6px; padding:0 14px 10px;
+  box-sizing:border-box; width:100%; overflow:hidden;
+}
+.btn-export {
+  flex:1; padding:5px 8px; background:none; border:1px solid var(--border);
+  border-radius:4px; font-family:var(--f-body); font-size:11px; color:var(--slate);
+  cursor:pointer; transition:background .12s, color .12s; white-space:nowrap;
+}
+.btn-export:hover { background:var(--bg); color:var(--ink); }
+
 .lib-select {
   flex:1; font-family:var(--f-body); font-size:11px; color:var(--ink);
   background:var(--white); border:1px solid var(--border); border-radius:4px;
@@ -1317,6 +1328,11 @@ const sidebarHtml = `<aside class="sidebar" id="sidebar">
     <div class="sb-report-row">
       <button class="btn-report" onclick="downloadReport()" title="Generate and download a branded PDF report for the current trade (auto-downloads — no print dialog)">Download Report</button>
     </div>
+    <div class="sb-export-row">
+      <button class="btn-export" onclick="exportTrades()" title="Download all saved trades to a .json backup file">Export Trades</button>
+      <button class="btn-export" onclick="importTrades()" title="Restore saved trades from a .json backup file">Import Trades</button>
+    </div>
+    <input type="file" id="imp-file-input" accept=".json" style="display:none" onchange="importTradesFromFile(this)">
   </div>
 </aside>`;
 
@@ -3575,6 +3591,59 @@ async function downloadReport() {
   }
 }
 
+// ── Export / Import trades ─────────────────────────────────────────────────
+function exportTrades() {
+  const trades   = TISStorage.loadTrades();
+  const defaults = TISStorage.loadDefaults();
+  const payload  = JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), trades, defaults }, null, 2);
+  const blob = new Blob([payload], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  const ts   = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  a.href     = url;
+  a.download = 'tis-trades-' + ts + '.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  const n = Object.keys(trades).length;
+  showToast('Exported ' + n + ' trade' + (n === 1 ? '' : 's'));
+}
+
+function importTrades() {
+  const inp = document.getElementById('imp-file-input');
+  if (inp) { inp.value = ''; inp.click(); }
+}
+
+function importTradesFromFile(inp) {
+  const file = inp.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    let payload;
+    try { payload = JSON.parse(e.target.result); } catch(_) { alert('Invalid file — not valid JSON.'); return; }
+    if (!payload || payload.version !== 1 || typeof payload.trades !== 'object') {
+      alert('Invalid file — not a TIS trade export.');
+      return;
+    }
+    const incoming  = Object.keys(payload.trades);
+    const existing  = TISStorage.loadTrades();
+    const conflicts = incoming.filter(function(n) { return !!existing[n]; });
+    if (conflicts.length > 0) {
+      if (!confirm('These trades already exist and will be overwritten: ' + conflicts.join(', ') + '. Continue?')) return;
+    }
+    let count = 0;
+    for (const name of incoming) {
+      const entry = payload.trades[name];
+      if (entry && entry.snap) { TISStorage.saveTrade(name, entry.snap); count++; }
+    }
+    if (payload.defaults) TISStorage.saveDefaults(payload.defaults);
+    renderSavedTradesList();
+    showToast('Imported ' + count + ' trade' + (count === 1 ? '' : 's'));
+  };
+  reader.readAsText(file);
+}
+
 // ── Window exposes ────────────────────────────────────────────────────────
 window.newTrade            = newTrade;
 window.saveTrade           = saveTrade;
@@ -3582,8 +3651,11 @@ window.saveAsTrade         = saveAsTrade;
 window.renameTrade         = renameTrade;
 window.loadSelectedTrade   = loadSelectedTrade;
 window.deleteSelectedTrade = deleteSelectedTrade;
-window.saveAsDefaults      = saveAsDefaults;
-window.downloadReport      = downloadReport;
+window.saveAsDefaults       = saveAsDefaults;
+window.downloadReport       = downloadReport;
+window.exportTrades         = exportTrades;
+window.importTrades         = importTrades;
+window.importTradesFromFile = importTradesFromFile;
 
 // ── Boot ───────────────────────────────────────────────────────────────────
 _storageLegacy = detectStorageLegacyFromCostLines(INIT.costLines);   // bundled fixture may be old-format
