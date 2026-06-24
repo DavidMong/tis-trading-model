@@ -559,6 +559,35 @@ check('PL6 native depot ladder: tier net == direct engine run at repriced depot 
     return approx(t.tisNetProfit, direct.profit.tisNetProfit, 0.5);
   }));
 
+// PL7 — LADDER per-tier P&L must VARY for a NATIVE ex-ship leg priced in ₦/L (NGN_PER_L). REGRESSION
+// GUARD for the runAtPrice fix: before it, runAtPrice only repriced USD_PER_MT ex-ship legs, so an
+// ex-ship-₦/L leg stayed at its original price and every tier returned the SAME (inert/identical) net.
+// The $/MT ladder now reprices the NGN leg too (inverse conversion: tier$/MT × nafem / litres -> ₦/L).
+const PL7_NAFEM = trade.fx.nafem.value; // 1500
+const PL7_USDREF = 1230;
+const PL7_NGNREF = (PL7_USDREF * PL7_NAFEM) / LITRES;
+const nativeExNgn = { ...trade, channels: { exShipPct: 1, depotPct: 0 },
+  sell: { ...trade.sell, currencyMode: 'NGN', exShipPricePerMT: { value: PL7_USDREF, status: 'EXAMPLE' } },
+  revenueLegs: [{ channel: 'ex-ship', pricingUnit: 'NGN_PER_L', tonnes: trade.cargo.deliveredQtyMT, price: PL7_NGNREF }] };
+const ladExNgn = buildLadder(nativeExNgn, fnCT, computeTrade(nativeExNgn, { skipHedgeCompare: true })).exShip;
+const exNgnNets = ladExNgn.tiers.map((t) => t.tisNetProfit);
+check('PL7 native ex-ship ₦/L ladder: per-tier TIS net VARIES (not inert/identical)', new Set(exNgnNets.map((n) => Math.round(n))).size === exNgnNets.length);
+check('PL7 native ex-ship ₦/L ladder: TIS net strictly increases with tier price', exNgnNets.every((n, i) => i === 0 || n > exNgnNets[i - 1]));
+// WYSIWYG: each tier net == a direct engine run with the NGN leg repriced to the inverse-converted ₦/L.
+check('PL7 native ex-ship ₦/L ladder: tier net == direct engine run at inverse-converted ₦/L leg',
+  ladExNgn.tiers.every((t) => {
+    const ngnAtTier = (t.pricePerMT * PL7_NAFEM) / LITRES;
+    const direct = computeTrade({ ...nativeExNgn, revenueLegs: nativeExNgn.revenueLegs.map((l) => ({ ...l, price: ngnAtTier })) }, { skipHedgeCompare: true });
+    return approx(t.tisNetProfit, direct.profit.tisNetProfit, 0.5);
+  }));
+// The ₦/L ladder reproduces the LEGACY-equivalent (USD-priced/NGN-settled) ladder spread EXACTLY:
+// same per-tier USD-equivalent leg price -> same net (proves no inertia AND correct magnitude).
+const legacyExNgn = { ...trade, channels: { exShipPct: 1, depotPct: 0 },
+  sell: { ...trade.sell, currencyMode: 'NGN', exShipPricePerMT: { value: PL7_USDREF, status: 'EXAMPLE' } } };
+const ladLegacyNgn = buildLadder(legacyExNgn, fnCT, computeTrade(legacyExNgn, { skipHedgeCompare: true })).exShip;
+check('PL7 native ₦/L ladder nets == legacy-equivalent NGN ladder nets (spread matches, byte-for-byte)',
+  ladExNgn.tiers.every((t, i) => approx(t.tisNetProfit, ladLegacyNgn.tiers[i].tisNetProfit, 0.5)));
+
 // ============================================================================================
 // MX — NEW (2026-06-23): RULE 1 + RULE 2 together on a SPLIT trade (ex-ship USD + depot). Confirms the
 // MAX-channel margin-foregone benchmark and that NAFEM (not parallel) is the live FX P&L lever.

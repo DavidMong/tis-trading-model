@@ -34,17 +34,41 @@ const DEFAULT_CONVERSION = { litresPerMT: 1183, fxMarketForDepot: 'parallel' };
 
 const clone = (o) => JSON.parse(JSON.stringify(o));
 
-// Re-run the verified engine at a given ex-ship USD price.
-// LEGACY trades price from sell.exShipPricePerMT. NATIVE per-leg trades price from revenueLegs and
-// IGNORE sell.exShipPricePerMT, so we must also reprice the ex-ship USD leg(s) — the $/MT ladder
-// governs the USD ex-ship sale. Legacy trades (no revenueLegs) are untouched: identical results.
+// Re-run the verified engine at a given ex-ship USD price ($/MT). The ex-ship $/MT ladder governs the
+// ex-ship sale regardless of the leg's pricing unit, so EVERY ex-ship leg must reprice to this tier:
+//   - USD_PER_MT leg  -> price = tier $/MT directly (SAME path as before; USD trades unchanged).
+//   - NGN_PER_L  leg  -> price = tier $/MT converted back to ₦/L (inverse of the leg's USD conversion
+//                        in revenue.js: priceUsdPerMT = (ngnPerL × litres) / nafem  =>  ngnPerL =
+//                        tier$/MT × nafem / litres), so the leg's USD-equivalent reproduces the tier
+//                        $/MT EXACTLY and the per-tier P&L is no longer inert. (No rounding of the
+//                        ₦/L value: keep it exact so (ngnPerL × litres)/nafem === the displayed $/MT.)
+// LEGACY trades price from sell.exShipPricePerMT (no revenueLegs) and are untouched: identical results.
+// Depot legs are NEVER repriced here — the depot ₦/L ladder reprices them in buildDepotLadder.
 function runAtPrice(trade, compute, pricePerMT) {
   const t = clone(trade);
   const v = round(pricePerMT, 6);
   t.sell.exShipPricePerMT = { value: v, status: 'SUGGESTED (ladder)' };
   if (Array.isArray(t.revenueLegs) && t.revenueLegs.length) {
-    t.revenueLegs = t.revenueLegs.map((l) =>
-      (l.channel === 'ex-ship' && l.pricingUnit === 'USD_PER_MT') ? { ...l, price: v } : l);
+    // Resolve NAFEM + litres only when an ex-ship NGN leg actually needs the inverse conversion
+    // (USD-only ladders never read them — keeps the all-USD path byte-for-byte unchanged).
+    let ngnPerL = null;
+    if (t.revenueLegs.some((l) => l.channel === 'ex-ship' && l.pricingUnit === 'NGN_PER_L')) {
+      const nafem = resolveFx(t, 'nafem');
+      const litres = t.pricing && t.pricing.conversion && t.pricing.conversion.litresPerMT;
+      if (!(typeof nafem === 'number' && Number.isFinite(nafem) && nafem > 0)) {
+        throw new Error(`runAtPrice: NGN_PER_L ex-ship leg needs a positive NAFEM rate, got ${nafem}`);
+      }
+      if (!(typeof litres === 'number' && Number.isFinite(litres) && litres > 0)) {
+        throw new Error(`runAtPrice: NGN_PER_L ex-ship leg needs a positive pricing.conversion.litresPerMT, got ${litres}`);
+      }
+      ngnPerL = (v * nafem) / litres; // inverse of (ngnPerL × litres) / nafem = v
+    }
+    t.revenueLegs = t.revenueLegs.map((l) => {
+      if (l.channel !== 'ex-ship') return l; // depot leg priced by buildDepotLadder, not here
+      if (l.pricingUnit === 'USD_PER_MT') return { ...l, price: v };
+      if (l.pricingUnit === 'NGN_PER_L') return { ...l, price: ngnPerL };
+      return l;
+    });
   }
   return compute(t);
 }

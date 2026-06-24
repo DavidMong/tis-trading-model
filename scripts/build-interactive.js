@@ -2186,6 +2186,31 @@ function renderWaterfall(res) {
 }
 
 // ── 2. Pricing Ladder ──────────────────────────────────────────────────────
+// Gradient price-scale bar shared by BOTH ladders (ex-ship $/MT and depot NGN/L). Positions each tier
+// pip across the gradient and draws an optional current-price marker tick. The values/cur args are in
+// the ladder's NATIVE unit; fmtLabel(cur) formats the marker caption. Identical markup for both ladders,
+// so the depot NGN/L ladder gets the same bar + marker the ex-ship ladder already had (no regression to
+// the ex-ship output — this reproduces its prior inline markup byte-for-byte).
+function ladderScale(values, names, cur, fmtLabel) {
+  if (!values || values.length < 2) return '';
+  const lo = Math.min(...values);
+  const hi = Math.max(...values);
+  const range = (hi - lo) || 1;
+  const pips = values.map((v, i) => {
+    const pos = ((v - lo) / range * 80 + 10).toFixed(1);
+    const altCls = i % 2 === 1 ? ' alt' : '';
+    return \`<span class="ladder-tier-pip\${altCls}" style="left:\${pos}%">\${esc(names[i])}</span>\`;
+  }).join('');
+  let tick = '';
+  if (cur != null && isFinite(cur) && cur >= lo - (range*0.1) && cur <= hi + (range*0.1)) {
+    const pos = ((cur - lo) / range * 80 + 10).toFixed(1);
+    tick = \`<div class="ladder-scale-tick" style="left:\${pos}%" data-label="\${esc(fmtLabel(cur))}"></div>\`;
+  }
+  return \`<div class="ladder-scale-wrap" style="padding-top:28px">
+        <div class="ladder-scale-bar">\${pips}\${tick}</div>
+      </div>\`;
+}
+
 // Surfaces the engine's ladders, each in its NATIVE unit: an ex-ship $/MT ladder
 // (margin-of-sell tiers) and a depot ₦/L ladder (absolute-spread tiers), plus the
 // engine's cross-leg comparison. Show only the ladders relevant to the trade's legs.
@@ -2195,7 +2220,19 @@ function renderLadder(trade, res, ladder) {
   const hasExShip = legs.some(l => l.channel === 'ex-ship');
   const depotApplicable = !!(ladder.depot && ladder.depot.applicable && ladder.depot.tiers && ladder.depot.tiers.length);
   const bothLadders = hasExShip && depotApplicable;
-  const curPrice = res.price.exShipPricePerMT;
+  // Current ex-ship price for the marker, in the ladder's $/MT unit. For a native ₦/L-priced ex-ship
+  // leg res.price.exShipPricePerMT is null (no USD leg), so fall back to the leg's USD-EQUIVALENT
+  // (revenue.legs[].priceUsdPerMT, already at NAFEM) — but ONLY when the trader actually entered a
+  // price (the trade leg's price is finite, not the suppressed synthetic run), so the no-price state
+  // still shows no marker. (GAP 3.)
+  let curPrice = res.price.exShipPricePerMT;
+  if (curPrice == null) {
+    const tLeg = legs.find(l => l.channel === 'ex-ship');
+    const rLeg = ((res.revenue && res.revenue.legs) || []).find(l => l.channel === 'ex-ship');
+    if (tLeg && isFinite(tLeg.price) && tLeg.price > 0 && rLeg && isFinite(rLeg.priceUsdPerMT) && rLeg.priceUsdPerMT > 0) {
+      curPrice = rLeg.priceUsdPerMT;
+    }
+  }
   const landed   = res.price.exShipLandedPerMT;
 
   // Naira-equivalent converter for ex-ship USD prices (trader-on-a-call reference).
@@ -2212,26 +2249,12 @@ function renderLadder(trade, res, ladder) {
   const exShip = ladder.exShip;
   if (hasExShip && exShip && exShip.tiers && exShip.tiers.length) {
     const tiers = exShip.tiers;
-    let scaleHtml = '';
-    if (tiers.length >= 2) {
-      const prices = tiers.map(t => t.pricePerMT);
-      const lo = Math.min(...prices);
-      const hi = Math.max(...prices);
-      const range = hi - lo || 1;
-      const tierPips = tiers.map((tier, i) => {
-        const pos = ((tier.pricePerMT - lo) / range * 80 + 10).toFixed(1);
-        const altCls = i % 2 === 1 ? ' alt' : '';
-        return \`<span class="ladder-tier-pip\${altCls}" style="left:\${pos}%">\${esc(tier.name)}</span>\`;
-      }).join('');
-      let tick = '';
-      if (curPrice != null && curPrice >= lo - (range*0.1) && curPrice <= hi + (range*0.1)) {
-        const pos = ((curPrice - lo) / range * 80 + 10).toFixed(1);
-        tick = \`<div class="ladder-scale-tick" style="left:\${pos}%" data-label="\${esc(fmtUsd(curPrice)+'/MT')}"></div>\`;
-      }
-      scaleHtml = \`<div class="ladder-scale-wrap" style="padding-top:28px">
-        <div class="ladder-scale-bar">\${tierPips}\${tick}</div>
-      </div>\`;
-    }
+    const scaleHtml = ladderScale(
+      tiers.map(t => t.pricePerMT),
+      tiers.map(t => t.name),
+      curPrice,
+      v => fmtUsd(v) + '/MT'
+    );
     const tierRows = tiers.map(tier => {
       const isCur = curPrice != null && Math.abs(tier.pricePerMT - curPrice) < 0.005;
       return \`<tr class="\${isCur ? 'ladder-current' : ''}">
@@ -2256,11 +2279,22 @@ function renderLadder(trade, res, ladder) {
   // ----- Depot ₦/L ladder (absolute-spread tiers; native naira) -----
   let depotBlock = '';
   if (depotApplicable) {
+    // Gradient bar + tier pips + current-price marker, in the depot's native ₦/L unit (GAP 2 — parity
+    // with the ex-ship ladder bar). Marker = the trader's entered depot price (null in the no-price
+    // state, so no phantom marker — the synthetic ₦/L is suppressed in recompute()).
+    const curDepot = res.price.depotPriceNgnPerL;
+    const depotScaleHtml = ladderScale(
+      ladder.depot.tiers.map(t => t.priceNgnPerL),
+      ladder.depot.tiers.map(t => t.name),
+      curDepot,
+      v => fmtNum(v, 2) + ' ₦/L'
+    );
     const depotRows = ladder.depot.tiers.map(tier => {
+      const isCur = curDepot != null && isFinite(curDepot) && Math.abs(tier.priceNgnPerL - curDepot) < 0.005;
       const net = (tier.tisNetProfit == null)
         ? '<span class="muted">PENDING</span>'
         : \`<span class="\${tier.tisNetProfit >= 0 ? 'pos' : 'loss'}">\${fmtUsd(tier.tisNetProfit)}</span>\`;
-      return \`<tr>
+      return \`<tr class="\${isCur ? 'ladder-current' : ''}">
         <td><b>\${esc(tier.name)}</b></td>
         <td class="r">\${fmtNum(tier.priceNgnPerL, 2)} ₦/L</td>
         <td class="r">\${fmtNum(tier.spreadNgnPerL, 0)} ₦/L</td>
@@ -2269,7 +2303,7 @@ function renderLadder(trade, res, ladder) {
         <td class="r">\${net}</td>
       </tr>\`;
     }).join('');
-    depotBlock = \`<h3 class="ladder-sub">Depot ₦/L Ladder</h3>
+    depotBlock = \`<h3 class="ladder-sub">Depot ₦/L Ladder</h3>\${depotScaleHtml}
     <div class="tbl-wrap"><table>
       <thead><tr><th>Tier</th><th class="r">Price ₦/L</th><th class="r">Spread ₦/L</th><th class="r">Margin %</th><th class="r">Markup on Landed</th><th class="r">TIS Net</th></tr></thead>
       <tbody>\${depotRows}</tbody>
@@ -2848,8 +2882,13 @@ function recompute() {
     ladder = TISEngine.buildLadder(engineTrade, fn, res);
   } catch(_) { ladder = null; }
 
-  // Suppress the synthetic price so the ladder shows no fake current-price marker.
-  if (!hasSellPrice) res.price.exShipPricePerMT = null;
+  // Suppress the synthetic prices so the ladder shows no fake current-price markers — BOTH the ex-ship
+  // $/MT marker AND the depot ₦/L marker. Both feed ladder marker ticks now; leaving the synthetic
+  // depot price in would draw a phantom marker on the depot ₦/L bar.
+  if (!hasSellPrice) {
+    res.price.exShipPricePerMT = null;
+    res.price.depotPriceNgnPerL = null;
+  }
 
   // Update retained-tonnes for the hedge-volume placeholder (engine default = retained, not full cargo).
   _lastRetainedTonnes = (res.quantities && res.quantities.economic)
