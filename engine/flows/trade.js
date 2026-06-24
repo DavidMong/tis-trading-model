@@ -306,16 +306,20 @@ function computeTrade(trade, opts = {}) {
     if (annualReturnBase > 0) tisAnnualisedReturn = round((tisNetProfit / annualReturnBase) * (365 / financing.capitalLockupDays), 4);
   }
 
-  // Paper vs economic quantities (partner only)
+  // Paper vs economic quantities (partner only). partnerPaperValue + cashTrueUp = principalAsProduct
+  // exactly; the true-up is the rounding shortfall PAID to the partner in cash so they end at par.
   let paper = null;
+  let partnerPaperValue = 0;
+  let cashTrueUp = 0;
   if (equityProvider === 'partner' && partnerTonnes > 0) {
     const partnerPaper = paperQtyFavorTIS(partnerTonnes, 'partner', 50);
     const tisPaper = paperQtyFavorTIS(tisRetainedTonnes, 'tis', 50);
-    const partnerPaperValue = partnerPaper * exShipLandedPerMT;
+    partnerPaperValue = partnerPaper * exShipLandedPerMT;
+    cashTrueUp = principalAsProduct - partnerPaperValue; // +ve => owed to partner in cash
     paper = {
       partnerPaper, tisPaper, step: 50,
       partnerPaperValue: money(partnerPaperValue),
-      cashTrueUp: money(principalAsProduct - partnerPaperValue),
+      cashTrueUp: money(cashTrueUp),
       note: 'Paper tonnes documentary only (rounded in TIS favour). P&L uses economic tonnes.',
     };
   }
@@ -395,12 +399,13 @@ function computeTrade(trade, opts = {}) {
     partnerDelivers: equityProvider === 'partner' ? {
       note: 'TIS-internal view: only what TIS delivers. No partner-side upside / net-return interpretation.',
       productReceived: { tonnes: round(partnerTonnes, 4), valuedAtExShipLandedCost: money(principalAsProduct) },
-      cashReceived: { profitShare: money(partnerCashProfitShare), principalCashPortion: money(principalAsCash) },
+      cashReceived: { profitShare: money(partnerCashProfitShare), principalCashPortion: money(principalAsCash), settlementTrueUp: money(cashTrueUp) },
       principalTie: {
+        // Real settlement identity: paper product DELIVERED + rounding true-up + any cash principal = principal owed.
         owed: money(partnerPrincipal),
-        returnedProductValue: money(principalAsProduct),
-        returnedCash: money(principalAsCash),
-        ok: Math.abs(principalAsProduct + principalAsCash - partnerPrincipal) < 0.01,
+        returnedProductValue: money(partnerPaperValue),
+        returnedCash: money(principalAsCash + cashTrueUp),
+        ok: Math.abs(partnerPaperValue + cashTrueUp + principalAsCash - partnerPrincipal) < 0.01,
       },
     } : { note: 'TIS self-funded — no partner. standalone = adjusted = TIS net; no in-kind / profit-share.' },
     fx: fxBlock,

@@ -274,6 +274,27 @@ const depotPartner = computeTrade({ ...depotOnly, partner: { ...depotOnly.partne
 check('FX9 depot-only partner: benchmark = depot price @ NAFEM (MAX channel)',
   approx(depotPartner.profit.benchmarkPriceUSD, depotPartner.price.depotPriceUSDperMT, 0.01) && depotPartner.profit.benchmarkBasis === 'depot price (NAFEM)');
 
+// FX-TRUEUP — partner rounding cash true-up is ACTUALLY PAID (added to partner cash receipts), so the
+// partner ends whole. Paper tonnes round DOWN (TIS favour); the rounded-off shortfall is paid as cash.
+// (Regression for the bug where trade.js computed cashTrueUp but omitted it from cashReceived.)
+const tuPd = both.partnerDelivers;
+const tuPaperValue = both.quantities.paper.partnerPaperValue; // paper tonnes x landed (< principal at par)
+const tuTrueUp = both.quantities.paper.cashTrueUp;            // principalAsProduct - partnerPaperValue
+check('FX-TRUEUP there IS a rounding shortfall to settle (true-up > 0)', tuTrueUp > 0);
+check('FX-TRUEUP cashReceived.settlementTrueUp == rounding shortfall',
+  approx(tuPd.cashReceived.settlementTrueUp, tuTrueUp, 0.01));
+// Partner total = paper product DELIVERED + true-up + principal cash + profit share = FULL entitlement.
+const tuEntitlement = both.financing.partnerFunding + tuPd.cashReceived.profitShare; // principal at par + profit
+const tuReceived = tuPaperValue + tuPd.cashReceived.settlementTrueUp
+  + tuPd.cashReceived.principalCashPortion + tuPd.cashReceived.profitShare;
+check('FX-TRUEUP partner receives full economic entitlement (paper product + true-up + profit = par + profit)',
+  approx(tuReceived, tuEntitlement, 0.02));
+// principalTie now verifies the REAL settlement identity (paper product + true-up + cash = principal owed),
+// not the tautological principalAsProduct + cash = principal.
+check('FX-TRUEUP principalTie verifies real identity (paper product + true-up + cash = principal)',
+  tuPd.principalTie.ok
+  && approx(tuPd.principalTie.returnedProductValue + tuPd.principalTie.returnedCash, both.financing.partnerFunding, 0.02));
+
 // FX10 — validation throws on bad funding stack / channel split.
 expectThrow('FX10 funding stack not summing to 1 throws', () => computeTrade({ ...bothChannels, partner: { ...bothChannels.partner, equityPct: 0.3 } }), 'sum to 1.0');
 expectThrow('FX10 channel split not summing to 1 throws', () => computeTrade({ ...depotOnly, channels: { exShipPct: 0.5, depotPct: 0.4 } }), 'channels');

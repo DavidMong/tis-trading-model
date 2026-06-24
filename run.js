@@ -307,7 +307,7 @@ function printTradeReport(res, trade, flags) {
     const pd = res.partnerDelivers;
     L(`  Partner: ${res.meta.parties.partner} (TIS-internal view)`);
     L(`  (1) Product received ${mt(pd.productReceived.tonnes)} valued at ex-ship landed ${usd(pd.productReceived.valuedAtExShipLandedCost)}`);
-    L(`  (2) Cash received: profit share ${usd(pd.cashReceived.profitShare)}` + (pd.cashReceived.principalCashPortion > 0 ? ` + principal cash ${usd(pd.cashReceived.principalCashPortion)}` : ''));
+    L(`  (2) Cash received: profit share ${usd(pd.cashReceived.profitShare)}` + (pd.cashReceived.principalCashPortion > 0 ? ` + principal cash ${usd(pd.cashReceived.principalCashPortion)}` : '') + ` + settlement true-up ${usd(pd.cashReceived.settlementTrueUp)}`);
     L(`  Principal tie-out: ${usd(pd.principalTie.owed)} = product ${usd(pd.principalTie.returnedProductValue)} + cash ${usd(pd.principalTie.returnedCash)}  ${pd.principalTie.ok ? 'OK' : 'MISMATCH'}`);
   } else {
     L(`  ${res.partnerDelivers.note}`);
