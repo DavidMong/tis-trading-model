@@ -6,5 +6,6 @@
 const { computeTrade }    = require('../engine/flows/trade');
 const { runSensitivities } = require('../engine/core/sensitivities');
 const { buildLadder } = require('../engine/core/pricing-ladder');
+const { resolveStorageCostLines } = require('../engine/core/storage-collect');
 
-module.exports = { computeTrade, runSensitivities, buildLadder };
+module.exports = { computeTrade, runSensitivities, buildLadder, resolveStorageCostLines };

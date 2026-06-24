@@ -365,6 +365,72 @@ check('SU7 $/MT storage line not FX-exposed, ₦/L is',
   suThru(4, 'USD_PER_MT').currency === 'USD' && suThru(4, 'NGN_PER_L').currency === 'NGN');
 
 // ============================================================================================
+// STORAGE-COLLECT BACKWARD-COMPAT (SC) — the dashboard's collectTrade path. The UI defaulted a LOADED
+// old-format trade's storage unit to NGN_PER_L, reinterpreting a per-MT throughput rate (₦4,000/MT) and a
+// ₦ LUMP rental (₦50,000,000) as per-litre — running them through the density×NAFEM path and inflating
+// storage ~1,183× (≈$394B). resolveStorageCostLines (TISEngine, shared with the browser) emits the
+// ORIGINAL old keys for legacy lines so the engine's backward-compat branch (SU6) reproduces the correct
+// cost; new / trader-edited lines still emit the ₦/L|$/MT unit schema.
+// ============================================================================================
+const { resolveStorageCostLines } = require('../engine/core/storage-collect');
+
+// Simulate collectTrade for a LOADED OLD-FORMAT depot trade: the form holds the legacy ₦/MT throughput
+// rate and the ₦ lump rental (the load path put them there), both flagged legacy.
+const collectStorage = (flags) => resolveStorageCostLines({
+  depotOn: true,
+  throughput:    { unit: 'NGN_PER_L', rate: depotOnly.costLines.throughputNgnPerMT, legacy: flags.throughput },
+  storageRental: { unit: 'NGN_PER_L', rate: depotOnly.costLines.storageRentalNgn,   legacy: flags.storageRental },
+});
+// collectTrade rebuilds costLines from scratch (storage fields come ONLY from resolveStorageCostLines),
+// so model the collected trade by stripping the old keys and spreading the resolver's output back in.
+const scBaseCL = (() => { const c = { ...depotOnly.costLines }; delete c.throughputNgnPerMT; delete c.storageRentalNgn; return c; })();
+const scCollected = (storageFields) => computeTrade({ ...depotOnly, costLines: { ...scBaseCL, ...storageFields } });
+
+// SC1 — legacy resolve emits the ORIGINAL old keys and OMITS the unit fields (drives engine backward-compat).
+const scLegacy = collectStorage({ throughput: true, storageRental: true });
+check('SC1 legacy collect emits old keys (throughputNgnPerMT / storageRentalNgn), no unit fields',
+  scLegacy.throughputNgnPerMT === depotOnly.costLines.throughputNgnPerMT &&
+  scLegacy.storageRentalNgn === depotOnly.costLines.storageRentalNgn &&
+  !('throughputUnit' in scLegacy) && !('storageRentalUnit' in scLegacy));
+
+// SC2 — old-format depot trade through the UI-collect path computes storage CORRECTLY (matches node run.js
+// / SU6): throughput ₦40M ⇒ $26,666.67, rental ₦50M ⇒ $33,333.33; depot landed sane, NOT billions.
+const scRes = scCollected(scLegacy);
+check('SC2 collect throughput = legacy ₦/MT (not ₦/L): rate × MT / NAFEM ≈ $26,666.67',
+  approx(scRes.cost.byId[25].amountUsd, (depotOnly.costLines.throughputNgnPerMT * suQty) / suNafem, 0.01));
+check('SC2 collect storage rental = legacy ₦ lump (not ₦/L): ₦50M / NAFEM ≈ $33,333.33',
+  approx(scRes.cost.byId[26].amountUsd, depotOnly.costLines.storageRentalNgn / suNafem, 0.01));
+check('SC2 collect storage total ≈ $75,750 and depot landed sane (< $2,000/MT, not billions)',
+  approx(scRes.cost.storageTotal, 75750, 1) && scRes.cost.depotLandedPerMT < 2000);
+
+// SC3 — REGRESSION: the OLD bug (legacy defaulted to ₦/L) reinterprets the per-MT rate and the ₦ lump as
+// per-litre, inflating storage past a BILLION dollars. The fix must NOT reproduce that.
+const scBug = scCollected(collectStorage({ throughput: false, storageRental: false }));
+check('SC3 buggy ₦/L reinterpretation would inflate storage > $1B; the fix keeps it < $1M',
+  scBug.cost.storageTotal > 1e9 && scRes.cost.storageTotal < 1e6);
+
+// SC4 — NEW-format trade (trader picked ₦/L, a real per-litre rate) is unaffected: emits the unit schema
+// and computes the ₦/L density×NAFEM path (matches SU1/SU3).
+const scNew = resolveStorageCostLines({
+  depotOn: true,
+  throughput:    { unit: 'NGN_PER_L', rate: 3.5, legacy: false },
+  storageRental: { unit: 'NGN_PER_L', rate: 5,   legacy: false },
+});
+const scNewRes = scCollected(scNew);
+check('SC4 new-format ₦/L unaffected: unit schema emitted, throughput = rate × MT × litres / NAFEM',
+  scNew.throughputUnit === 'NGN_PER_L' && scNew.throughputRate === 3.5 &&
+  approx(scNewRes.cost.byId[25].amountUsd, 3.5 * suQty * suLitres / suNafem, 0.01));
+
+// SC5 — no depot leg => storage rates zeroed (parity with the prior collectTrade `depotOn ? … : 0` gate).
+const scOff = resolveStorageCostLines({
+  depotOn: false,
+  throughput:    { unit: 'NGN_PER_L', rate: 4000,     legacy: true },
+  storageRental: { unit: 'NGN_PER_L', rate: 50000000, legacy: false },
+});
+check('SC5 depotOn=false zeroes storage rates (legacy lump and new rate alike)',
+  scOff.throughputNgnPerMT === 0 && scOff.storageRentalRate === 0);
+
+// ============================================================================================
 // FX hedge + ICE hedge toggles (realized-P&L, comparison, basis risk)
 // ============================================================================================
 const bOff = computeTrade(bothChannels); // sample has both toggles OFF by default

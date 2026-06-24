@@ -1834,10 +1834,14 @@ function collectTrade() {
       overhead:             gf('inp-overhead'),
       contingency:          gf('inp-contingency'),
       collateralManager:    gf('inp-collateral-mgr'),
-      throughputUnit:       gs('sel-throughput-unit') || 'NGN_PER_L',
-      throughputRate:       depotOn ? gf('inp-throughput')     : 0,
-      storageRentalUnit:    gs('sel-storage-unit') || 'NGN_PER_L',
-      storageRentalRate:    depotOn ? gf('inp-storage-rental') : 0,
+      // Storage lines handle BOTH the new ₦/L|$/MT unit schema and LOADED old-format data (legacy
+      // ₦/MT throughput + ₦ lump rental). resolveStorageCostLines emits the right keys so the engine
+      // never reinterprets legacy per-MT/lump values as ₦/L. Single source of truth (TISEngine).
+      ...TISEngine.resolveStorageCostLines({
+        depotOn,
+        throughput:    { unit: gs('sel-throughput-unit') || 'NGN_PER_L', rate: gf('inp-throughput'),     legacy: _storageLegacy.throughput },
+        storageRental: { unit: gs('sel-storage-unit')    || 'NGN_PER_L', rate: gf('inp-storage-rental'), legacy: _storageLegacy.storageRental },
+      }),
       evaporationPct:       gf('inp-evaporation')    / 100,
       tankInsurancePct:     gf('inp-tank-insurance') / 100,
     },
@@ -1896,6 +1900,26 @@ function updateFxRouteVisibility() {
 // ── Modified state ─────────────────────────────────────────────────────────
 let _modified = false;
 let _currentTradeName = null;   // null = new/unsaved; string = loaded/saved trade key
+
+// ── Storage backward-compat: which storage lines are LOADED OLD-FORMAT (no unit field) ──────
+// Old-format fixtures / saved trades store throughputNgnPerMT (₦/MT) and storageRentalNgn (₦ lump),
+// with NO unit field. collectTrade must emit those ORIGINAL keys (not the new ₦/L unit schema) so the
+// engine's backward-compat branch reproduces the correct cost — otherwise a per-MT rate / lump is
+// reinterpreted as ₦/L and storage inflates ~1183×. A line stays legacy until the trader edits its value
+// or flips its unit toggle (cleared in onInputChange); new / blank trades default to the ₦/L schema.
+let _storageLegacy = { throughput: false, storageRental: false };
+function detectStorageLegacyFromCostLines(cl) {
+  return {
+    throughput:    !!cl && cl.throughputUnit    == null,
+    storageRental: !!cl && cl.storageRentalUnit == null,
+  };
+}
+function detectStorageLegacyFromSnap(snap) {
+  return {
+    throughput:    !snap || !('sel-throughput-unit' in snap),
+    storageRental: !snap || !('sel-storage-unit'    in snap),
+  };
+}
 
 function updateStateBadge() {
   const el = document.getElementById('trade-state-badge');
@@ -1967,6 +1991,7 @@ function resetToDefaults() {
   sv('inp-storage-rental', cl.storageRentalUnit ? cl.storageRentalRate : (cl.storageRentalNgn || cl.storageRental || 0));
   sd('sel-throughput-unit',cl.throughputUnit || 'NGN_PER_L');
   sd('sel-storage-unit',   cl.storageRentalUnit || 'NGN_PER_L');
+  _storageLegacy = detectStorageLegacyFromCostLines(cl);
   syncAllStorageUnits();
   sv('inp-evaporation',    +(cl.evaporationPct * 100).toFixed(4));
   sv('inp-tank-insurance', +(cl.tankInsurancePct * 100).toFixed(4));
@@ -3091,6 +3116,10 @@ function updateFinalIcePlaceholder() {
 }
 function onInputChange(id) {
   if (_isSample) { _isSample = false; }
+  // A trader edit (value) or unit-toggle on a storage line means it is no longer untouched legacy data,
+  // so collectTrade emits the ₦/L|$/MT unit schema for it from here on (setStorageUnit routes through here).
+  if (id === 'inp-throughput'     || id === 'sel-throughput-unit') _storageLegacy.throughput = false;
+  if (id === 'inp-storage-rental' || id === 'sel-storage-unit')    _storageLegacy.storageRental = false;
   setModified(true);
   updateLcDisplay();
   updateDepotVisibility();
@@ -3167,6 +3196,14 @@ function snapshotInputs(ids) {
     const el = document.getElementById(id);
     if (el) snap[id] = el.value;
   }
+  return snap;
+}
+// Keep LOADED old-format storage lines detectable as legacy across a re-save: drop the unit-select keys
+// so the saved snapshot looks like the genuinely-old snapshots it came from (no sel-*-unit). Without this
+// a re-saved old trade would bake in NGN_PER_L and reintroduce the ~1183× inflation on the next load.
+function stripLegacyStorageUnits(snap) {
+  if (_storageLegacy.throughput)    delete snap['sel-throughput-unit'];
+  if (_storageLegacy.storageRental) delete snap['sel-storage-unit'];
   return snap;
 }
 function applyInputSnapshot(snap) {
@@ -3269,6 +3306,7 @@ function newTrade() {
 
   _isSample = false;
   _currentTradeName = null;
+  _storageLegacy = { throughput: false, storageRental: false };   // new trade uses the ₦/L|$/MT schema
   const selNT = document.getElementById('sel-saved-trades');
   if (selNT) selNT.value = '';
   updateLcDisplay(); updateDepotVisibility(); updateCurrencyVisibility();
@@ -3295,7 +3333,7 @@ function saveTrade() {
     saveName = typedName;
   }
 
-  const snap = snapshotInputs([...PER_TRADE_IDS, ...DEFAULT_IDS]);
+  const snap = stripLegacyStorageUnits(snapshotInputs([...PER_TRADE_IDS, ...DEFAULT_IDS]));
   snap['_tog-ice-hedge'] = String(isOn('tog-ice-hedge'));
   snap['_tog-fx-hedge']  = String(isOn('tog-fx-hedge'));
   snap['_tog-surcharge'] = String(isOn('tog-surcharge'));
@@ -3321,7 +3359,7 @@ function saveAsTrade() {
   if (TISStorage.loadTrades()[saveName] && saveName !== _currentTradeName &&
       !confirm('"' + saveName + '" already exists. Overwrite it?')) return;
 
-  const snap = snapshotInputs([...PER_TRADE_IDS, ...DEFAULT_IDS]);
+  const snap = stripLegacyStorageUnits(snapshotInputs([...PER_TRADE_IDS, ...DEFAULT_IDS]));
   snap['_tog-ice-hedge'] = String(isOn('tog-ice-hedge'));
   snap['_tog-fx-hedge']  = String(isOn('tog-fx-hedge'));
   snap['_tog-surcharge'] = String(isOn('tog-surcharge'));
@@ -3373,6 +3411,9 @@ function loadSelectedTrade(explicit) {
   const snap = TISStorage.loadTrade(targetName);
   if (!snap) { showToast('Trade not found in storage'); return; }
   applyInputSnapshot(snap);
+  // Old saved trades (pre unit-toggle) have no sel-throughput-unit / sel-storage-unit in their snapshot —
+  // flag them legacy so collectTrade keeps their original ₦/MT / ₦-lump semantics instead of ₦/L.
+  _storageLegacy = detectStorageLegacyFromSnap(snap);
   syncAllStorageUnits();
   _legs = legsFromSnapshot(snap);   // new snaps carry _legs; legacy snaps rebuild from old fields
   renderLegEditor();
@@ -3453,6 +3494,7 @@ window.deleteSelectedTrade = deleteSelectedTrade;
 window.saveAsDefaults      = saveAsDefaults;
 
 // ── Boot ───────────────────────────────────────────────────────────────────
+_storageLegacy = detectStorageLegacyFromCostLines(INIT.costLines);   // bundled fixture may be old-format
 _legs = legsFromTrade(INIT);   // seed the per-leg editor from the initial trade
 renderLegEditor();
 wireLegEditor();
