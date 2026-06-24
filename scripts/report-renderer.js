@@ -99,6 +99,20 @@ function signClass(n) {
   if (v > 0) return 'pos'; if (v < 0) return 'neg'; return '';
 }
 
+// Signed USD: positive shows a leading "+", negative keeps fmt.usd's "−$". Matches the dashboard's
+// fmtUsdSign so hedge realized-delta / impact figures read identically to the live UI.
+function usdSign(x) {
+  if (x == null || !Number.isFinite(Number(x))) return '—';
+  const n = Number(x);
+  return (n >= 0 ? '+' : '') + fmt.usd(n);
+}
+
+// Friendly hedge-route labels (mirror the dashboard's route segmented control).
+function routeLabel(route, isFx) {
+  if (route === 'third_party') return isFx ? 'Third-party NDF' : 'Third-party (margin)';
+  return isFx ? 'Bank forward' : 'Bank book';
+}
+
 
 // ─── CSS ─────────────────────────────────────────────────────────────────────
 
@@ -740,6 +754,25 @@ tbody td.muted { color: var(--slate); }
 }
 .warn { color: var(--confirm-c); font-weight: 600; }
 .separator { height: 1px; background: var(--border); margin: 12px 0; }
+
+/* ── Print / PDF (item 9): sane margins, brand colours preserved, clean section breaks ── */
+@media print {
+  @page { margin: 14mm; }
+  html { font-size: 12px; }
+  html, body { background: #fff; }
+  /* Preserve brand header, KPI chips, badges and heat colours in the PDF */
+  *, *::before, *::after { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .container { max-width: none; padding: 0 0 8mm; }
+  .report-header { break-after: avoid; }
+  /* Major sections start fresh so nothing straddles a page awkwardly */
+  #cost-heading, #waterfall-heading, #ladder-heading, #sens-heading { break-before: page; }
+  /* Keep atomic blocks intact across page breaks */
+  .card, .param-card, .kpi-chip, .wf-node, .vat-block, .surcharge-block,
+  .partner-tie, .tie-out-box, .tn-row, .ladder-compare, tr { break-inside: avoid; }
+  /* Repeat table headers when a long table (e.g. cost build-up) spans pages */
+  thead { display: table-header-group; }
+  .report-footer { break-before: avoid; }
+}
 `;
 
 
@@ -788,7 +821,7 @@ function headerSection(logo, trade, res) {
       <div class="kpi-chip">
         <span class="kpi-label">Annualised Return</span>
         <span class="kpi-value">${annRet != null ? fmt.pct(annRet) : '&mdash;'}</span>
-        <span class="kpi-sub">on cargo value &middot; ${res.financing.capitalLockupDays}d lockup</span>
+        <span class="kpi-sub">on ${esc(res.annualReturnBaseLabel || 'bank LC mobilised')} &middot; ${res.financing.capitalLockupDays}d lockup</span>
       </div>
       <div class="kpi-chip">
         <span class="kpi-label">Ex-Ship Margin</span>
@@ -816,8 +849,10 @@ function paramCards(trade, res) {
     { label:'Cargo Size',  value: fmt.mt(trade.cargo.deliveredQtyMT, 0), sub: `Nominal ${fmt.mt(trade.cargo.nominalMT,0)} · ±${fmt.pct(trade.cargo.sellersOptionPct,0)}` },
     { label:'Ex-Ship Price', value: fmt.usd(res.price.exShipPricePerMT) + '/MT', sub: badge(res.price.exShipStatus) },
     { label:'Landed/MT',   value: fmt.usd(res.price.exShipLandedPerMT ?? res.price.landedCostPerMT) + '/MT', sub: 'excl. recoverable VAT' },
-    { label:'FX Parallel', value: parallel != null ? fmt.num(parallel,0) + ' ₦/USD' : '—', sub: badge((fxIn.parallel||{}).status) || 'drives P&amp;L' },
-    { label:'FX NAFEM',    value: nafem    != null ? fmt.num(nafem,0)    + ' ₦/USD' : '—', sub: badge((fxIn.nafem   ||{}).status) || 'reference only' },
+    // RULE 1: NAFEM is the settlement rate that drives naira→USD P&L; parallel is reference/reconciliation
+    // only. The role label always shows (status badge appended when present) so the semantics are explicit.
+    { label:'FX NAFEM',    value: nafem    != null ? fmt.num(nafem,0)    + ' ₦/USD' : '—', sub: 'drives P&amp;L (settlement)' + (badge((fxIn.nafem   ||{}).status) ? ' ' + badge((fxIn.nafem   ||{}).status) : '') },
+    { label:'FX Parallel', value: parallel != null ? fmt.num(parallel,0) + ' ₦/USD' : '—', sub: 'reference only' + (badge((fxIn.parallel||{}).status) ? ' ' + badge((fxIn.parallel||{}).status) : '') },
     { label:'Equity Stack',value: `${fmt.pct(f.pct.bondPct)} + ${fmt.pct(f.pct.equityPct)}`, sub: `Partner ${fmt.pct(f.pct.partnerPct)} · LC ${fmt.pct(f.pct.lcPct)}` },
     { label:'Partner Principal', value: fmt.usd(f.partnerFunding), sub: `Bond ${fmt.usd(f.performanceBond)} + Equity ${fmt.usd(f.equity)}` },
     { label:'Credit Rate', value: fmt.pct(f.creditRate), sub: `${f.financingDays}d financing · Actual/${f.dayCountBasis}` },
@@ -960,13 +995,23 @@ ${taxHtml}`;
 
 function profitWaterfall(res) {
   const p  = res.profit;
-  const wf = [
-    { cls:'wf-standalone', label:'Standalone Profit', amount: p.standaloneProfit, sub:'TIS as 100% owner', prefix:'' },
-    { cls:'wf-deduct',     label:'Margin Foregone',   amount: p.marginForegone,   sub:`${fmt.mt(res.quantities.economic.partnerTonnes, 2)} partner tonnes`, prefix:'−' },
-    { cls:'wf-adjusted',   label:'Adjusted Profit',   amount: p.adjustedProfit,   sub:'TIS retained tonnes share', prefix:'=' },
-    { cls:'wf-share',      label:'Partner Cash Share', amount: p.partnerCashProfitShare, sub:`${fmt.pct(p.profitSharePct)} of adjusted`, prefix:'−' },
-    { cls: p.tisNetProfit < 0 ? 'wf-net wf-loss' : 'wf-net', label:'TIS Net Profit', amount: p.tisNetProfit, sub:`${fmt.pct(1 - p.profitSharePct)} of adjusted`, prefix:'=' },
-  ];
+  const isTisFunded = res.equityProvider === 'TIS';
+
+  // TIS self-funded → simple 3-node Revenue → All-in Cost → TIS Net (no partner waterfall).
+  // Partner-funded → the 5-node standalone / margin-foregone / adjusted / partner-share / net waterfall.
+  const wf = isTisFunded
+    ? [
+        { cls:'wf-standalone', label:'Revenue',     amount: res.revenue.combinedUSD, sub:'Combined channels', prefix:'' },
+        { cls:'wf-deduct',     label:'All-In Cost', amount: res.cost.allInCost,      sub:'Incl. irrecoverable VAT', prefix:'−' },
+        { cls: p.tisNetProfit < 0 ? 'wf-net wf-loss' : 'wf-net', label:'TIS Net Profit', amount: p.tisNetProfit, sub:'Self-funded — no partner', prefix:'=' },
+      ]
+    : [
+        { cls:'wf-standalone', label:'Standalone Profit', amount: p.standaloneProfit, sub:'TIS as 100% owner', prefix:'' },
+        { cls:'wf-deduct',     label:'Margin Foregone',   amount: p.marginForegone,   sub:`${fmt.mt(res.quantities.economic.partnerTonnes, 2)} partner tonnes`, prefix:'−' },
+        { cls:'wf-adjusted',   label:'Adjusted Profit',   amount: p.adjustedProfit,   sub:'TIS retained tonnes share', prefix:'=' },
+        { cls:'wf-share',      label:'Partner Cash Share', amount: p.partnerCashProfitShare, sub:`${fmt.pct(p.profitSharePct)} of adjusted`, prefix:'−' },
+        { cls: p.tisNetProfit < 0 ? 'wf-net wf-loss' : 'wf-net', label:'TIS Net Profit', amount: p.tisNetProfit, sub:`${fmt.pct(1 - p.profitSharePct)} of adjusted`, prefix:'=' },
+      ];
 
   const nodes = wf.map((n, i) => {
     // FIX 3: Bold visible arrow using inline SVG chevron
@@ -985,6 +1030,20 @@ function profitWaterfall(res) {
   const annRet = res.tisAnnualisedReturnOnCargo ?? res.tisAnnualisedReturn;
   const annBase = res.annualReturnBaseLabel || 'bank LC mobilised';
 
+  const hedges = res.hedges || {};
+  const hedgeNote = (hedges.iceHedgeNetImpact || hedges.fxHedgeNetImpact)
+    ? `ICE hedge impact: <b>${usdSign(hedges.iceHedgeNetImpact)}</b> &middot; FX hedge: <b>${usdSign(hedges.fxHedgeNetImpact)}</b> &middot; `
+    : '';
+
+  const reconcileHtml = isTisFunded
+    ? `<span>${hedgeNote}Revenue − cost = TIS net: <b>${fmt.usd(res.revenue.combinedUSD)} − ${fmt.usd(res.cost.allInCost)} = ${fmt.usd(p.tisNetProfit)}</b></span>`
+    : `<span>${hedgeNote}Reconciliation: marginForegone + adjusted = standalone
+        &nbsp;&nbsp;
+        <b>${fmt.usd(p.marginForegone)} + ${fmt.usd(p.adjustedProfit)} = ${fmt.usd(p.standaloneProfit)}</b>
+        &nbsp;
+        <span class="${p.reconciliation.ok ? 'wf-ok' : 'warn'}">${p.reconciliation.ok ? '&#10003; OK' : '&#9888; MISMATCH'}</span>
+      </span>`;
+
   return `
 <section class="section" aria-labelledby="waterfall-heading">
   <h2 class="section-heading" id="waterfall-heading">Profit Waterfall</h2>
@@ -993,13 +1052,7 @@ function profitWaterfall(res) {
       ${nodes}
     </div>
     <div class="wf-reconcile">
-      <span>
-        Reconciliation: marginForegone + adjusted = standalone
-        &nbsp;&nbsp;
-        <b>${fmt.usd(p.marginForegone)} + ${fmt.usd(p.adjustedProfit)} = ${fmt.usd(p.standaloneProfit)}</b>
-        &nbsp;
-        <span class="${p.reconciliation.ok ? 'wf-ok' : 'warn'}">${p.reconciliation.ok ? '&#10003; OK' : '&#9888; MISMATCH'}</span>
-      </span>
+      ${reconcileHtml}
       ${annRet != null ? `<span>Annualised return: <b>${fmt.pct(annRet)}</b> on ${esc(annBase)} &middot; ${res.financing.capitalLockupDays}d lockup</span>` : ''}
     </div>
   </div>
@@ -1007,35 +1060,62 @@ function profitWaterfall(res) {
 }
 
 function partnerAndHedge(trade, res) {
-  const pd = res.partnerDelivers;
+  const pd = res.partnerDelivers || {};
   const h  = res.hedge;
+  const f  = res.financing;
+  const isTisFunded = res.equityProvider === 'TIS';
 
-  const partnerHtml = pd && pd.productReceived ? `
+  const subHead = (txt) => `<p style="font-family:var(--f-display);font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--slate);text-transform:uppercase;margin-bottom:8px">${txt}</p>`;
+
+  // TIS self-funded → Equity Structure (no partner waterfall); partner-funded → Partner Deliverables.
+  const partnerHtml = isTisFunded ? `
+  <div class="section" aria-labelledby="partner-heading">
+    <h2 class="section-heading" id="partner-heading">Equity Structure</h2>
+    <div class="card">
+      <div class="card-body">
+        <p class="muted" style="font-size:12px;margin-bottom:10px">${esc(pd.note || 'TIS self-funded — no partner.')}</p>
+        <div class="dl">
+          <dt>Cargo value</dt><dd>${fmt.usd(res.cargoValue)}</dd>
+          <dt>Partner funding (self)</dt><dd>${fmt.usd(f.partnerFunding)}</dd>
+          <dt>Standalone = Adjusted = TIS net</dt><dd><b>${fmt.usd(res.profit.tisNetProfit)}</b></dd>
+        </div>
+      </div>
+    </div>
+  </div>` : `
   <div class="section" aria-labelledby="partner-heading">
     <h2 class="section-heading" id="partner-heading">Partner Deliverables</h2>
     <div class="card">
       <div class="card-body">
         <p class="muted" style="font-size:11px;margin-bottom:12px">${esc(pd.note || '')}</p>
 
-        <p style="font-family:var(--f-display);font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--slate);text-transform:uppercase;margin-bottom:8px">(1) Product Received</p>
+        ${subHead('(1) Product Received')}
         <div class="dl">
-          <dt>Tonnes (economic)</dt><dd>${fmt.mt(pd.productReceived.tonnes)}</dd>
-          <dt>Valued at ex-ship landed</dt><dd>${fmt.usd(pd.productReceived.valuedAtExShipLandedCost ?? pd.productReceived.valuedAtLandedCost)}</dd>
-          <dt>= Principal at par</dt><dd><b>${fmt.usd(res.financing.partnerFunding)}</b></dd>
+          <dt>Tonnes (economic)</dt><dd>${fmt.mt(pd.productReceived ? pd.productReceived.tonnes : null)}</dd>
+          <dt>Valued at ex-ship landed</dt><dd>${fmt.usd(pd.productReceived ? (pd.productReceived.valuedAtExShipLandedCost ?? pd.productReceived.valuedAtLandedCost) : null)}</dd>
+          <dt>= Principal at par</dt><dd><b>${fmt.usd(f.partnerFunding)}</b></dd>
         </div>
 
         <div class="separator"></div>
 
-        <p style="font-family:var(--f-display);font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--slate);text-transform:uppercase;margin-bottom:8px">(2) Cash Received</p>
+        ${subHead('(2) Cash Received')}
         <div class="dl">
-          <dt>Profit share (${fmt.pct(res.profit.profitSharePct)})</dt><dd>${fmt.usd(pd.cashReceived.profitShare)}</dd>
-          ${pd.cashReceived.principalCashPortion > 0 ? `<dt>Principal (cash portion)</dt><dd>${fmt.usd(pd.cashReceived.principalCashPortion)}</dd>` : ''}
-          ${pd.cashReceived.settlementTrueUp != null ? `<dt>Settlement true-up</dt><dd>${fmt.usd(pd.cashReceived.settlementTrueUp)}</dd>` : ''}
+          <dt>Profit share (${fmt.pct(res.profit.profitSharePct)})</dt><dd>${fmt.usd(pd.cashReceived ? pd.cashReceived.profitShare : null)}</dd>
+          ${pd.cashReceived && pd.cashReceived.principalCashPortion > 0 ? `<dt>Principal (cash portion)</dt><dd>${fmt.usd(pd.cashReceived.principalCashPortion)}</dd>` : ''}
+          <dt>Settlement true-up</dt><dd>${fmt.usd(pd.cashReceived ? pd.cashReceived.settlementTrueUp : null)}</dd>
+        </div>
+
+        <div class="separator"></div>
+
+        ${subHead('Funding Stack')}
+        <div class="dl">
+          <dt>Partner bond (${fmt.pct(f.pct.bondPct)})</dt><dd>${fmt.usd(f.performanceBond)}</dd>
+          <dt>Partner equity (${fmt.pct(f.pct.equityPct)})</dt><dd>${fmt.usd(f.equity)}</dd>
+          <dt>Bank LC (${fmt.pct(f.pct.lcPct)})</dt><dd>${fmt.usd(f.lc)}</dd>
         </div>
 
         ${res.quantities.paper ? `
         <div class="separator"></div>
-        <p style="font-family:var(--f-display);font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--slate);text-transform:uppercase;margin-bottom:8px">Paper vs Economic Quantities</p>
+        ${subHead('Paper vs Economic Quantities')}
         <div class="dl">
           <dt>Partner (economic)</dt><dd>${fmt.mt(res.quantities.economic.partnerTonnes)}</dd>
           <dt>Partner (paper, nearest 50)</dt><dd>${fmt.mt(res.quantities.paper.partnerPaper, 0)} <span class="muted" style="font-size:11px">↓ (TIS favour)</span></dd>
@@ -1043,24 +1123,27 @@ function partnerAndHedge(trade, res) {
           <dt>Settlement cash true-up</dt><dd>${fmt.usd(res.quantities.paper.cashTrueUp)}</dd>
         </div>` : ''}
 
-        <div class="partner-tie">
-          Principal tie-out: owed <b>${fmt.usd(pd.principalTie.owed)}</b>
+        ${pd.principalTie ? `<div class="partner-tie">
+          Principal tie-out: owed <b>${fmt.usd(f.partnerFunding)}</b>
           = product <b>${fmt.usd(pd.principalTie.returnedProductValue)}</b>
           + cash <b>${fmt.usd(pd.principalTie.returnedCash)}</b>
           &nbsp;
           <span class="${pd.principalTie.ok ? 'tie-ok' : 'warn'}">${pd.principalTie.ok ? '&#10003; OK' : '&#9888; MISMATCH'}</span>
-        </div>
+        </div>` : ''}
       </div>
     </div>
-  </div>` : `
-  <div class="section">
-    <h2 class="section-heading">Partner Deliverables</h2>
-    <div class="card"><div class="card-body muted">${esc((pd||{}).note || 'TIS self-funded — no partner.')}</div></div>
   </div>`;
 
   const iceOn  = !!(trade.hedge && trade.hedge.iceHedged);
   const fxOn   = !!(trade.fxHedge && trade.fxHedge.fxHedged);
   const hc     = res.hedgeComparison || null;
+  const hedges = res.hedges || {};
+
+  // Settlement ICE (item 7): when market.ice.final is set, the purchase floats to it; relabel the
+  // live-ICE row + surface realized swap P&L.
+  const finalSet = !!(trade.market && trade.market.ice && trade.market.ice.final != null);
+  const effIce   = h.liveIce || (trade.market && trade.market.ice ? trade.market.ice.value : null);
+  const iceRouteLbl = routeLabel(h.route, false);
 
   const hedgeHtml = `
   <div class="section" aria-labelledby="hedge-heading">
@@ -1068,50 +1151,60 @@ function partnerAndHedge(trade, res) {
     <div class="card">
       <div class="card-body">
 
-        <p style="font-family:var(--f-display);font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--slate);text-transform:uppercase;margin-bottom:8px">ICE Gasoil Swap</p>
+        ${subHead('ICE Gasoil Swap')}
         <div class="${iceOn ? 'hedge-toggle hedge-on' : 'hedge-toggle hedge-off'}">
           <span class="dot">${iceOn ? '&#10003;' : '&times;'}</span>
           ${iceOn ? 'HEDGED' : 'UNHEDGED'} — Toggle ${iceOn ? 'ON' : 'OFF'}
         </div>
         <div class="dl">
-          <dt>Route</dt><dd>${esc(h.route)}</dd>
+          <dt>Route</dt><dd>${esc(iceRouteLbl)}</dd>
           <dt>Lots</dt><dd>${h.lots || 0} (${fmt.mt(h.hedgedTonnes)})</dd>
           <dt>Comparison basis</dt><dd>${fmt.mt(h.comparisonBasisTonnes)} TIS retained</dd>
           <dt>Fixed price</dt><dd>${h.fixedPrice ? fmt.usd(h.fixedPrice) + '/MT' : '—'} ${badge('PLACEHOLDER')}</dd>
-          <dt>Live ICE</dt><dd>${fmt.usd(h.liveIce)}/MT</dd>
+          <dt>${finalSet ? 'Settlement ICE (final)' : 'Live ICE'}</dt><dd>${fmt.usd(effIce)}/MT ${finalSet ? badge('SETTLEMENT') : ''}</dd>
           <dt>Effective ICE cost</dt><dd>${fmt.usd(h.effectiveIceCost)}</dd>
           <dt>Unhedged ICE cost</dt><dd>${fmt.usd(h.unhedgedIceCost)}</dd>
           <dt>ICE cost delta</dt><dd class="${signClass(-h.iceCostDelta)}">${fmt.usd(h.iceCostDelta)}</dd>
+          ${finalSet ? `<dt>Realized hedge P&amp;L</dt><dd>${usdSign(hedges.iceHedgeNetImpact)}${iceOn ? '' : ' (OFF — not applied)'}</dd>` : ''}
           <dt>Swap fee</dt><dd>${fmt.usd(h.swapFee)} ${badge('PLACEHOLDER')}</dd>
           <dt>Bank-provided margin</dt><dd>${fmt.usd(h.bankProvidedMargin)}</dd>
           <dt>Extra financing cost</dt><dd>${fmt.usd(h.extraFinancingCost)}</dd>
         </div>
-        ${hc ? `
+        ${finalSet ? `<p class="legal-ref" style="margin-top:8px">Realized at settlement ICE <b>${fmt.usd(effIce)}/MT</b>: the purchase floats to this price (landed cost recomputed) and the swap settles (final − fixed) × hedged tonnes on TIS's retained tonnes only.</p>` : ''}
+        ${hc && hc.ice ? `
         <div style="margin-top:14px;padding:12px;background:var(--bg);border-radius:8px;font-size:12px;font-family:var(--f-body);">
           <b>Hedged vs Unhedged:</b>
           TIS net hedged ${fmt.usd(hc.ice.hedgedTisNet)} &nbsp;|&nbsp;
           unhedged ${fmt.usd(hc.ice.unhedgedTisNet)} &nbsp;|&nbsp;
-          hedge worth <b>${fmt.usd(hc.ice.hedgeWorthItVsUnhedged)}</b>
+          hedge worth <b>${usdSign(hc.ice.hedgeWorthItVsUnhedged)}</b>
         </div>` : ''}
         <p class="legal-ref" style="margin-top:10px">${badge(h.status || '')} All hedge params are PLACEHOLDER — confirm with bank/broker before any live hedge.</p>
 
         <div class="separator" style="margin:18px 0"></div>
 
-        <p style="font-family:var(--f-display);font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--slate);text-transform:uppercase;margin-bottom:8px">FX Hedge (Naira Exposure)</p>
+        ${subHead('FX Hedge (Naira Exposure)')}
         <div class="${fxOn ? 'hedge-toggle hedge-on' : 'hedge-toggle hedge-off'}">
           <span class="dot">${fxOn ? '&#10003;' : '&times;'}</span>
           ${fxOn ? 'HEDGED' : 'UNHEDGED'} — Toggle ${fxOn ? 'ON' : 'OFF'}
         </div>
-        ${res.fxHedge ? (() => {
+        ${(() => {
           const fh = res.fxHedge;
-          if (!fh.hasExposure) return `<p class="muted" style="font-size:12px">No naira exposure in this trade — FX hedge is a no-op.</p>`;
+          if (!fh) return `<p class="muted" style="font-size:12px">No FX hedge in this trade flow — no naira legs.</p>`;
+          if (fh.noHedgeReason) return `<div class="dl"><dt>Note</dt><dd>${esc(fh.noHedgeReason)}</dd></div>`;
+          const fxRouteLbl = routeLabel((trade.fxHedge || {}).route, true);
           return `<div class="dl">
-            <dt>Benchmark</dt><dd>${esc(fh.benchmark)}</dd>
-            <dt>Exposure (NGN)</dt><dd>${fmt.ngn(fh.exposureNgn)}</dd>
-            <dt>Hedge ratio</dt><dd>${fmt.pct(fh.hedgeRatio || 1)}</dd>
+            <dt>Benchmark</dt><dd>${esc(fh.benchmark || '—')}</dd>
+            <dt>Route</dt><dd>${esc(fxRouteLbl)}</dd>
+            <dt>Bank-repayment hedge base</dt><dd>${fmt.num(fh.exposureNgn, 0)} ₦${fh.bankRepaymentUsd ? ` (= ${fmt.usd(fh.bankRepaymentUsd)} @ NAFEM)` : ''}</dd>
+            <dt>Hedge ratio</dt><dd>${fmt.pct(fh.hedgeRatio || 0)}</dd>
+            <dt>Forward rate</dt><dd>${fh.forwardRate ? fmt.num(fh.forwardRate, 0) + ' ₦/USD' : badge('PLACEHOLDER')}</dd>
+            <dt>FX realized delta</dt><dd>${usdSign(fh.fxRealizedDeltaUsd || 0)}${fxOn ? '' : ' (OFF)'}</dd>
+            <dt>FX hedge cost</dt><dd>${fmt.usd(fh.extraFinancingCost || 0)}</dd>
+            ${fh.basis ? `<dt>Basis risk (benchmark vs NAFEM)</dt><dd>${fmt.num(fh.basis.gapNgnPerUsd, 2)} ₦/USD residual</dd>` : ''}
           </div>
-          ${fh.basis ? `<p class="warn" style="font-size:12px;margin-top:8px">⚠ Basis risk: ${esc(fh.basis.note || '')}</p>` : ''}`;
-        })() : `<p class="muted" style="font-size:12px">No FX hedge in this trade flow — no naira legs.</p>`}
+          ${fh.basis ? `<p class="warn" style="font-size:12px;margin-top:8px">⚠ ${esc(fh.basis.note || '')}</p>` : ''}
+          <p class="legal-ref" style="margin-top:8px">FX hedge covers the naira needed to repay the bank's USD facility (principal + interest). Naira profit is retained in naira and not hedged.</p>`;
+        })()}
       </div>
     </div>
   </div>`;
@@ -1125,45 +1218,43 @@ function partnerAndHedge(trade, res) {
 </section>`;
 }
 
-function pricingLadder(ladder) {
+function pricingLadder(ladder, res) {
+  // Show only the ladders relevant to the trade's legs (mirror the dashboard's renderLadder gating).
+  // res.channels is present on unified/depot/ex-ship flows; the legacy equity-partner flow omits it and
+  // is always ex-ship-only.
+  const ch = (res && res.channels) || null;
+  const hasExShip = ch ? ch.exShipPct > 0 : true;
+  const depotApplicable = !!(ladder.depot && ladder.depot.applicable && ladder.depot.tiers && ladder.depot.tiers.length);
+  const bothLadders = hasExShip && depotApplicable;
+  const depotNote = depotApplicable ? null : (ladder.depot && ladder.depot.note);
+
+  const ladderSub = (txt) => `<h3 style="font-family:var(--f-display);font-size:13px;font-weight:600;letter-spacing:.01em;color:var(--ink);margin:18px 0 8px">${txt}</h3>`;
+
+  // ----- Ex-Ship $/MT ladder (margin-of-sell tiers) -----
+  let exShipBlock = '';
   const ex = ladder.exShip;
-  const tiers = ex.tiers;
-  const current = ex.current;
-  const depotNote = ladder.depot.applicable ? null : ladder.depot.note;
-
-  const rows = tiers.map(t => {
-    const isCurrent = current && Math.abs(t.pricePerMT - current.pricePerMT) < 0.01;
-    const cls = isCurrent ? 'ladder-current' : '';
-    return `
-    <tr class="${cls}">
-      <td class="ladder-tier-name">${isCurrent ? '&#9658; ' : ''}${esc(t.name)}</td>
-      <td class="r">${fmt.pct(t.marginOfSell)}</td>
-      <td class="r"><b>${fmt.usd(t.pricePerMT)}</b>/MT</td>
-      <td class="r">${fmt.usd(t.spreadPerMT)}/MT</td>
-      <td class="r">${fmt.pct(t.markupPctOnCost)}</td>
-      <td class="r">${t.spreadNgnPerL != null ? '&#8358;' + fmt.num(t.spreadNgnPerL) + '/L' : '—'}</td>
-      <td class="r">${fmt.usd(t.tisNetProfit)}</td>
-    </tr>`;
-  }).join('');
-
-  const costBase = fmt.usd(ex.costBasePerMT);
-
-  return `
-<section class="section" aria-labelledby="ladder-heading">
-  <h2 class="section-heading" id="ladder-heading">Pricing Ladder (Ex-Ship)</h2>
-  <div class="card">
-    <p class="ladder-disclaimer">&#9888; ${esc(ladder.disclaimer)}</p>
+  const current = ex && ex.current;
+  if (hasExShip && ex && ex.tiers && ex.tiers.length) {
+    const rows = ex.tiers.map(t => {
+      const isCurrent = current && Math.abs(t.pricePerMT - current.pricePerMT) < 0.01;
+      return `
+      <tr class="${isCurrent ? 'ladder-current' : ''}">
+        <td class="ladder-tier-name">${isCurrent ? '&#9658; ' : ''}${esc(t.name)}</td>
+        <td class="r">${fmt.pct(t.marginOfSell)}</td>
+        <td class="r"><b>${fmt.usd(t.pricePerMT)}</b>/MT</td>
+        <td class="r">${fmt.usd(t.spreadPerMT)}/MT</td>
+        <td class="r">${fmt.pct(t.markupPctOnCost)}</td>
+        <td class="r">${t.spreadNgnPerL != null ? '&#8358;' + fmt.num(t.spreadNgnPerL) + '/L' : '—'}</td>
+        <td class="r ${t.tisNetProfit >= 0 ? 'pos' : 'neg'}">${fmt.usd(t.tisNetProfit)}</td>
+      </tr>`;
+    }).join('');
+    exShipBlock = `${bothLadders ? ladderSub('Ex-Ship $/MT Ladder') : ''}
     <div class="tbl-wrap">
       <table aria-label="Ex-ship pricing ladder">
         <thead>
           <tr>
-            <th>Tier</th>
-            <th class="r">Margin % Sell</th>
-            <th class="r">Price $/MT</th>
-            <th class="r">Spread $/MT</th>
-            <th class="r">Markup % Cost</th>
-            <th class="r">Spread ₦/L</th>
-            <th class="r">TIS Net</th>
+            <th>Tier</th><th class="r">Margin % Sell</th><th class="r">Price $/MT</th>
+            <th class="r">Spread $/MT</th><th class="r">Markup % Cost</th><th class="r">Spread ₦/L</th><th class="r">TIS Net</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -1176,11 +1267,70 @@ function pricingLadder(ladder) {
       Markup ${fmt.pct(current.markupPctOnCost)} on cost &middot;
       Spread ${fmt.usd(current.spreadPerMT)}/MT &middot;
       Tier: <b>${esc(current.nearestTier)}</b>
-    </div>` : ''}
-    <div class="card-footer" style="border-top: 1px solid var(--border)">
-      Cost base: ${costBase}/MT (ex-ship landed, excl. storage)
-      ${depotNote ? `&nbsp;&middot;&nbsp; Depot: ${esc(depotNote)}` : ''}
-    </div>
+    </div>` : ''}`;
+  }
+
+  // ----- Depot ₦/L ladder (absolute-spread tiers; native naira) -----
+  let depotBlock = '';
+  if (depotApplicable) {
+    const curDepot = (res && res.price) ? res.price.depotPriceNgnPerL : null;
+    const depotRows = ladder.depot.tiers.map(t => {
+      const isCur = curDepot != null && isFinite(curDepot) && Math.abs(t.priceNgnPerL - curDepot) < 0.005;
+      const net = (t.tisNetProfit == null)
+        ? '<span class="muted">PENDING</span>'
+        : `<span class="${t.tisNetProfit >= 0 ? 'pos' : 'neg'}">${fmt.usd(t.tisNetProfit)}</span>`;
+      return `
+      <tr class="${isCur ? 'ladder-current' : ''}">
+        <td class="ladder-tier-name">${isCur ? '&#9658; ' : ''}${esc(t.name)}</td>
+        <td class="r"><b>&#8358;${fmt.num(t.priceNgnPerL, 2)}</b>/L</td>
+        <td class="r">&#8358;${fmt.num(t.spreadNgnPerL, 0)}/L</td>
+        <td class="r">${fmt.pct(t.marginPctOfSell)}</td>
+        <td class="r">${fmt.pct(t.markupPctOnCost)}</td>
+        <td class="r">${net}</td>
+      </tr>`;
+    }).join('');
+    depotBlock = `${ladderSub('Depot ₦/L Ladder')}
+    <div class="tbl-wrap">
+      <table aria-label="Depot pricing ladder">
+        <thead>
+          <tr>
+            <th>Tier</th><th class="r">Price ₦/L</th><th class="r">Spread ₦/L</th>
+            <th class="r">Margin %</th><th class="r">Markup % Cost</th><th class="r">TIS Net</th>
+          </tr>
+        </thead>
+        <tbody>${depotRows}</tbody>
+      </table>
+    </div>`;
+  }
+
+  // ----- Cross-leg comparison (only when BOTH legs actually exist) -----
+  let compBlock = '';
+  const cmp = ladder.comparison;
+  if (bothLadders && cmp && cmp.applicable && cmp.exShip && cmp.depot) {
+    const winner = cmp.depotEarnsMoreAbsolute ? 'Depot' : 'Ex-ship';
+    compBlock = `
+    <div class="card-footer" style="border-top:1px solid var(--border)">
+      <b>Cross-leg spread</b> (common ₦/L): Ex-ship <b>${esc(cmp.exShip.tier)}</b> ${fmt.num(cmp.exShip.spreadNgnPerL, 1)} ₦/L
+      vs Depot <b>${esc(cmp.depot.tier)}</b> ${fmt.num(cmp.depot.spreadNgnPerL, 1)} ₦/L — <b>${winner}</b> earns the larger absolute spread.
+      ${cmp.rationale ? `<div class="muted" style="font-size:11px;margin-top:4px">${esc(cmp.rationale)}</div>` : ''}
+    </div>`;
+  }
+
+  // ----- Footer: landed-cost bases in native units -----
+  const footerParts = [];
+  if (hasExShip && ex) footerParts.push(`Ex-ship landed: <b>${fmt.usd(ex.costBasePerMT)}/MT</b> (excl. storage)`);
+  if (depotApplicable && ladder.depot.costBaseNgnPerL != null) footerParts.push(`Depot landed: <b>${fmt.num(ladder.depot.costBaseNgnPerL, 2)} ₦/L</b>`);
+  if (depotNote) footerParts.push(`Depot: ${esc(depotNote)}`);
+
+  return `
+<section class="section" aria-labelledby="ladder-heading">
+  <h2 class="section-heading" id="ladder-heading">Pricing Ladder <span class="muted" style="font-size:11px;font-weight:400;letter-spacing:0;text-transform:none">— advisory only</span></h2>
+  <div class="card">
+    <p class="ladder-disclaimer">&#9888; ${esc(ladder.disclaimer)}</p>
+    ${exShipBlock}
+    ${depotBlock}
+    ${compBlock}
+    ${footerParts.length ? `<div class="card-footer" style="border-top: 1px solid var(--border)">${footerParts.join(' &nbsp;&middot;&nbsp; ')}</div>` : ''}
   </div>
 </section>`;
 }
@@ -1334,7 +1484,7 @@ ${headerSection(logo, trade, res)}
   ${costAndTax(trade, res)}
   ${profitWaterfall(res)}
   ${partnerAndHedge(trade, res)}
-  ${pricingLadder(ladder)}
+  ${pricingLadder(ladder, res)}
   ${sensitivitiesSection(res.sensitivities)}
 </main>
 ${footerSection(generatedAt, res)}

@@ -56,7 +56,10 @@ function main() {
 
   const res       = compute(trade, {});
   const isUnified = res.channels !== undefined;
-  res.sensitivities = runSensitivities(trade, (t) => compute(t, {}), isUnified ? { fxMode: 'parallel' } : {});
+  // RULE 1 (2026-06-23): NAFEM drives naira P&L, so the live FX sensitivity lever is NAFEM — matching
+  // the dashboard's recompute() (was 'parallel'). Non-unified (all-USD ex-ship / equity-partner) flows
+  // have no naira leg, so the FX lever is inert there and the default opts ({}) are kept.
+  res.sensitivities = runSensitivities(trade, (t) => compute(t, {}), isUnified ? { fxMode: 'nafem' } : {});
   const ladder    = buildLadder(trade, compute, res);
   const generatedAt = new Date().toISOString().replace('T',' ').slice(0,16) + ' UTC';
 
