@@ -2344,6 +2344,8 @@ function renderPartner(trade, res) {
         <div class="info-block">
           <div class="info-sub">(2) Cash Received</div>
           \${infoRow('Profit share ('+fmtPct(res.profit.profitSharePct)+')', fmtUsd(pd.cashReceived?.profitShare))}
+          \${pd.cashReceived?.principalCashPortion > 0 ? infoRow('Principal cash portion', fmtUsd(pd.cashReceived?.principalCashPortion)) : ''}
+          \${infoRow('Settlement true-up', fmtUsd(pd.cashReceived?.settlementTrueUp))}
         </div>
       </div>
       <div>
@@ -2362,7 +2364,7 @@ function renderPartner(trade, res) {
       </div>
     </div>
     <div class="tie-out-box\${pd.principalTie?.ok ? ' tie-ok' : ' tie-warn'}">
-      Principal tie-out: owed <b>\${fmtUsd(res.financing.partnerFunding)}</b> = product <b>\${fmtUsd(pd.productReceived?.valuedAtExShipLandedCost)}</b> + cash <b>\${fmtUsd(pd.cashReceived?.principalCashPortion)}</b>
+      Principal tie-out: owed <b>\${fmtUsd(res.financing.partnerFunding)}</b> = product <b>\${fmtUsd(pd.principalTie?.returnedProductValue)}</b> + cash <b>\${fmtUsd(pd.principalTie?.returnedCash)}</b>
       \${pd.principalTie?.ok ? ' <span class="bdg bdg-recoverable">&#10003; OK</span>' : ' <span class="bdg bdg-confirm">MISMATCH</span>'}
     </div>
   </div>

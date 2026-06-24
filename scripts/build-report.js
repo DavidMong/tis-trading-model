@@ -1066,6 +1066,7 @@ function partnerAndHedge(trade, res) {
         <div class="dl">
           <dt>Profit share (${fmt.pct(res.profit.profitSharePct)})</dt><dd>${fmt.usd(pd.cashReceived.profitShare)}</dd>
           ${pd.cashReceived.principalCashPortion > 0 ? `<dt>Principal (cash portion)</dt><dd>${fmt.usd(pd.cashReceived.principalCashPortion)}</dd>` : ''}
+          ${pd.cashReceived.settlementTrueUp != null ? `<dt>Settlement true-up</dt><dd>${fmt.usd(pd.cashReceived.settlementTrueUp)}</dd>` : ''}
         </div>
 
         ${res.quantities.paper ? `
