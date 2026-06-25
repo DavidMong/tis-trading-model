@@ -84,8 +84,9 @@ function handleReportPdf(req, res) {
     try {
       const trade = JSON.parse(body);
       const browser = await getBrowser();
-      const { pdf, tradeId } = await renderTradePdf(trade, { browser });
-      const fname = `${(tradeId || 'trade').replace(/[^A-Za-z0-9._-]/g, '_')}.pdf`;
+      // fileName is the LIVE-trade-name slug (build-report-pdf.js), never the fixture tradeId.
+      const { pdf, fileName } = await renderTradePdf(trade, { browser });
+      const fname = (fileName || 'trade.pdf').replace(/[^A-Za-z0-9._-]/g, '_');
       res.writeHead(200, {
         'Content-Type': 'application/pdf',
         'Content-Disposition': `attachment; filename="${fname}"`,

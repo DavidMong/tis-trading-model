@@ -3559,7 +3559,9 @@ async function downloadReport() {
     const blob = await resp.blob();
     const cd = resp.headers.get('Content-Disposition') || '';
     const m = /filename="?([^"]+)"?/.exec(cd);
-    const fname = (m && m[1]) || ((_lastRes.meta.tradeId || 'trade') + '.pdf');
+    // Server names the file from the live trade name (slug); this slug is only the offline fallback.
+    const slug = String(tradeName || '').replace(/\s*\([^)]*(?:REGRESSION|FIXTURE|dummy|test|sample|EXAMPLE)[^)]*\)/gi,'').trim().replace(/[^\w\s-]/g,' ').trim().replace(/[\s_]+/g,'-').replace(/-+/g,'-').replace(/^-+|-+$/g,'').slice(0,80) || 'trade';
+    const fname = (m && m[1]) || (slug + '.pdf');
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = fname;

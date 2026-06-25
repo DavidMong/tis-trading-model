@@ -15,22 +15,37 @@
 const fs   = require('node:fs');
 const path = require('node:path');
 
-const { computeEquityPartner }   = require('../engine/flows/equity-partner');
-const { computeStraightExship }  = require('../engine/flows/straight-exship');
-const { computeFullDepotResale } = require('../engine/flows/full-depot-resale');
-const { computeTrade }           = require('../engine/flows/trade');
-const { runSensitivities }       = require('../engine/core/sensitivities');
-const { buildLadder }            = require('../engine/core/pricing-ladder');
+// The report renders through the SAME engine call the dashboard uses — `computeTrade`
+// (the unified flow) UNCONDITIONALLY — never the per-trade `meta.flow` dispatch. The
+// dashboard bundles only computeTrade and ignores meta.flow; the report must mirror it so
+// the PDF is a faithful copy of the screen. `computeTrade` reproduces every legacy flow's
+// P&L exactly for its own configuration (asserted FX1 / the computeTrade==computeEquityPartner
+// invariant), so the reference trade stays byte-for-byte identical. The engine is not edited.
+const { computeTrade }     = require('../engine/flows/trade');
+const { runSensitivities } = require('../engine/core/sensitivities');
+const { buildLadder }      = require('../engine/core/pricing-ladder');
 const { generatePdfHtml, generateCoverHtml } = require('./report-pdf-renderer');
 
-const FLOWS = {
-  'equity-partner':    computeEquityPartner,
-  'straight-exship':   computeStraightExship,
-  'full-depot-resale': computeFullDepotResale,
-  trade:               computeTrade,
-};
-
 const ROOT = path.join(__dirname, '..');
+
+// Filename slug — derived from the LIVE trade name (never the stale fixture meta.tradeId).
+// Drops the parenthetical fixture/dummy caveat, then keeps word chars + hyphens, collapsing
+// everything else to single hyphens. Falls back to 'trade' when the name is blank.
+function slugifyTradeName(name) {
+  const base = String(name || '')
+    .replace(/\s*\([^)]*(?:REGRESSION|FIXTURE|dummy|test|sample|EXAMPLE)[^)]*\)/gi, '')
+    .trim();
+  const slug = base
+    .normalize('NFKD')
+    .replace(/[^\w\s-]/g, ' ')
+    .trim()
+    .replace(/[\s_]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80)
+    .replace(/-+$/g, '');
+  return slug || 'trade';
+}
 
 // Title shown in the running header — strip the parenthetical fixture/dummy caveat,
 // matching the cover/dashboard. Kept here (not imported) so the header template is
@@ -41,42 +56,18 @@ function headerTitle(name) {
     .trim() || 'Trade';
 }
 
-// ─── Compute (mirrors build-report.js exactly) ────────────────────────────────
+// ─── Compute — IDENTICAL to the dashboard's recompute() ───────────────────────
+// Mirrors scripts/build-interactive.js recompute() call-for-call: unconditional
+// computeTrade(trade, {}), sensitivities on the NAFEM lever (RULE 1) with the
+// hedge-compare recursion guard, and the ladder through the same guarded fn. No
+// meta.flow dispatch — so the PDF reflects exactly what the screen computed.
 function computeForReport(trade) {
-  const flow    = trade.meta.flow;
-  const compute = FLOWS[flow];
-  if (!compute) throw new Error(`Unknown flow: ${flow}`);
-
-  const res = compute(trade, {});
-
-  // Annualised-return PARITY WITH THE DASHBOARD. The dashboard bundles ONLY the unified
-  // computeTrade, which surfaces the canonical annualised return on the BANK LC MOBILISED
-  // (RULE 2026-06-23 — `financing.lc`, label "bank LC mobilised"). The legacy `equity-partner`
-  // flow (the verified reference path, kept byte-for-byte) still emits the DEPRECATED
-  // cargo-based `tisAnnualisedReturnOnCargo` instead, so its report would otherwise show a
-  // different figure than the screen. To make the PDF match the dashboard EXACTLY without
-  // touching the engine, graft the single annualised-return display field from computeTrade —
-  // which reproduces this flow's P&L exactly (asserted FX1 / the computeTrade==computeEquityPartner
-  // invariant) — and drop the stale cargo value. Every other number stays from the verified
-  // flow; the engine, its outputs and the fingerprint are untouched.
-  if (res.tisAnnualisedReturn == null && res.financing && res.financing.capitalLockupDays) {
-    try {
-      const unified = computeTrade(trade, {});
-      if (unified && unified.tisAnnualisedReturn != null) {
-        res.tisAnnualisedReturn   = unified.tisAnnualisedReturn;
-        res.annualReturnBase      = unified.annualReturnBase;
-        res.annualReturnBaseLabel = unified.annualReturnBaseLabel;
-        delete res.tisAnnualisedReturnOnCargo;
-      }
-    } catch (e) { /* unified flow unavailable for this trade — keep the verified-flow result as-is */ }
-  }
-
-  const isUnified = res.channels !== undefined;
-  // RULE 1: NAFEM drives naira P&L, so the live FX sensitivity lever is NAFEM for unified
-  // flows; all-USD flows have no naira leg, so default opts ({}) are kept. Identical to
-  // build-report.js so sensitivities match the static HTML report byte-for-byte.
-  res.sensitivities = runSensitivities(trade, (t) => compute(t, {}), isUnified ? { fxMode: 'nafem' } : {});
-  const ladder = buildLadder(trade, compute, res);
+  const res = computeTrade(trade, {});
+  // RULE 1 (2026-06-23): NAFEM drives naira P&L, so the live FX sensitivity lever is NAFEM —
+  // matching the dashboard. `skipHedgeCompare` is the same recursion guard recompute() passes.
+  const fn = (t) => computeTrade(t, { skipHedgeCompare: true });
+  res.sensitivities = runSensitivities(trade, fn, { fxMode: 'nafem' });
+  const ladder = buildLadder(trade, fn, res);
   return { res, ladder };
 }
 
@@ -176,11 +167,13 @@ async function renderTradePdf(trade, opts = {}) {
     const bodyIdx  = fullDoc.getPageIndices().slice(1);   // drop the headered cover
     const bodyPages = await out.copyPages(fullDoc, bodyIdx);
     bodyPages.forEach((p) => out.addPage(p));
-    out.setTitle(`${res.meta.tradeId} — Commercial Trade Analysis`);
+    out.setTitle(`${res.meta.tradeName || res.meta.tradeId} — Commercial Trade Analysis`);
     out.setAuthor('TIS Global Trading');
     const pdf = Buffer.from(await out.save());
 
-    return { pdf, res, tradeId: res.meta.tradeId };
+    // Filename reflects the LIVE trade name (slugified), NOT the stale fixture meta.tradeId.
+    const fileName = slugifyTradeName(res.meta.tradeName) + '.pdf';
+    return { pdf, res, tradeId: res.meta.tradeId, fileName };
   } finally {
     if (ownBrowser) await browser.close();
   }
@@ -191,15 +184,14 @@ async function main() {
   const tradeFile = process.argv[2] || path.join(ROOT, 'trades', 'reference-trade-001.json');
   const trade = JSON.parse(fs.readFileSync(path.resolve(tradeFile), 'utf8'));
 
-  const { res } = computeForReport(trade);   // resolve tradeId for the default out name
+  const { pdf, fileName } = await renderTradePdf(trade);
   const outPath = process.argv[3]
     ? path.resolve(process.argv[3])
-    : path.join(ROOT, 'out', `${res.meta.tradeId}.pdf`);
+    : path.join(ROOT, 'out', fileName);   // default out name = live-trade slug
 
   const dir = path.dirname(outPath);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-  const { pdf } = await renderTradePdf(trade);
   fs.writeFileSync(outPath, pdf);
   console.log(`PDF → ${outPath}  (${(pdf.length / 1024).toFixed(0)} KB)`);
 }

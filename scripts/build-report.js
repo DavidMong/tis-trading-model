@@ -3,20 +3,13 @@
 const fs   = require('node:fs');
 const path = require('node:path');
 
-const { computeEquityPartner }  = require('../engine/flows/equity-partner');
-const { computeStraightExship } = require('../engine/flows/straight-exship');
-const { computeFullDepotResale }= require('../engine/flows/full-depot-resale');
+// The report renders through computeTrade UNCONDITIONALLY (like the dashboard), never the
+// per-trade meta.flow dispatch — so it mirrors the screen. computeTrade reproduces every legacy
+// flow's P&L for its own config (FX1), so the reference report is byte-for-byte identical.
 const { computeTrade }          = require('../engine/flows/trade');
 const { runSensitivities }      = require('../engine/core/sensitivities');
 const { buildLadder }           = require('../engine/core/pricing-ladder');
 const { generateHtml, reportCss } = require('./report-renderer');
-
-const FLOWS = {
-  'equity-partner':    computeEquityPartner,
-  'straight-exship':   computeStraightExship,
-  'full-depot-resale': computeFullDepotResale,
-  trade:               computeTrade,
-};
 
 const ROOT = path.join(__dirname, '..');
 const OUT  = path.join(ROOT, 'out');
@@ -50,17 +43,17 @@ function readLogo() {
 function main() {
   const tradeFile = process.argv[2] || path.join(ROOT, 'trades', 'sample-equity-partner.json');
   const trade     = loadTrade(tradeFile);
-  const flow      = trade.meta.flow;
-  const compute   = FLOWS[flow];
-  if (!compute) { console.error(`Unknown flow: ${flow}`); process.exit(1); }
 
-  const res       = compute(trade, {});
-  const isUnified = res.channels !== undefined;
-  // RULE 1 (2026-06-23): NAFEM drives naira P&L, so the live FX sensitivity lever is NAFEM — matching
-  // the dashboard's recompute() (was 'parallel'). Non-unified (all-USD ex-ship / equity-partner) flows
-  // have no naira leg, so the FX lever is inert there and the default opts ({}) are kept.
-  res.sensitivities = runSensitivities(trade, (t) => compute(t, {}), isUnified ? { fxMode: 'nafem' } : {});
-  const ladder    = buildLadder(trade, compute, res);
+  // Render through the SAME engine call the dashboard uses — computeTrade UNCONDITIONALLY,
+  // never the per-trade meta.flow dispatch — so the static report mirrors the screen exactly.
+  // computeTrade reproduces every legacy flow's P&L for its own config (FX1), so the reference
+  // report is byte-for-byte identical; it natively emits the canonical bank-LC annualised return.
+  const res       = computeTrade(trade, {});
+  // RULE 1 (2026-06-23): NAFEM drives naira P&L → FX sensitivity lever is NAFEM. `skipHedgeCompare`
+  // is the recursion guard the dashboard's recompute() passes.
+  const fn        = (t) => computeTrade(t, { skipHedgeCompare: true });
+  res.sensitivities = runSensitivities(trade, fn, { fxMode: 'nafem' });
+  const ladder    = buildLadder(trade, fn, res);
   const generatedAt = new Date().toISOString().replace('T',' ').slice(0,16) + ' UTC';
 
   if (!fs.existsSync(OUT)) fs.mkdirSync(OUT, { recursive: true });

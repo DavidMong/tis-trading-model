@@ -280,10 +280,9 @@ function coverPage(trade, res, generatedAt) {
 function executiveSummary(trade, res) {
   const isTisFunded = res.equityProvider === 'TIS';
   const tisNet      = res.profit.tisNetProfit;
-  // Prefer the canonical bank-LC-mobilised return (RULE 2026-06-23); fall back to the legacy
-  // cargo-based field only if the bank-LC one is absent. The builder grafts the bank-LC value
-  // onto legacy equity-partner results, so this normally resolves to the dashboard figure.
-  const annRet      = res.tisAnnualisedReturn ?? res.tisAnnualisedReturnOnCargo;
+  // The report runs through computeTrade (like the dashboard), which emits the canonical
+  // annualised return on the BANK LC MOBILISED (RULE 2026-06-23) natively — read it directly.
+  const annRet      = res.tisAnnualisedReturn;
   const annBase     = res.annualReturnBaseLabel || 'bank LC mobilised';
   const lockup      = res.financing.capitalLockupDays;
   const exShipLanded= res.price.exShipLandedPerMT ?? res.price.landedCostPerMT;
