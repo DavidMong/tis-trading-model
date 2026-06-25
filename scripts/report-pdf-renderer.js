@@ -129,7 +129,7 @@ h1, h2, h3 { font-weight: 600; letter-spacing: -0.01em; line-height: 1.2; }
 }
 .cover-tradename { font-size: 15pt; font-weight: 400; color: var(--slate); margin-top: 12px; max-width: 150mm; }
 .cover-id {
-  font-size: 10pt; font-weight: 600; letter-spacing: 0.04em; color: var(--ink);
+  font-size: 10pt; font-weight: 600; color: var(--ink);
   margin-top: 22px; font-variant-numeric: tabular-nums;
 }
 .cover-fixture {
@@ -187,7 +187,7 @@ h3.block-head:first-child { margin-top: 4px; }
 .kpi-band { display: flex; gap: 0; border: 1px solid var(--hair); border-radius: 6px; overflow: hidden; break-inside: avoid; }
 .kpi { flex: 1; padding: 16px 16px 14px; border-left: 1px solid var(--hair); }
 .kpi:first-child { border-left: none; }
-.kpi-label { font-size: 8pt; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--slate); }
+.kpi-label { font-size: 8pt; font-weight: 600; text-transform: uppercase; color: var(--slate); }
 .kpi-value { font-size: 21pt; font-weight: 600; letter-spacing: -0.02em; margin-top: 7px; font-variant-numeric: tabular-nums; line-height: 1.05; }
 .kpi-value.is-loss { color: var(--loss); }
 .kpi-value.is-pos  { color: var(--ink); }
@@ -262,7 +262,7 @@ tr.row-current td { background: #fbfbf6; font-weight: 600; }
 .wf-node.is-terminal { border-color: var(--ink); border-width: 1.5px; }
 .wf-node.is-loss { border-color: var(--loss); }
 .wf-op { align-self: center; color: var(--slate); font-size: 13pt; font-weight: 400; flex: 0 0 auto; }
-.wf-label { font-size: 8pt; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--slate); }
+.wf-label { font-size: 8pt; font-weight: 600; text-transform: uppercase; color: var(--slate); }
 .wf-amt { font-size: 13.5pt; font-weight: 600; margin-top: 5px; font-variant-numeric: tabular-nums; }
 .wf-amt.is-loss { color: var(--loss); }
 .wf-sub { font-size: 8pt; color: var(--slate); margin-top: 4px; line-height: 1.3; }
