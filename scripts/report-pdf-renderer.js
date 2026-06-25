@@ -99,6 +99,7 @@ body {
   color: var(--ink);
   font-size: 10.5pt;
   line-height: 1.5;
+  letter-spacing: 0;   /* explicit zero — Chromium PDF can infer non-zero from embedded data-URI fonts */
   font-feature-settings: 'tnum' 1, 'lnum' 1;   /* tabular, lining figures — all financial columns align */
 }
 
@@ -127,7 +128,7 @@ h1, h2, h3 { font-weight: 600; letter-spacing: -0.01em; line-height: 1.2; }
   font-family: 'TIS Serif', Georgia, 'Times New Roman', serif;
   font-size: 31pt; font-weight: 600; letter-spacing: -0.015em; line-height: 1.06;
 }
-.cover-tradename { font-size: 15pt; font-weight: 400; color: var(--slate); margin-top: 12px; max-width: 150mm; }
+.cover-tradename { font-size: 15pt; font-weight: 400; letter-spacing: 0; color: var(--slate); margin-top: 12px; max-width: 150mm; }
 .cover-id {
   font-size: 10pt; font-weight: 600; color: var(--ink);
   margin-top: 22px; font-variant-numeric: tabular-nums;
@@ -143,7 +144,7 @@ h1, h2, h3 { font-weight: 600; letter-spacing: -0.01em; line-height: 1.2; }
 .cover-statement {
   display: flex; align-items: baseline; gap: 13px;
   font-family: 'TIS Serif', Georgia, 'Times New Roman', serif;
-  font-size: 12.5pt; color: var(--slate); letter-spacing: 0.005em;
+  font-size: 12.5pt; color: var(--slate); letter-spacing: 0;
 }
 .cover-statement::before {
   content: ""; flex: 0 0 auto; width: 20px; height: 2px;
@@ -178,7 +179,7 @@ h1, h2, h3 { font-weight: 600; letter-spacing: -0.01em; line-height: 1.2; }
 .section-kicker { margin-left: auto; font-size: 9pt; font-weight: 400; color: var(--slate); letter-spacing: 0; }
 .section-intro { font-size: 10pt; color: var(--slate); margin: -4px 0 14px; max-width: 165mm; }
 h3.block-head {
-  font-size: 11pt; font-weight: 600; color: var(--ink);
+  font-size: 11pt; font-weight: 600; letter-spacing: 0; color: var(--ink);
   margin: 18px 0 8px; break-after: avoid;
 }
 h3.block-head:first-child { margin-top: 4px; }
