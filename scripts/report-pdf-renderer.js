@@ -386,7 +386,7 @@ function executiveSummary(trade, res) {
   const nafem = fxIn.nafem    ? (fxIn.nafem.override    ?? fxIn.nafem.value)    : null;
   const splitLabel = `${fmt.pct(1 - res.profit.profitSharePct)} TIS`;
   const glance = [
-    { label: 'Flow',            value: esc(res.meta.flow) },
+    { label: 'Flow',            value: esc(res.meta.flow), text: true },
     { label: 'Delivered',       value: fmt.mt(res.meta.deliveredQty, 0) },
     { label: 'Unit FOB',        value: fmt.usd(res.unitFob) + '/MT', sub: 'ICE + premium' },
     { label: 'Profit Split',    value: splitLabel, sub: isTisFunded ? 'self-funded' : `partner ${fmt.pct(res.profit.profitSharePct)} cash` },
@@ -398,7 +398,7 @@ function executiveSummary(trade, res) {
   const glanceHtml = glance.map(g => `
     <div class="glance-item">
       <div class="glance-label">${g.label}</div>
-      <div class="glance-value">${g.value}</div>
+      <div class="glance-value"${g.text ? ' style="font-variant-numeric:normal"' : ''}>${g.value}</div>
       ${g.sub ? `<div class="glance-sub">${g.sub}</div>` : ''}
     </div>`).join('');
 
