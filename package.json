@@ -4,11 +4,17 @@
   "private": true,
   "description": "Reusable petroleum cargo trading model for TIS Global Trading. Correctness and auditability first; UI is not a concern.",
   "type": "commonjs",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node run.js",
     "first-trade": "node run.js trades/reference-trade-001.json",
     "build:report": "node scripts/build-report.js",
     "build:interactive": "node scripts/build-interactive.js"
+  },
+  "dependencies": {
+    "pdf-lib": "^1.17.1",
+    "playwright": "^1.61.1"
   }
 }

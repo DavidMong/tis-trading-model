@@ -35,9 +35,17 @@ const logo = logoSvgRaw
   .replace(/fill:#242331/g, 'fill:#f0f1f2');
 // aria-label on the container provides accessibility; no <title> injected into inline SVG
 
+// Report-style logo (matches build-report.js readLogo() exactly): same XML/DOCTYPE strip +
+// 260×31 sizing + ink→off-white fill. Injected into the client as LOGO_SVG so the
+// "Download Report" button feeds the bundled generateHtml the same logo the static report uses.
+const reportLogo = logoSvgRaw
+  .replace(/<\?xml[^?]*\?>/g,'').replace(/<!DOCTYPE[^>]*>/g,'').trim()
+  .replace(/width="[^"]*"/, 'width="260"').replace(/height="[^"]*"/, 'height="31"')
+  .replace(/fill:#242331/g, 'fill:#f0f1f2');
+
 // ── 4. CSS ───────────────────────────────────────────────────────────────────
 function css() {
-  const { reportCss } = require('./build-report');
+  const { reportCss } = require('./report-renderer');
   return reportCss + `
 /* ════ INTERACTIVE: full-viewport sidebar layout ══════════════════════════ */
 html, body { height: 100%; overflow: hidden; }
@@ -805,6 +813,16 @@ body { display: flex; flex-direction: column; }
   display:flex; align-items:center; gap:5px; padding:8px 14px;
   box-sizing:border-box; width:100%; overflow:hidden;
 }
+.sb-report-row {
+  padding:0 14px 10px; box-sizing:border-box; width:100%; overflow:hidden;
+}
+.btn-report {
+  display:block; width:100%; padding:8px 12px; background:var(--ink); border:none;
+  border-radius:4px; font-family:var(--f-body); font-size:11px; font-weight:600;
+  letter-spacing:.02em; color:#fff; cursor:pointer; transition:background .12s;
+  white-space:nowrap; box-sizing:border-box;
+}
+.btn-report:hover { background:#3a3545; }
 
 .btn-new {
   flex:1; padding:5px 8px; background:none; border:1px solid var(--border);
@@ -1296,6 +1314,9 @@ const sidebarHtml = `<aside class="sidebar" id="sidebar">
       <button class="btn-lib btn-lib-ren"   onclick="renameTrade()"           title="Rename selected trade">✎</button>
       <button class="btn-lib btn-lib-del"   onclick="deleteSelectedTrade()"   title="Delete selected trade">✕</button>
     </div>
+    <div class="sb-report-row">
+      <button class="btn-report" onclick="downloadReport()" title="Generate and download a branded PDF report for the current trade (auto-downloads — no print dialog)">Download Report</button>
+    </div>
   </div>
 </aside>`;
 
@@ -1399,6 +1420,9 @@ ${sharedCss}
 const INIT = ${JSON.stringify(initialTrade)};
 const INIT_IS_SAMPLE = /REGRESSION|FIXTURE|dummy|test|sample/i.test((INIT.meta || {}).tradeName || '');
 
+// Branded report logo (report-style 260×31 inline SVG) — fed to TISEngine.generateHtml.
+const LOGO_SVG = ${JSON.stringify(reportLogo)};
+
 // ── Shared set-value helpers (used by resetToDefaults, newTrade, loadTrade) ─
 function sv(id, v) { const el = document.getElementById(id); if (el) el.value = v; }
 function sd(id, v) { const el = document.getElementById(id); if (el) el.value = v; }
@@ -1455,6 +1479,11 @@ function show(id, vis) { const el = document.getElementById(id); if (el) el.hidd
 //   { channel:'ex-ship'|'depot', unit:'USD_PER_MT'|'NGN_PER_L', qtyMode:'tonnes'|'pct', qty:Number, price:Number|null }
 var _legs = [];
 var _lastRetainedTonnes = null; // updated after each recompute; drives hedge-vol placeholder
+
+// Last successful FULL-PRICE compute — cached so "Download Report" can render the live trade.
+// Only set when every leg is priced (hasSellPrice); cleared on empty/error so a stale report
+// can never be generated against a half-entered trade.
+var _lastTrade = null, _lastRes = null, _lastLadder = null;
 
 function legBlank() { return { channel:'ex-ship', unit:'USD_PER_MT', qtyMode:'pct', qty:100, price:null }; }
 function legUnitLabel(unit) { return unit === 'NGN_PER_L' ? '₦/L' : '$/MT'; }
@@ -2856,6 +2885,10 @@ function showEmptyState() {
 
 // ── Recompute ──────────────────────────────────────────────────────────────
 function recompute() {
+  // Invalidate the cached report inputs up front — any early return (empty / collect error /
+  // compute error / unpriced legs) then leaves them null, so "Download Report" can never fire
+  // against a stale or partial trade. Re-set at the end only on a full-price success.
+  _lastTrade = _lastRes = _lastLadder = null;
   // Gate on key per-trade input — blank form (New Trade) shows empty state, no stale numbers
   const delivEl = document.getElementById('inp-delivered');
   if (!delivEl || !delivEl.value.trim()) { showEmptyState(); return; }
@@ -2925,6 +2958,10 @@ function recompute() {
   updateLegNgnEquiv();
   updateHedgedVolPlaceholder();
   updateFinalIcePlaceholder();
+
+  // Cache the live inputs for "Download Report" — only on a fully-priced compute, so the report
+  // always reflects a complete, displayed P&L (never the synthetic-placeholder price path).
+  if (hasSellPrice) { _lastTrade = trade; _lastRes = res; _lastLadder = ladder; }
 }
 
 // ── Toggle switches ────────────────────────────────────────────────────────
@@ -3484,6 +3521,60 @@ function showToast(msg) {
   _toastTimer = setTimeout(() => el.classList.remove('visible'), 2500);
 }
 
+// ── Download Report (server-rendered PDF) ──────────────────────────────────
+// Collects the LIVE trade (cached full-price compute + current identity fields) and POSTs it
+// to the local report server (scripts/serve.js → POST /api/report.pdf), which runs the
+// Playwright generator and streams back a McKinsey-grade PDF that auto-downloads — NO browser
+// print dialog, NO print-CSS artifacts. All numbers come from the SAME engine the dashboard
+// ran: the server recomputes the identical trade JSON, so the PDF matches the screen exactly.
+async function downloadReport() {
+  if (!_lastRes || !_lastTrade) { alert('Compute a trade first.'); return; }
+
+  const gv = id => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+  const tradeName = gv('inp-trade-name') || _lastRes.meta.tradeName || 'Trade';
+  // Live identity from the form (collectTrade keeps the loaded meta/parties unchanged). Spread the
+  // loaded parties first so non-form fields (facility, bank) survive; the form values win.
+  const parties = {
+    ...(_lastTrade.parties || {}),
+    partner:   gv('inp-partner-name'),
+    supplier:  gv('inp-supplier-name'),
+    inspector: gv('inp-inspector-name'),
+  };
+  const liveTrade = { ..._lastTrade, meta: { ..._lastTrade.meta, tradeName }, parties };
+
+  const btn = document.querySelector('.btn-report');
+  const label = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
+  try {
+    const resp = await fetch('/api/report.pdf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(liveTrade),
+    });
+    if (!resp.ok) {
+      let msg = 'server returned ' + resp.status;
+      try { const j = await resp.json(); if (j && j.error) msg = j.error; } catch (e2) {}
+      throw new Error(msg);
+    }
+    const blob = await resp.blob();
+    const cd = resp.headers.get('Content-Disposition') || '';
+    const m = /filename="?([^"]+)"?/.exec(cd);
+    // Server names the file from the live trade name (slug); this slug is only the offline fallback.
+    const slug = String(tradeName || '').replace(/\s*\([^)]*(?:REGRESSION|FIXTURE|dummy|test|sample|EXAMPLE)[^)]*\)/gi,'').trim().replace(/[^\w\s-]/g,' ').trim().replace(/[\s_]+/g,'-').replace(/-+/g,'-').replace(/^-+|-+$/g,'').slice(0,80) || 'trade';
+    const fname = (m && m[1]) || (slug + '.pdf');
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = fname;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    showToast('Report downloaded — ' + fname);
+  } catch (e) {
+    alert('Report download failed: ' + e.message + '. The report server must be running — start it with: node scripts/serve.js (then open http://localhost:7891/TIS-interactive).');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = label; }
+  }
+}
+
 // ── Window exposes ────────────────────────────────────────────────────────
 window.newTrade            = newTrade;
 window.saveTrade           = saveTrade;
@@ -3492,6 +3583,7 @@ window.renameTrade         = renameTrade;
 window.loadSelectedTrade   = loadSelectedTrade;
 window.deleteSelectedTrade = deleteSelectedTrade;
 window.saveAsDefaults      = saveAsDefaults;
+window.downloadReport      = downloadReport;
 
 // ── Boot ───────────────────────────────────────────────────────────────────
 _storageLegacy = detectStorageLegacyFromCostLines(INIT.costLines);   // bundled fixture may be old-format
