@@ -1315,7 +1315,7 @@ const sidebarHtml = `<aside class="sidebar" id="sidebar">
       <button class="btn-lib btn-lib-del"   onclick="deleteSelectedTrade()"   title="Delete selected trade">✕</button>
     </div>
     <div class="sb-report-row">
-      <button class="btn-report" onclick="downloadReport()" title="Open a print-ready branded report for the current trade (Cmd+P → Save as PDF)">Download Report</button>
+      <button class="btn-report" onclick="downloadReport()" title="Generate and download a branded PDF report for the current trade (auto-downloads — no print dialog)">Download Report</button>
     </div>
   </div>
 </aside>`;
@@ -3521,36 +3521,56 @@ function showToast(msg) {
   _toastTimer = setTimeout(() => el.classList.remove('visible'), 2500);
 }
 
-// ── Download Report ────────────────────────────────────────────────────────
-// Renders the branded report for the LIVE trade using the cached full-price compute
-// (_lastTrade/_lastRes/_lastLadder from recompute) and the current identity fields, which
-// collectTrade does not flow into the trade. Opens a new window; user does Cmd+P → Save as PDF.
-function downloadReport() {
+// ── Download Report (server-rendered PDF) ──────────────────────────────────
+// Collects the LIVE trade (cached full-price compute + current identity fields) and POSTs it
+// to the local report server (scripts/serve.js → POST /api/report.pdf), which runs the
+// Playwright generator and streams back a McKinsey-grade PDF that auto-downloads — NO browser
+// print dialog, NO print-CSS artifacts. All numbers come from the SAME engine the dashboard
+// ran: the server recomputes the identical trade JSON, so the PDF matches the screen exactly.
+async function downloadReport() {
   if (!_lastRes || !_lastTrade) { alert('Compute a trade first.'); return; }
 
   const gv = id => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
   const tradeName = gv('inp-trade-name') || _lastRes.meta.tradeName || 'Trade';
+  // Live identity from the form (collectTrade keeps the loaded meta/parties unchanged). Spread the
+  // loaded parties first so non-form fields (facility, bank) survive; the form values win.
   const parties = {
+    ...(_lastTrade.parties || {}),
     partner:   gv('inp-partner-name'),
     supplier:  gv('inp-supplier-name'),
     inspector: gv('inp-inspector-name'),
   };
-
-  // Inject live identity into both the trade and the result meta (the report reads identity
-  // from res.meta.{tradeName,parties}); all numbers come straight from the cached compute.
   const liveTrade = { ..._lastTrade, meta: { ..._lastTrade.meta, tradeName }, parties };
-  const liveRes   = { ..._lastRes,   meta: { ..._lastRes.meta,   tradeName, parties } };
-  const generatedAt = new Date().toISOString().replace('T',' ').slice(0,16) + ' UTC';
 
-  let htmlStr;
-  try { htmlStr = TISEngine.generateHtml(LOGO_SVG, liveTrade, liveRes, _lastLadder, generatedAt); }
-  catch (e) { alert('Report generation failed: ' + e.message); return; }
-
-  const w = window.open('', '_blank');
-  if (!w) { alert('Pop-up blocked — allow pop-ups for this page to open the report.'); return; }
-  w.document.open();
-  w.document.write(htmlStr);
-  w.document.close();
+  const btn = document.querySelector('.btn-report');
+  const label = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
+  try {
+    const resp = await fetch('/api/report.pdf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(liveTrade),
+    });
+    if (!resp.ok) {
+      let msg = 'server returned ' + resp.status;
+      try { const j = await resp.json(); if (j && j.error) msg = j.error; } catch (e2) {}
+      throw new Error(msg);
+    }
+    const blob = await resp.blob();
+    const cd = resp.headers.get('Content-Disposition') || '';
+    const m = /filename="?([^"]+)"?/.exec(cd);
+    const fname = (m && m[1]) || ((_lastRes.meta.tradeId || 'trade') + '.pdf');
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = fname;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    showToast('Report downloaded — ' + fname);
+  } catch (e) {
+    alert('Report download failed: ' + e.message + '. The report server must be running — start it with: node scripts/serve.js (then open http://localhost:7891/TIS-interactive).');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = label; }
+  }
 }
 
 // ── Window exposes ────────────────────────────────────────────────────────

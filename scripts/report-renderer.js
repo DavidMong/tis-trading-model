@@ -1492,4 +1492,13 @@ ${footerSection(generatedAt, res)}
 </html>`;
 }
 
-module.exports = { generateHtml, reportCss: CSS };
+// `generateHtml` + `reportCss` are the original public surface (dashboard "Download Report"
+// + build-report.js). The formatting helpers below are additionally exported so the
+// Playwright PDF renderer (scripts/report-pdf-renderer.js) reuses byte-identical number,
+// badge and sign formatting — the PDF must never re-derive or re-format any figure.
+module.exports = {
+  generateHtml,
+  reportCss: CSS,
+  // shared formatting helpers (reused by the PDF renderer — do not duplicate)
+  esc, fmt, badge, badgeLabel, signClass, usdSign, routeLabel, catLabel,
+};
