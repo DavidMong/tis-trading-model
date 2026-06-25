@@ -100,7 +100,10 @@ body {
   font-size: 10.5pt;
   line-height: 1.5;
   letter-spacing: 0;   /* explicit zero — Chromium PDF can infer non-zero from embedded data-URI fonts */
-  font-feature-settings: 'tnum' 1, 'lnum' 1;   /* tabular, lining figures — all financial columns align */
+  /* tnum removed from body: Inter's tnum GSUB lookup substitutes a 0.19em-wider tabular hyphen,
+     causing "ex - ship", "TIS - PROFOGAS", "2026 - 06 - 25" gaps on ALL running text.
+     Tabular figures are applied per-element via font-variant-numeric:tabular-nums on .r,
+     .kpi-value, .glance-value, .wf-amt, .dl dd, .reconcile b, .tbl-id, .section-num, .tnum */
 }
 
 /* ── Type scale ── */
@@ -131,7 +134,9 @@ h1, h2, h3 { font-weight: 600; letter-spacing: -0.01em; line-height: 1.2; }
 .cover-tradename { font-size: 15pt; font-weight: 400; letter-spacing: 0; color: var(--slate); margin-top: 12px; max-width: 150mm; }
 .cover-id {
   font-size: 10pt; font-weight: 600; color: var(--ink);
-  margin-top: 22px; font-variant-numeric: tabular-nums;
+  margin-top: 22px;
+  /* no font-variant-numeric: tabular-nums — trade-id is an identifier, not a numeric column;
+     tabular-nums would re-activate tnum which widens the hyphen in TIS-PROFOGAS-DANGOTE-001 */
 }
 .cover-fixture {
   display: inline-block; margin-left: 10px; padding: 2px 8px; font-size: 8pt; font-weight: 700;
