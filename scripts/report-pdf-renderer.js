@@ -16,6 +16,30 @@
 const {
   esc, fmt, badge, signClass, usdSign, routeLabel, catLabel,
 } = require('./report-renderer');
+const { FONT_FACE_CSS } = require('./report-fonts');
+
+// ─── Executive-KPI display formatting (PRESENTATION ONLY) ─────────────────────
+// CLAUDE.md hard rule: this module renders, it never computes. These helpers
+// re-FORMAT (round) the FOUR big Executive-Summary KPI displays into a clean
+// executive form — $1.59M, 99.8%, $1,192/MT, 14.9%. They are used ONLY by the
+// KPI band; every detail table keeps the full-precision shared fmt.* helpers, so
+// no table figure changes value. The underlying numbers are untouched.
+function kpiCompactUsd(n) {
+  if (n == null || !Number.isFinite(Number(n))) return '&mdash;';
+  n = Number(n);
+  const a = Math.abs(n), s = n < 0 ? '&minus;$' : '$';
+  if (a >= 1e6) return s + (a / 1e6).toFixed(2).replace(/\.?0+$/, '') + 'M';
+  if (a >= 1e4) return s + Math.round(a / 1e3) + 'k';
+  return s + Math.round(a).toLocaleString('en-US');
+}
+function kpiWholeUsd(n) {
+  if (n == null || !Number.isFinite(Number(n))) return '&mdash;';
+  return '$' + Math.round(Number(n)).toLocaleString('en-US');
+}
+function kpiPct1(x) {
+  if (x == null || !Number.isFinite(Number(x))) return '&mdash;';
+  return (Number(x) * 100).toFixed(1).replace(/\.0$/, '') + '%';
+}
 
 // ─── Status pill — 4-state taxonomy (display remap only) ──────────────────────
 // CLAUDE.md status-flag taxonomy: the engine/config schemas carry historical strings
@@ -47,6 +71,7 @@ function isFixtureName(name) {
 
 // ─── Dedicated print stylesheet ───────────────────────────────────────────────
 const PDF_CSS = `
+${FONT_FACE_CSS}
 /* ── Page geometry — cover (page 1) is margin-free so the Playwright running
       header/footer have no margin box to draw into and stay off the cover. ── */
 @page { size: A4; margin: 20mm 18mm 16mm 18mm; }
@@ -70,15 +95,17 @@ const PDF_CSS = `
 
 html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 body {
-  font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  font-family: 'TIS Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif;
   color: var(--ink);
   font-size: 10.5pt;
   line-height: 1.5;
-  font-feature-settings: 'tnum' 1, 'lnum' 1;   /* tabular, lining figures */
+  font-feature-settings: 'tnum' 1, 'lnum' 1;   /* tabular, lining figures — all financial columns align */
 }
 
 /* ── Type scale ── */
 h1, h2, h3 { font-weight: 600; letter-spacing: -0.01em; line-height: 1.2; }
+/* Editorial serif for the cover title + numbered section headers (display only). */
+.serif { font-family: 'TIS Serif', Georgia, 'Times New Roman', serif; }
 .muted  { color: var(--slate); }
 .tnum   { font-variant-numeric: tabular-nums; }
 
@@ -96,7 +123,10 @@ h1, h2, h3 { font-weight: 600; letter-spacing: -0.01em; line-height: 1.2; }
   text-transform: uppercase; color: var(--slate);
 }
 .cover-rule { height: 2.5px; width: 64px; background: var(--accent); margin: 16px 0 30px; }
-.cover-title { font-size: 30pt; font-weight: 600; letter-spacing: -0.02em; line-height: 1.08; }
+.cover-title {
+  font-family: 'TIS Serif', Georgia, 'Times New Roman', serif;
+  font-size: 31pt; font-weight: 600; letter-spacing: -0.015em; line-height: 1.06;
+}
 .cover-tradename { font-size: 15pt; font-weight: 400; color: var(--slate); margin-top: 12px; max-width: 150mm; }
 .cover-id {
   font-size: 10pt; font-weight: 600; letter-spacing: 0.04em; color: var(--ink);
@@ -108,6 +138,17 @@ h1, h2, h3 { font-weight: 600; letter-spacing: -0.01em; line-height: 1.2; }
   background: var(--amber-bg); border-radius: 3px; vertical-align: middle;
 }
 .cover-spacer { flex: 1 1 auto; }
+/* Restrained mid-page standfirst — anchors the cover so the empty centre reads
+   deliberate. Roman serif with a short brand tick (red = cover accent, allowed). */
+.cover-statement {
+  display: flex; align-items: baseline; gap: 13px;
+  font-family: 'TIS Serif', Georgia, 'Times New Roman', serif;
+  font-size: 12.5pt; color: var(--slate); letter-spacing: 0.005em;
+}
+.cover-statement::before {
+  content: ""; flex: 0 0 auto; width: 20px; height: 2px;
+  background: var(--accent); transform: translateY(-3px);
+}
 .cover-parties { border-top: 1px solid var(--hair); padding-top: 22px; display: flex; gap: 0; }
 .cover-party { flex: 1; }
 .cover-party-label { font-size: 8pt; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--slate); }
@@ -130,7 +171,10 @@ h1, h2, h3 { font-weight: 600; letter-spacing: -0.01em; line-height: 1.2; }
   font-size: 11pt; font-weight: 700; color: var(--accent);
   font-variant-numeric: tabular-nums; min-width: 16px;
 }
-.section-title { font-size: 15pt; font-weight: 600; letter-spacing: -0.01em; }
+.section-title {
+  font-family: 'TIS Serif', Georgia, 'Times New Roman', serif;
+  font-size: 15.5pt; font-weight: 600; letter-spacing: -0.005em;
+}
 .section-kicker { margin-left: auto; font-size: 9pt; font-weight: 400; color: var(--slate); letter-spacing: 0; }
 .section-intro { font-size: 10pt; color: var(--slate); margin: -4px 0 14px; max-width: 165mm; }
 h3.block-head {
@@ -148,7 +192,6 @@ h3.block-head:first-child { margin-top: 4px; }
 .kpi-value.is-loss { color: var(--loss); }
 .kpi-value.is-pos  { color: var(--ink); }
 .kpi-note { font-size: 8.5pt; color: var(--slate); margin-top: 6px; line-height: 1.35; }
-.kpi-accent-rule { height: 2px; width: 26px; background: var(--accent); margin-top: 9px; }
 
 /* ── Deal-at-a-glance strip ── */
 .glance { display: flex; flex-wrap: wrap; gap: 0; margin-top: 16px; border-top: 1px solid var(--hair); }
@@ -265,6 +308,8 @@ function coverPage(trade, res, generatedAt) {
   <div class="cover-tradename">${esc(title)}${fixture}</div>
   <div class="cover-id">${esc(res.meta.tradeId)}</div>
   <div class="cover-spacer"></div>
+  <div class="cover-statement">Prepared for internal commercial review</div>
+  <div class="cover-spacer"></div>
   <div class="cover-parties">
     ${party('Equity Partner', parties.partner)}
     ${party('Supplier', parties.supplier)}
@@ -291,39 +336,42 @@ function executiveSummary(trade, res) {
   const f           = res.financing;
 
   const netNote = isTisFunded ? 'self-funded &middot; no partner split' : 'after partner profit split';
+  // The FOUR headline KPI displays are rounded to a clean executive form (presentation
+  // only — kpiCompactUsd / kpiWholeUsd / kpiPct1). Full precision is retained in every
+  // detail table (waterfall, cost build-up, ladder) which use the shared fmt.* helpers.
   const kpis = [
     {
       label: 'TIS Net Profit',
-      value: fmt.usd(tisNet),
+      value: kpiCompactUsd(tisNet),
       cls: tisNet < 0 ? 'is-loss' : 'is-pos',
       note: netNote,
-      accent: tisNet >= 0,
     },
     {
       label: 'Annualised Return',
-      value: annRet != null ? fmt.pct(annRet) : '&mdash;',
+      value: annRet != null ? kpiPct1(annRet) : '&mdash;',
       cls: 'is-pos',
       note: `on ${esc(annBase)} &middot; ${lockup}d capital lockup`,
     },
     {
       label: 'Landed Cost / MT',
-      value: fmt.usd(exShipLanded) + '<span style="font-size:11pt;color:var(--slate)">/MT</span>',
+      value: kpiWholeUsd(exShipLanded) + '<span style="font-size:11pt;color:var(--slate)">/MT</span>',
       cls: 'is-pos',
       note: 'all-in, excl. recoverable VAT',
     },
     {
       label: 'Ex-Ship Margin',
-      value: marginPct != null ? fmt.pct(marginPct) : '&mdash;',
+      value: marginPct != null ? kpiPct1(marginPct) : '&mdash;',
       cls: 'is-pos',
       note: exShipPrice ? `${fmt.usd(exShipPrice)}/MT sell price` : 'sell price pending',
     },
   ];
 
+  // Red is reserved for the cover/section accent per the colour-semantics palette —
+  // no red rule under the TIS Net Profit figure (or any KPI).
   const kpiHtml = kpis.map(k => `
     <div class="kpi">
       <div class="kpi-label">${k.label}</div>
       <div class="kpi-value ${k.cls}">${k.value}</div>
-      ${k.accent ? '<div class="kpi-accent-rule"></div>' : ''}
       <div class="kpi-note">${k.note}</div>
     </div>`).join('');
 
@@ -364,7 +412,16 @@ function costBuildup(trade, res) {
   const cost = res.cost;
   const exShipLanded = cost.exShipLandedPerMT ?? cost.landedCostPerMT;
 
-  const costRows = cost.lines.map(l => {
+  // Suppress the storage lines (throughput / rental / evaporation / tank insurance)
+  // when there is no depot leg — they are structurally $0.00 with nothing to show.
+  // When a depot leg IS present they carry real cost and are always kept. Display
+  // only: the engine's all-in total is unchanged (these rows sum to 0 when hidden).
+  const hasDepot = !!(res.channels && res.channels.depotPct > 0);
+  const visibleLines = cost.lines.filter(
+    l => hasDepot || !(l.category === 'storage' && Number(l.amountUsd) === 0)
+  );
+
+  const costRows = visibleLines.map(l => {
     const flag = l.recoverable
       ? `<span class="pill pill-ok" title="Recoverable input VAT">&#10003; OK</span>`
       : pill(l.status);
@@ -478,10 +535,12 @@ function profitWaterfall(res) {
   const wfHtml = nodes.map((n, i) => {
     const loss = n.terminal && n.amt < 0;
     const op = i > 0 ? `<div class="wf-op">${n.op}</div>` : '';
+    // The operator is shown ONCE, between cards (wf-op); no in-card prefix on the
+    // amount — that doubled "&minus;"/"=" read as ambiguous above the figure.
     return `${op}
       <div class="wf-node ${n.terminal ? 'is-terminal' : ''} ${loss ? 'is-loss' : ''}">
         <div class="wf-label">${n.label}</div>
-        <div class="wf-amt ${loss ? 'is-loss' : ''}">${n.op && i > 0 ? n.op : ''}${fmt.usd(n.amt)}</div>
+        <div class="wf-amt ${loss ? 'is-loss' : ''}">${fmt.usd(n.amt)}</div>
         <div class="wf-sub">${n.sub}</div>
       </div>`;
   }).join('');
