@@ -413,6 +413,52 @@ body { font-feature-settings: "kern" 1, "liga" 1; text-rendering: optimizeLegibi
   gap: 24px;
 }
 
+/* ── Sticky condensed KPI (Batch G) ──────────────────────────────────────
+   Sticks to the top of .results (the only element that actually scrolls —
+   the real app header above is a fixed shell element, always visible).
+   Hidden by default; .visible is toggled by a scroll listener on .results
+   once scrollTop passes a threshold. Entrance only — ease-out, 200ms,
+   transform+opacity only (GPU-friendly, motion-spec "tooltip appear" /
+   "state change" bucket), no bounce/scale per the project's existing
+   subtle-motion register. */
+.results-sticky-kpi {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  align-self: flex-start;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: var(--space-2) var(--space-4);
+  box-shadow: 0 2px 8px rgba(36,35,49,.08);
+  opacity: 0;
+  transform: translateY(-6px);
+  pointer-events: none;
+  transition: opacity .2s cubic-bezier(0,0,0.2,1), transform .2s cubic-bezier(0,0,0.2,1);
+}
+.results-sticky-kpi.visible { opacity: 1; transform: translateY(0); }
+.results-sticky-kpi-label {
+  font-family: var(--f-display);
+  font-size: var(--type-label);
+  font-weight: 600;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--role-slate);
+}
+.results-sticky-kpi-val {
+  font-family: var(--f-display);
+  font-size: var(--type-kpi);
+  font-weight: 700;
+  color: var(--role-ink);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+@media (prefers-reduced-motion: reduce) {
+  .results-sticky-kpi { transition-duration: .01ms; }
+}
+
 /* Error banner */
 .err-banner {
   background: #fff5f5;
@@ -1557,6 +1603,15 @@ ${sharedCss}
 
   <!-- ── Results ──────────────────────────────────────────────────────── -->
   <main class="results" role="main">
+    <!-- Sticky condensed KPI mirror (Batch G): the app header above is a fixed
+         shell element and is always visible regardless of scroll, so this is
+         a visual convenience for a long results scroll, not new information —
+         aria-hidden, the header's own labeled chip is the authoritative figure
+         for assistive tech. Hidden until scrolled past the threshold (JS). -->
+    <div class="results-sticky-kpi" id="results-sticky-kpi" aria-hidden="true">
+      <span class="results-sticky-kpi-label">TIS Net Profit</span>
+      <span class="results-sticky-kpi-val" id="sticky-tisnet-val">—</span>
+    </div>
     <div id="rpt-error" class="err-banner" hidden></div>
     <div id="sec-waterfall"></div>
     <div id="sec-ladder"></div>
@@ -2285,6 +2340,11 @@ function renderKPIs(res, hasSellPrice) {
     netChip.classList.toggle('kpi-loss',   state === 'loss');
   }
 
+  // Sticky condensed KPI mirror (Batch G) — same #sticky-tisnet-val element
+  // updated in both branches below, right alongside the real #kpi-tisnet-val,
+  // so the two can never show different numbers.
+  const stickyVal = document.getElementById('sticky-tisnet-val');
+
   // P&L KPIs are pending until every leg has a price — show calm placeholders, no fake numbers.
   if (hasSellPrice === false) {
     setNetChip('neutral');
@@ -2295,6 +2355,7 @@ function renderKPIs(res, hasSellPrice) {
     if (ml) ml.textContent = depotActiveKpi ? 'Depot Margin' : 'Ex-Ship Margin';
     if (mv) mv.textContent = '—';
     if (ms) ms.textContent = 'enter leg prices';
+    if (stickyVal) stickyVal.textContent = '—';
     return;
   }
 
@@ -2303,6 +2364,7 @@ function renderKPIs(res, hasSellPrice) {
   setNetChip(tisNet < 0 ? 'loss' : 'pos');
   if (kv) { kv.textContent = fmtUsd(tisNet); kv.classList.add('kpi-flash'); setTimeout(() => kv.classList.remove('kpi-flash'), 350); }
   if (ks) ks.textContent = res.equityProvider === 'TIS' ? 'self-funded (no partner)' : 'after partner split';
+  if (stickyVal) stickyVal.textContent = fmtUsd(tisNet);
 
   const ann = res.tisAnnualisedReturn;
   if (av) av.textContent = ann != null ? fmtPct(ann) : '—';
@@ -3051,7 +3113,7 @@ function clearResults() {
     .forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
   [['kpi-tisnet-val','—'],['kpi-annret-val','—'],['kpi-margin-val','—'],
    ['kpi-tisnet-sub','—'],['kpi-annret-sub','—'],['kpi-margin-sub','—'],
-   ['kpi-margin-label','Ex-Ship Margin']]
+   ['kpi-margin-label','Ex-Ship Margin'],['sticky-tisnet-val','—']]
     .forEach(([id,t]) => { const el = document.getElementById(id); if (el) el.textContent = t; });
   // No value → neutral chip (never the green profit box).
   const nv = document.getElementById('kpi-tisnet-val');
@@ -3875,6 +3937,25 @@ refreshHedgePh();
 refreshHedgeSanity();
 updateHedgedVolPlaceholder();
 updateFinalIcePlaceholder();
+
+// ── Sticky condensed KPI on results scroll (Batch G) ─────────────────────────
+// The outer app header (with the full KPI triad) is a fixed app-shell element
+// — html/body and .app-body all have overflow:hidden, so only .results
+// scrolls; the header is always visible regardless of scroll position and
+// never "scrolls off-screen" in this layout. This sticky mirror instead gives
+// a persistent reference to the headline TIS Net Profit figure while
+// reviewing a long results scroll (Cost Build-Up -> Partner Deliverables ->
+// Hedge -> Tax -> Sensitivities) without scrolling back up to the
+// still-visible-but-farther-away real header.
+(function () {
+  var resultsEl = document.querySelector('.results');
+  var stickyEl  = document.getElementById('results-sticky-kpi');
+  if (!resultsEl || !stickyEl) return;
+  var THRESHOLD = 140;
+  resultsEl.addEventListener('scroll', function () {
+    stickyEl.classList.toggle('visible', resultsEl.scrollTop > THRESHOLD);
+  });
+})();
 
 })();
 </script>
