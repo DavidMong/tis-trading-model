@@ -2237,7 +2237,7 @@ function renderKPIs(res, hasSellPrice) {
   }
 
   const p   = res.profit;
-  const tisNet = p.tisNetProfit;
+  const tisNet = p.tisNetAfterSurcharge;
   setNetChip(tisNet < 0 ? 'loss' : 'pos');
   if (kv) { kv.textContent = fmtUsd(tisNet); kv.classList.add('kpi-flash'); setTimeout(() => kv.classList.remove('kpi-flash'), 350); }
   if (ks) ks.textContent = res.equityProvider === 'TIS' ? 'self-funded (no partner)' : 'after partner split';
@@ -2297,7 +2297,7 @@ function renderWaterfall(res) {
       <div class="wf-arrow">›</div>
       \${box('wf-deduct',    'ALL-IN COST','−',res.cost.allInCost,     'Incl. irrecoverable VAT')}
       <div class="wf-arrow">›</div>
-      \${box(p.tisNetProfit < 0 ? 'wf-net wf-loss' : 'wf-net', 'TIS NET PROFIT','=', p.tisNetProfit,     'Self-funded — no partner')}
+      \${box(p.tisNetAfterSurcharge < 0 ? 'wf-net wf-loss' : 'wf-net', 'TIS NET PROFIT','=', p.tisNetAfterSurcharge,     'Self-funded — no partner')}
     \`;
   } else {
     wfBoxes = \`
@@ -2309,7 +2309,7 @@ function renderWaterfall(res) {
       <div class="wf-arrow">›</div>
       \${box('wf-share',     'PARTNER CASH SHARE','−',p.partnerCashProfitShare, fmtPct(p.profitSharePct)+' of adjusted')}
       <div class="wf-arrow">›</div>
-      \${box(p.tisNetProfit < 0 ? 'wf-net wf-loss' : 'wf-net', 'TIS NET PROFIT','=',    p.tisNetProfit,     fmtPct(1-p.profitSharePct)+' of adjusted')}
+      \${box(p.tisNetAfterSurcharge < 0 ? 'wf-net wf-loss' : 'wf-net', 'TIS NET PROFIT','=',    p.tisNetAfterSurcharge,     fmtPct(1-p.profitSharePct)+' of adjusted')}
     \`;
   }
 
@@ -2318,7 +2318,7 @@ function renderWaterfall(res) {
     : '';
 
   const reconcile = ep === 'TIS'
-    ? \`Revenue − cost = TIS net: <b>\${fmtUsd(res.revenue.combinedUSD)} − \${fmtUsd(res.cost.allInCost)} = \${fmtUsd(p.tisNetProfit)}</b>\`
+    ? \`Revenue − cost = TIS net: <b>\${fmtUsd(res.revenue.combinedUSD)} − \${fmtUsd(res.cost.allInCost)} = \${fmtUsd(p.tisNetAfterSurcharge)}</b>\`
     : \`Reconciliation: marginForegone + adjusted = standalone <b>\${fmtUsd(p.marginForegone)} + \${fmtUsd(p.adjustedProfit)} = \${fmtUsd(p.standaloneProfit)}</b> \${okMark}\`;
 
   return \`<section class="section" aria-labelledby="wf-h">
@@ -2417,7 +2417,7 @@ function renderLadder(trade, res, ladder) {
         <td class="r">\${fmtPct(tier.marginPctOfSell)}</td>
         <td class="r">\${fmtPct(tier.markupPctOnCost)}</td>
         <td class="r">\${fmtUsd(tier.spreadPerMT)}/MT</td>
-        <td class="r \${tier.tisNetProfit >= 0 ? 'pos' : 'loss'}">\${fmtUsd(tier.tisNetProfit)}</td>
+        <td class="r \${tier.tisNetAfterSurcharge >= 0 ? 'pos' : 'loss'}">\${fmtUsd(tier.tisNetAfterSurcharge)}</td>
       </tr>\`;
     }).join('');
     // Label the ex-ship ladder only when a depot ladder is also shown (preserves the
@@ -2445,9 +2445,9 @@ function renderLadder(trade, res, ladder) {
     );
     const depotRows = ladder.depot.tiers.map(tier => {
       const isCur = curDepot != null && isFinite(curDepot) && Math.abs(tier.priceNgnPerL - curDepot) < 0.005;
-      const net = (tier.tisNetProfit == null)
+      const net = (tier.tisNetAfterSurcharge == null)
         ? '<span class="muted">PENDING</span>'
-        : \`<span class="\${tier.tisNetProfit >= 0 ? 'pos' : 'loss'}">\${fmtUsd(tier.tisNetProfit)}</span>\`;
+        : \`<span class="\${tier.tisNetAfterSurcharge >= 0 ? 'pos' : 'loss'}">\${fmtUsd(tier.tisNetAfterSurcharge)}</span>\`;
       return \`<tr class="\${isCur ? 'ladder-current' : ''}">
         <td><b>\${esc(tier.name)}</b></td>
         <td class="r">\${fmtNum(tier.priceNgnPerL, 2)} ₦/L</td>
