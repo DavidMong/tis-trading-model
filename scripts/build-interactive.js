@@ -880,8 +880,46 @@ body { display: flex; flex-direction: column; }
 
 /* ── 8. Sensitivities / tornado: breathing room ──────────────────────────── */
 .tn-wrap            { padding: 24px 24px 8px; }
-.tn-row             { margin-bottom: 8px; }
 .tn-baseline-label  { padding: 12px 0 8px; margin-top: 12px; }
+
+/* ── Tornado rows — hand-rolled SVG diverging bars (Batch G) ─────────────────
+   Replaces the old .tn-row/.tn-bars/.tn-half/.tn-bar CSS-width-div bars (now
+   dead in this file — reportCss's own .tn-* classes are untouched, the PDF's
+   tornado still uses them). Same grid layout (150px label | 1fr bars) and the
+   same BAR/THRESH proportions as before, just drawn as SVG <rect>s. */
+.tnsvg-row {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: var(--space-3);
+  align-items: center;
+  margin-bottom: var(--space-2);
+}
+.tnsvg-label {
+  font-family: var(--f-body);
+  font-size: var(--type-input);
+  color: var(--role-ink);
+  text-align: right;
+  padding-right: var(--space-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tnsvg-bars { width: 100%; height: 26px; display: block; }
+.tnsvg-spine { stroke: var(--border); stroke-width: 2; }
+.tnsvg-bar-neg { fill: #fee2e2; }
+.tnsvg-bar-pos { fill: #d1fae5; }
+.tnsvg-val {
+  font-family: var(--f-body);
+  font-size: var(--type-body);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+/* C1 (Batch C, carried forward): expected structural negatives (sensitivity
+   deltas) read slate/neutral, never alarm-red — same colors as the prior
+   .tn-neg .tn-val / .tn-neg-val overrides this replaces. */
+.tnsvg-val-neg              { fill: var(--role-slate); }
+.tnsvg-val-neg.tnsvg-val-in { fill: #4b5563; }
+.tnsvg-val-pos               { fill: #065f46; }
 
 /* ════ NEW-FEATURE STYLES ════════════════════════════════════════════════════ */
 
@@ -1038,8 +1076,9 @@ body { display: flex; flex-direction: column; }
 .sens-neg-strong { background: var(--heat-neg-strong); color: #374151; font-weight: 700; }
 /* Subtle separator between lever groups in the sensitivities table (each lever's +/- pair) */
 .sens-group-start td { border-top: 2px solid var(--border); }
-.tn-neg .tn-val { color: #4b5563; }
-.tn-neg-val     { color: #717c89; }
+/* .tn-neg .tn-val / .tn-neg-val (old CSS-bar tornado overrides) removed —
+   Batch G replaced the markup with .tnsvg-val-neg, defined alongside the rest
+   of the .tnsvg-* tornado rules above, same colors. */
 
 /* ── Toast ───────────────────────────────────────────────────────────────── */
 .tis-toast {
@@ -2838,35 +2877,57 @@ function pairLeverScenarios(scenarios) {
   return rows;
 }
 
+// One row's diverging bars as a percentage-positioned SVG (no viewBox — x/width
+// resolve against the SVG's own rendered pixel box per spec, exactly like
+// ladderScale's existing CSS left:X% positioning). Deliberately NOT using a
+// viewBox+preserveAspectRatio="none" stretch here: this row is extremely wide
+// and short (often >30:1), and non-uniform viewBox scaling would stretch
+// <text> glyphs along with the bars. Percentage coordinates sidestep that
+// entirely — font-size is a real, undistorted CSS px value.
+function renderTornadoRow(row, maxAbs) {
+  const BAR = 52, THRESH = 13; // unchanged from the prior CSS-bar version
+  const negPct = row.neg ? +(Math.abs(row.neg.deltaVsBase) / maxAbs * BAR).toFixed(1) : 0;
+  const posPct = row.pos ? +(Math.abs(row.pos.deltaVsBase) / maxAbs * BAR).toFixed(1) : 0;
+  const negVal = row.neg ? fmtUsd(row.neg.deltaVsBase) : '';
+  const posVal = row.pos ? (row.pos.deltaVsBase >= 0 ? '+' : '') + fmtUsd(row.pos.deltaVsBase) : '';
+  const negIn  = negPct >= THRESH, posIn = posPct >= THRESH;
+
+  // negPct/posPct are "% of one half" (0..BAR=52), matching the prior CSS
+  // version's width:X% of the 50%-wide .tn-half. Halve again for "% of the
+  // FULL row" since x/width here are percentages of the whole SVG. A small
+  // floor (0.5% of row width) keeps a real-but-tiny delta visible, mirroring
+  // the old .tn-bar{min-width:4px}.
+  const negW = row.neg ? Math.max(negPct / 2, 0.5) : 0;
+  const posW = row.pos ? Math.max(posPct / 2, 0.5) : 0;
+
+  const negRect = row.neg
+    ? \`<g><title>\${esc(row.label + ' (-10%): ' + negVal)}</title><rect class="tnsvg-bar tnsvg-bar-neg" x="\${(50 - negW).toFixed(2)}%" y="15%" width="\${negW.toFixed(2)}%" height="70%" rx="3"></rect></g>\`
+    : '';
+  const posRect = row.pos
+    ? \`<g><title>\${esc(row.label + ' (+10%): ' + posVal)}</title><rect class="tnsvg-bar tnsvg-bar-pos" x="50%" y="15%" width="\${posW.toFixed(2)}%" height="70%" rx="3"></rect></g>\`
+    : '';
+  const negText = row.neg
+    ? \`<text class="tnsvg-val tnsvg-val-neg\${negIn ? ' tnsvg-val-in' : ''}" x="\${(negIn ? 50 - negW + 0.8 : 50 - negW - 0.8).toFixed(2)}%" y="50%" text-anchor="\${negIn ? 'start' : 'end'}" dominant-baseline="middle">\${esc(negVal)}</text>\`
+    : '';
+  const posText = row.pos
+    ? \`<text class="tnsvg-val tnsvg-val-pos\${posIn ? ' tnsvg-val-in' : ''}" x="\${(posIn ? 50 + posW - 0.8 : 50 + posW + 0.8).toFixed(2)}%" y="50%" text-anchor="\${posIn ? 'end' : 'start'}" dominant-baseline="middle">\${esc(posVal)}</text>\`
+    : '';
+
+  const summary = \`\${row.label}: \${row.neg ? negVal + ' at -10%' : 'no -10% scenario'}, \${row.pos ? posVal + ' at +10%' : 'no +10% scenario'}\`;
+  return \`<div class="tnsvg-row">
+    <div class="tnsvg-label">\${esc(row.label)}</div>
+    <svg class="tnsvg-bars" role="img" aria-label="\${esc(summary)}">
+      <line class="tnsvg-spine" x1="50%" y1="0" x2="50%" y2="100%"></line>
+      \${negRect}\${posRect}\${negText}\${posText}
+    </svg>
+  </div>\`;
+}
+
 function renderTornado(sens) {
   const scenarios = sens.scenarios;
   const maxAbs = Math.max(...scenarios.map(s => Math.abs(s.deltaVsBase)), 1);
   const rows = pairLeverScenarios(scenarios);
-
-  const BAR = 52, THRESH = 13;
-  const rowHtml = rows.filter(r => r.impact > 1).map(row => {
-    const negPct = row.neg ? +(Math.abs(row.neg.deltaVsBase) / maxAbs * BAR).toFixed(1) : 0;
-    const posPct = row.pos ? +(Math.abs(row.pos.deltaVsBase) / maxAbs * BAR).toFixed(1) : 0;
-    const negVal = row.neg ? fmtUsd(row.neg.deltaVsBase) : '';
-    const posVal = row.pos ? (row.pos.deltaVsBase >= 0 ? '+' : '') + fmtUsd(row.pos.deltaVsBase) : '';
-    const negIn  = negPct >= THRESH, posIn = posPct >= THRESH;
-    const negBar = row.neg ? \`<div class="tn-bar tn-neg" style="width:\${negPct}%">\${negIn ? \`<span class="tn-val">\${esc(negVal)}</span>\` : ''}</div>\` : '';
-    const posBar = row.pos ? \`<div class="tn-bar tn-pos" style="width:\${posPct}%">\${posIn ? \`<span class="tn-val">\${esc(posVal)}</span>\` : ''}</div>\` : '';
-    return \`<div class="tn-row">
-      <div class="tn-label">\${esc(row.label)}</div>
-      <div class="tn-bars">
-        <div class="tn-half tn-left">
-          \${!negIn && row.neg ? \`<span class="tn-val-out tn-neg-val">\${esc(negVal)}</span>\` : ''}
-          \${negBar}
-        </div>
-        <div class="tn-spine"></div>
-        <div class="tn-half tn-right">
-          \${posBar}
-          \${!posIn && row.pos ? \`<span class="tn-val-out tn-pos-val">\${esc(posVal)}</span>\` : ''}
-        </div>
-      </div>
-    </div>\`;
-  }).join('');
+  const rowHtml = rows.filter(r => r.impact > 1).map(row => renderTornadoRow(row, maxAbs)).join('');
 
   return \`<div class="tn-wrap">
     <div class="tn-axis-labels">
