@@ -739,6 +739,15 @@ body { display: flex; flex-direction: column; }
   padding: 0 28px;
 }
 .kpi-chip { padding: 10px 16px; min-width: 126px; }
+/* Batch F: Annualised Return + Ex-Ship Margin are a clear secondary pair next
+   to the filled/green TIS Net Profit primary card. They already inherited the
+   same unmodified .kpi-chip base (no kpi-accent/kpi-loss) — this makes that
+   pairing an explicit, shared rule instead of "no class happens to match no
+   class", so the two can't drift apart if either one later needs a one-off
+   tweak that isn't deliberately applied to its pair too. Same min-width as
+   the base .kpi-chip (no change) — width otherwise follows content so the
+   longer "on bank LC mobilised · 45d lockup" sub-text isn't clipped. */
+.kpi-chip.kpi-secondary { min-width: 126px; }
 
 /* ── 2. Section headings: breathe above cards ────────────────────────────── */
 .section-heading { margin-bottom: 14px; }
@@ -1429,12 +1438,12 @@ ${sharedCss}
         <span class="kpi-value" id="kpi-tisnet-val">—</span>
         <span class="kpi-sub"  id="kpi-tisnet-sub">after partner split</span>
       </div>
-      <div class="kpi-chip">
+      <div class="kpi-chip kpi-secondary">
         <span class="kpi-label">Annualised Return</span>
         <span class="kpi-value" id="kpi-annret-val">—</span>
         <span class="kpi-sub"  id="kpi-annret-sub">—</span>
       </div>
-      <div class="kpi-chip">
+      <div class="kpi-chip kpi-secondary">
         <span class="kpi-label" id="kpi-margin-label">Ex-Ship Margin</span>
         <span class="kpi-value" id="kpi-margin-val">—</span>
         <span class="kpi-sub"  id="kpi-margin-sub">—</span>
