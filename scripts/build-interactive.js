@@ -766,18 +766,31 @@ body { display: flex; flex-direction: column; }
 .wf-row { padding: 24px; }
 /* Override reportCss padding on the shared wf-box class */
 .wf-box { padding: 18px 16px; }
-/* Batch F: neutralize the 3 intermediate cards (margin foregone / adjusted /
-   partner cash share — TIS-funded flow's "all-in cost" shares wf-deduct, same
-   treatment applies). Colored fill is reserved for the terminal TIS Net
-   Profit card (.wf-net, untouched — still green/deep-red) and the leading
-   .wf-standalone card (untouched — its dark-ink fill marks it as the anchor
-   figure, not a pastel status tint, so it's out of scope for this pass).
+/* Batch G v2 (cards, deliberate color system — replaces both the original
+   arbitrary per-card pastels (red/amber/red in reportCss) and Batch F's
+   all-neutral pass). Three roles, independent of step count so this still
+   reads correctly whether a flow has 3 boxes (TIS self-funded) or 5
+   (partner-funded) or more:
+     - ANCHOR  (.wf-standalone, untouched) — dark-ink fill marks the starting
+       figure. Out of scope here.
+     - DEDUCTION (.wf-deduct, .wf-share — every "minus" step, e.g. cost,
+       margin foregone, partner cash share) — ONE consistent muted slate
+       fill. Same treatment regardless of which deduction it is: a deduction
+       is a deduction, not a status to differentiate by tint. Slate, not red
+       — root CLAUDE.md reserves red for brand accent / genuine P&L loss,
+       and these are expected structural reductions, not errors.
+     - CHECKPOINT (.wf-adjusted — a subtotal the flow passes through, e.g.
+       Adjusted Profit) — bordered-not-filled: white card, ink-weight
+       border, so it reads as a pause/landmark distinct from both the muted
+       deductions and the terminal result.
+   Terminal (.wf-net / .wf-net.wf-loss, untouched) keeps its green/deep-red
+   fill — still the headline result.
    Override-after-cascade: these classes are defined in reportCss (shared
-   with the PDF, out of scope to edit directly), so they're neutralized here
+   with the PDF, out of scope to edit directly), so they're restyled here
    the same way .wf-box's padding already is two lines up. */
 .wf-box.wf-deduct,
-.wf-box.wf-adjusted,
-.wf-box.wf-share { background: var(--white); border-color: var(--border); }
+.wf-box.wf-share    { background: var(--slate-bg); border-color: var(--border); }
+.wf-box.wf-adjusted { background: var(--white); border: 2px solid var(--ink); }
 /* reportCss uses display:flex+gap on .wf-reconcile but content is inline;
    override to block so text wraps naturally with consistent line spacing.
    Promoted to section-header weight (ink, semibold, --type-value) — was
