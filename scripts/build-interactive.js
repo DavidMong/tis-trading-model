@@ -77,6 +77,11 @@ function css() {
 /* ════ INTERACTIVE: full-viewport sidebar layout ══════════════════════════ */
 html, body { height: 100%; overflow: hidden; }
 body { display: flex; flex-direction: column; }
+/* Typography (Batch G): kerning explicitly on — "no exceptions" per the
+   typography skill, even though most browsers default it on for the fonts
+   already in use here. Ligatures on too (fi/fl pairs in running prose like
+   "financing"/"reflow"). reportCss's body rule doesn't set either. */
+body { font-feature-settings: "kern" 1, "liga" 1; text-rendering: optimizeLegibility; }
 
 /* Drawer toggle — hidden on wide screens */
 .drawer-btn {
@@ -543,6 +548,8 @@ body { display: flex; flex-direction: column; }
   padding: 8px 12px;
   margin-bottom: 12px;
   line-height: 1.4;
+  max-width: 65ch; /* typography: 45-90ch line length — this note renders inside the wide
+                       Hedge Analysis card, not the narrow sidebar, so it actually needs the cap */
 }
 /* Unit-sanity guard: implausibly large fee/spread (likely a units typo). Deeper amber than the
    INDICATIVE notes so it reads as "stop and check", not a routine placeholder hint. */
@@ -1019,7 +1026,10 @@ body { display: flex; flex-direction: column; }
   cursor:pointer; text-align:left; transition:background .12s, color .12s;
 }
 .btn-defaults:hover { background:var(--bg); color:var(--ink); }
-.defaults-note { font-family:var(--f-body); font-size:10px; color:#94a3b8; line-height:1.5; margin-top:5px; }
+/* typography: 45-90ch line length. .defaults-note appears in both the narrow
+   sidebar (already well under 65ch, so this is a no-op there) and the wide
+   results-pane cards (Hedge Analysis), where it actually needs the cap. */
+.defaults-note { font-family:var(--f-body); font-size:10px; color:#94a3b8; line-height:1.5; margin-top:5px; max-width: 65ch; }
 .costs-tab-banner {
   padding:8px 16px 7px; background:#f8fafc; border-bottom:1px solid var(--border);
   font-family:var(--f-body); font-size:10px; color:#94a3b8; line-height:1.5;
@@ -1072,7 +1082,7 @@ body { display: flex; flex-direction: column; }
 .empty-state { text-align:center; padding:48px 24px; }
 .empty-state-title { font-family:var(--f-display); font-size:14px; font-weight:600;
   color:#4b5563; margin:0 0 6px; letter-spacing:0; }
-.empty-state-sub { font-family:var(--f-body); font-size:11px; color:#94a3b8; margin:0; }
+.empty-state-sub { font-family:var(--f-body); font-size:11px; color:#94a3b8; margin:0 auto; max-width: 65ch; }
 
 /* ── C1: Expected negative figures → slate/neutral, not alarm-red ─────────── */
 /* .neg is used for expected structural negatives (hedge cost, sensitivity deltas).
@@ -1333,7 +1343,7 @@ ${sec('Partner & Equity', [
     <div id="lc-display" class="sr">${lcPctInit.toFixed(2)}%</div>
   </div>`,
   `<div class="ir">
-    <label class="ir-lbl" for="inp-product-alloc">${pip('')}<span title="Fraction of the partner's principal (their equity stake) returned in-kind as product rather than cash. 100% = full product; 0% = full cash. Does not change the partner's share of the cargo.">Partner principal as product %&nbsp;ⓘ</span></label>
+    <label class="ir-lbl" for="inp-product-alloc">${pip('')}<span title="Fraction of the partner&rsquo;s principal (their equity stake) returned in-kind as product rather than cash. 100% = full product; 0% = full cash. Does not change the partner&rsquo;s share of the cargo.">Partner principal as product %&nbsp;ⓘ</span></label>
     ${ni('inp-product-alloc', pct2(p.productAllocationPct ?? 1), 5, 0)}
   </div>`,
 ].join(''))}
@@ -1417,7 +1427,7 @@ const tabHedge = `
     ${ir('inp-ice-hedged-vol', 'Hedged volume MT', ni('inp-ice-hedged-vol', hg.hedgedVolumeMT != null ? hg.hedgedVolumeMT : '', 100, 0), 'INDICATIVE')}
     <p class="defaults-note">Swap fee and bank spread are absolute <b>$/MT</b> amounts (×&nbsp;hedged tonnes), not a fraction of notional — typically ~$0.5–$2/MT.</p>
     <div id="ice-fee-warn" class="h-unit-warn" hidden></div>
-    <p class="defaults-note">Defaults to TIS-retained tonnes — the fixed-price tonnes sold to clients. Partner principal is repaid at par (= landed cost), so ICE cancels on partner tonnes; only TIS's fixed-price tonnes carry ICE risk. Raise to full cargo only if partner repayment is fixed-VALUE rather than par/landed-cost.</p>
+    <p class="defaults-note">Defaults to TIS-retained tonnes — the fixed-price tonnes sold to clients. Partner principal is repaid at par (= landed cost), so ICE cancels on partner tonnes; only TIS&rsquo;s fixed-price tonnes carry ICE risk. Raise to full cargo only if partner repayment is fixed-VALUE rather than par/landed-cost.</p>
   </div>
 </div>
 <div class="sb-sec">
@@ -2788,7 +2798,7 @@ function renderHedge(trade, res) {
       <div class="h-cmp-row"><span class="h-cmp-lbl">Hedged TIS Net</span><b class="h-cmp-val">\${fmtUsd(comp.hedgedTisNet)}</b></div>
       <div class="h-cmp-row"><span class="h-cmp-lbl">Unhedged TIS Net</span><b class="h-cmp-val">\${fmtUsd(comp.unhedgedTisNet)}</b></div>
       <div class="h-cmp-row"><span class="h-cmp-lbl">Hedge value vs unhedged</span><b class="h-cmp-delta \${dcls}">\${fmtUsdSign(delta)}</b></div>
-      <p class="defaults-note" style="margin-top:6px">Cost or benefit of hedging vs running unhedged, given how the rate actually moved. Negative = the hedge cost its fee/financing because the rate stayed flat or moved in your favour (protection you didn't need to claim). Positive = the hedge paid off because the rate moved against you. The hedge locks your margin both ways — it trades the chance of a windfall for certainty.</p>
+      <p class="defaults-note" style="margin-top:6px">Cost or benefit of hedging vs running unhedged, given how the rate actually moved. Negative = the hedge cost its fee/financing because the rate stayed flat or moved in your favour (protection you didn&rsquo;t need to claim). Positive = the hedge paid off because the rate moved against you. The hedge locks your margin both ways — it trades the chance of a windfall for certainty.</p>
     </div>\`;
   }
 
@@ -2818,7 +2828,7 @@ function renderHedge(trade, res) {
     \${iceRouteRows}
   \`;
   const settlementNote = finalSet
-    ? \`<div class="defaults-note">Realized at settlement ICE <b>\${fmtUsd(effIce)}/MT</b>: the purchase floats to this price (landed cost recomputed) and the swap settles (final − fixed) × hedged tonnes on TIS's retained tonnes only. "Hedge value vs unhedged" below is the realized outcome.</div>\`
+    ? \`<div class="defaults-note">Realized at settlement ICE <b>\${fmtUsd(effIce)}/MT</b>: the purchase floats to this price (landed cost recomputed) and the swap settles (final − fixed) × hedged tonnes on TIS&rsquo;s retained tonnes only. &ldquo;Hedge value vs unhedged&rdquo; below is the realized outcome.</div>\`
     : '';
   const iceDetail = settlementNote + (iceNullFixed
     ? \`<div class="h-lock-warn">⚠ Fixed price not set — hedge prices at live ICE (<b>\${fmtUsd(trade.market.ice.value)}/MT</b>). No lock-in effect. Set a fixed price in the Hedge tab.</div>\`
@@ -2836,7 +2846,7 @@ function renderHedge(trade, res) {
       \${infoRow('FX realized delta', fmtUsdSign(fxh.fxRealizedDeltaUsd || 0) + (fxOn ? '' : ' (OFF)'))}
       \${infoRow('FX hedge cost', fmtUsd(fxh.extraFinancingCost || 0))}
       \${fxh.basis ? infoRow('Basis risk (benchmark vs NAFEM)', fmtNum(fxh.basis.gapNgnPerUsd, 2) + ' ₦/USD residual') : ''}
-      <div class="defaults-note">FX hedge covers the naira needed to repay the bank's USD facility (principal + interest). Naira profit is retained in naira and not hedged.</div>
+      <div class="defaults-note">FX hedge covers the naira needed to repay the bank&rsquo;s USD facility (principal + interest). Naira profit is retained in naira and not hedged.</div>
     \`;
   }
   const fxWarning = (!fxh.noHedgeReason && fxNullFwd)
