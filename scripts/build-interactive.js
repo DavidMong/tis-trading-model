@@ -3648,7 +3648,11 @@ function importTradesFromFile(inp) {
     }
     let count = 0;
     for (const name of incoming) {
-      TISStorage.saveTrade(name, payload.trades[name].snap);   // merges into the store; non-conflicting trades survive
+      // Any trade reaching local storage via Save/Save As is real — force-set here too, matching
+      // that path (saveTrade/saveAsTrade), so an imported snapshot can never carry a stale or
+      // tampered _isSample:true into the Fixture badge on load.
+      const snap = { ...payload.trades[name].snap, _isSample: 'false' };
+      TISStorage.saveTrade(name, snap);   // merges into the store; non-conflicting trades survive
       count++;
     }
     if (isPlainObject(payload.defaults)) TISStorage.saveDefaults(payload.defaults);
