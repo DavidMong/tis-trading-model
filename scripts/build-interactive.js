@@ -757,9 +757,31 @@ body { display: flex; flex-direction: column; }
 .wf-row { padding: 24px; }
 /* Override reportCss padding on the shared wf-box class */
 .wf-box { padding: 18px 16px; }
+/* Batch F: neutralize the 3 intermediate cards (margin foregone / adjusted /
+   partner cash share — TIS-funded flow's "all-in cost" shares wf-deduct, same
+   treatment applies). Colored fill is reserved for the terminal TIS Net
+   Profit card (.wf-net, untouched — still green/deep-red) and the leading
+   .wf-standalone card (untouched — its dark-ink fill marks it as the anchor
+   figure, not a pastel status tint, so it's out of scope for this pass).
+   Override-after-cascade: these classes are defined in reportCss (shared
+   with the PDF, out of scope to edit directly), so they're neutralized here
+   the same way .wf-box's padding already is two lines up. */
+.wf-box.wf-deduct,
+.wf-box.wf-adjusted,
+.wf-box.wf-share { background: var(--white); border-color: var(--border); }
 /* reportCss uses display:flex+gap on .wf-reconcile but content is inline;
-   override to block so text wraps naturally with consistent line spacing   */
-.wf-reconcile { display: block; padding: 12px 24px; line-height: 1.7; }
+   override to block so text wraps naturally with consistent line spacing.
+   Promoted to section-header weight (ink, semibold, --type-value) — was
+   small slate/gray afterthought text (--ink-60, 12px, no weight) for a line
+   that states whether the trade's numbers actually reconcile. */
+.wf-reconcile {
+  display: block;
+  padding: var(--space-3) var(--space-6);
+  line-height: 1.7;
+  font-size: var(--type-value);
+  font-weight: 600;
+  color: var(--role-ink);
+}
 
 /* ── 5. Cost Build-Up totals: standard card padding, row breathing ───────── */
 .cost-totals      { padding: 14px 24px; gap: 8px; }
