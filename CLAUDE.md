@@ -7,11 +7,19 @@ entity — partners, suppliers, banks, inspectors are generic per-trade names.
 ## Architecture (three layers)
 
 ```
-engine/core/    cost-buildup · tax · fx · financing · hedge · rounding · sensitivities   (pure, reusable)
-engine/flows/   equity-partner (built) · straight-exship (stub) · full-depot-resale (stub)
+engine/core/    cost-buildup · tax · fx · fx-hedge · financing · hedge · pricing-ladder · revenue ·
+                rounding · sensitivities · storage-collect · validate   (pure, reusable)
+                — see engine/core/CLAUDE.md for pricing-ladder, hedge/fx-hedge, settlement ICE,
+                  and config-driven cost/tax lines
+engine/flows/   trade.js (unified, current) · equity-partner.js (verified reference path) ·
+                straight-exship.js (stub) · full-depot-resale.js (stub)
+                — see engine/flows/CLAUDE.md for the unified trade model
 trades/         per-trade JSON inputs
-run.js          CLI: report + --with-surcharge --upside --compare-fx --compare-hedge --export csv
+run.js          CLI: report + --with-surcharge --upside --compare-fx --compare-hedge --ladder --export csv
 test/           invariants.js — assertion harness (node test/invariants.js)
+scripts/        report/dashboard build tooling — interactive dashboard (build-interactive.js) is
+                documented in .claude/rules/build-interactive-*.md (path-scoped, load only when
+                that file is touched)
 ```
 
 Flows are pure compute functions `(trade, opts) -> result`. `run.js` formats; `sensitivities.js`
@@ -33,7 +41,7 @@ partner terms, hedge terms, flat cost lines, taxableSupplyProportion, surcharge 
 - Ex-ship placeholder = landed cost/MT × (1 + 6%)  *(until buyer priced)*
 - Partner tonnes = partner principal ÷ ex-storage landed cost (economic, exact)
 
-## NTA 2025 tax anchors  (authority: ../tax-reference.md — verified, do NOT re-derive)
+## NTA 2025 tax anchors  (authority: tax-reference.md — verified, do NOT re-derive)
 
 - **VAT 7.5% standard-rated** on domestic gasoil — **s.147**. Gasoil is neither exempt (**s.185**) nor
   zero-rated (**s.186**). Do **NOT** cite s.186(n) (that concerns exports).
@@ -110,149 +118,8 @@ only the metric moves there too; all-USD fingerprint guard re-baselined to `a902
 - hedgedVolume default = TIS retained tonnes (rounded to whole lots). Effective ICE = hedged×fixed +
   unhedged×live. Placeholders (verify before live hedge): feePerMT, initialMarginPct, fixedPrice.
 
-## Pricing ladder (advisory — `engine/core/pricing-ladder.js`, `--ladder`)
-
-Cost-plus price-recommendation tool. **Suggests** prices; the trader always sets the final price
-("SUGGESTED — pricing guidance only"). Every P&L figure is produced by re-running the verified flow
-engine at the tier price (`runAtPrice -> compute`) — no math is duplicated or approximated. The tier
-price is rounded to the cent **before** the engine run, so the displayed price reproduces the displayed
-profit exactly (auditable WYSIWYG).
-
-- **Cost base:** ex-ship margin is measured against **ex-ship landed cost** (all-in excluding storage);
-  depot margin against **all-in depot landed cost** (including storage/throughput/evaporation/tank ins.).
-  Never against bare FOB.
-- **Three metrics per tier (always all three):** margin % of sell price · markup % on landed cost ·
-  absolute spread per unit ($/MT ex-ship, ₦/L depot).
-- **Ex-ship ladder (USD):** tiers are margin-of-sell → price = landed / (1 − m). Defaults Floor 3% /
-  Conservative 6% / Target 10% / Stretch 15% / Premium 20%. Configurable via `trade.pricing.exShipTiers`.
-- **Depot ladder (₦/L):** tiers are absolute ₦/L spread over all-in depot landed cost. Defaults Floor 50 /
-  Conservative 90 / Recommended 135 / Stretch 170 / Premium 220. Configurable via `trade.pricing.depotTiers`.
-  **Applies only when a depot leg exists**; P&L per tier is `PENDING` until the full-depot-resale flow is built.
-- **Primary comparison:** ex-ship vs depot **absolute spread** in a common currency (₦/L headline + $/MT),
-  via `pricing.conversion` (litresPerMT, depot FX market). Reports which leg earns the larger absolute spread.
-- Re-derives automatically when landed cost moves (ICE/FOB/freight/FX). The trader's entered price is
-  highlighted and classified to the nearest tier.
-
-## Unified trade model (`engine/flows/trade.js`, `flow: "trade"`) — five independent dimensions
-
-`computeEquityPartner` is kept untouched as the verified reference-trade path (`flow: "equity-partner"`).
-`computeTrade` is the unified flow reusing the same core modules; it reproduces `computeEquityPartner`
-**exactly** for {ex-ship, partner, USD, 25%} (asserted: FX1). `straight-exship` / `full-depot-resale`
-route into it. The engine is USD-internal; the FX layer converts naira legs at the boundary.
-
-1. **Sale channels** — `channels.exShipPct` + `channels.depotPct` (validated sum = 1). Proceeds pool:
-   `standalone = combinedRevenue − combinedCost` (generalizes the baseline revenue−cost identity exactly).
-2. **Equity provider** — `partner.equityProvider ∈ {partner, TIS}`. `partner` runs the in-kind / margin-
-   foregone / profit-share waterfall; `TIS` self-funded → `standalone = adjusted = TIS net`, partnerTonnes 0,
-   annualised return on the **bank LC mobilised** (`financing.lc`) — same base for both providers
-   (see *Annualised return* above; RULE 2026-06-23).
-3. **Equity ratio** — `financing.lcPctOfCargo` + `partner.bondPct` + `partner.equityPct`, **validated to
-   sum to 1.0** (throws otherwise). Default 0.75/0.05/0.20. Change advanceRate → equity/LC/interest/returns re-flow.
-4. **Currency** — `sell.currencyMode ∈ {USD, NGN, split}` (+ `splitUsdPct`) on the **ex-ship** leg; depot
-   is always ₦/L. **NAFEM drives all naira→USD P&L; PARALLEL is pricing-reference/reconciliation only**
-   (RULE 1, 2026-06-23; asserted: FX3). Business reality: the bank funds USD, TIS repays naira proceeds, and
-   the bank converts those naira to USD at NAFEM — so NAFEM is the rate at which naira revenue/cost lands in
-   P&L (naira costs are naira-funded, Option B). Parallel stays fully resolved and shown for the display /
-   exposure / reconciliation blocks but feeds **zero** P&L. The live FX sensitivity lever is the **NAFEM**
-   rate (`fxMode: 'nafem'`); `fx.paymentBumpPct` now moves only the parallel reference (≈0 P&L). FX bites only
-   naira legs (asserted: FX2/FX5). `fx.fxIncidence` default `TIS`.
-5. **Depot channel** — priced ₦/L → USD via **NAFEM** × `litresPerMT` (RULE 1). Margin vs **all-in depot
-   landed cost** (`depotLanded = exShipLanded + storage/depotTonnes`, > ex-ship landed: FX4). Storage lines go
-   live for depot volume; **throughput + tank rental are naira-paid and FX-exposed at NAFEM on the cost side**
-   (asserted: FX6); evaporation + tank insurance are USD (% of depot cargo value). Depot ₦/L ladder +
-   ex-ship-vs-depot comparison go live.
-
-**Margin-foregone benchmark = MAX channel** (RULE 2, 2026-06-23): TIS forgoes the **BEST** alternative use of
-the partner's tonnes, so the in-kind product is valued in USD at the **highest realized price across the
-channels actually present** — ex-ship USD price, depot @ NAFEM (`depotNgnPerL × litres / nafem`), or ex-ship-NGN
-@ NAFEM, whichever is greater. Solely ex-ship → ex-ship price; solely depot → depot @ NAFEM; split → the
-higher-margin channel (`benchmarkBasis` names the winner, e.g. `"depot price (NAFEM)"` / `"ex-ship price"`).
-**Edge case:** no sell channel at all → falls back to ex-ship landed cost (asserted: FX9, PL2, PL3, MX).
-
-Sample trades: `sample-depot-only` (depot/TIS/NGN), `sample-both-channels` (both/partner/split, advanceRate 0.80),
-`sample-exship-tis` (ex-ship/TIS/USD), plus `reference-trade-001` (the unchanged verified baseline).
-
-## Hedge toggles — ICE + FX (`engine/core/hedge.js`, `engine/core/fx-hedge.js`)
-
-Two **independent** per-trade toggles, both default **OFF**: `hedge.iceHedged` and `fxHedge.fxHedged`.
-- **ON → drives realized P&L:** the net hedge impact flows into `standalone → adjusted → TIS net`
-  (shared via the partner split when partner-funded). ICE: `−(iceCostDelta + all-in hedge cost)`;
-  FX: `+(forward-vs-parallel delta on the hedged naira) − hedge cost`.
-- **OFF → no P&L effect** (leg floats at NAFEM/live, zero hedge cost) — current behavior exactly.
-- **Comparison:** `hedgeComparison` always shows the opposite toggle state (hedged vs unhedged TIS net),
-  computed by re-running the engine with the toggle flipped, **recursion-guarded** via `opts.skipHedgeCompare`.
-- **FX hedge BASE = BANK REPAYMENT OBLIGATION** (RULE 3, 2026-06-23): the base is the bank's USD facility
-  repayment — `(financing.lc + financing.wc + financing.creditInterest + financing.wcInterest) × NAFEM`,
-  surfaced as `fxHedge.exposureNgn` (naira) + `fxHedge.bankRepaymentUsd` (USD). **Rationale:** the trader is
-  Nigeria-based and retains profit in naira, so the ONLY naira TIS is *forced* to convert to USD — the only
-  FX risk — is the naira needed to repay the bank's USD facility (principal + interest). The naira profit
-  above that is kept in naira and is NOT hedged; hedging the full net naira position (revenue − naira cost)
-  would **over-hedge by the naira profit** (~2× the real liability on the depot sample) and waste the FX
-  premium. `hedgeRatio` controls what fraction of the bank obligation to cover (1.0 = full repayment),
-  overridable per trade. **GATE:** a trade with no naira revenue repays the bank from USD proceeds (no
-  conversion, no FX risk) → base 0 → hedge inert, so **all-USD trades stay byte-for-byte unchanged**
-  (`bankRepaymentUsd` is omitted from their output; guard hash unchanged). The net naira *position* is still
-  reported in the FX block (`fx.netNairaExposureUsd`) for exposure/reconciliation — it just no longer sizes
-  the hedge. A configurable portion of the base locks at a named-benchmark forward (NAFEM/NDF); unhedged
-  remainder floats at **NAFEM** (RULE 1, 2026-06-23 — the economic settlement rate; asserted: HX3, PL4b).
-  Dual route (bank_book spread / third_party bank-provided margin + broker fee), apples-to-apples on the
-  bank-repayment base (over-hedge excluded).
-- **BASIS RISK (explicit):** the hedge settles against the benchmark forward, which differs from the
-  **NAFEM settlement rate** the unhedged naira actually books at, so the benchmark↔NAFEM gap is a surfaced
-  residual (`fxHedge.basis.residualBasisUsd` + ⚠ note; asserted: HX4) — measured against NAFEM because that
-  is the rate the hedge protects (RULE 1). Parallel is reference/display only and drives nothing in the
-  hedge. The hedge never implies full NAFEM cover. All hedge params are PLACEHOLDER — confirm with bank/broker.
-- The reference-trade runs on `computeEquityPartner` (toggles n/a) → byte-for-byte unchanged.
-
-## Final / settlement ICE (`market.ice.final`)
-
-Optional single value. The physical FOB purchase **FLOATS** at ICE (it is not locked — that is *why* TIS
-hedges), so the settled ICE at payment must drive BOTH landed cost AND the swap reference. Resolved ONCE
-at the top of `computeTrade` / `computeEquityPartner`:
-
-```
-effectiveIce = market.ice.final ?? market.ice.value
-```
-
-`effectiveIce` is substituted at EVERY site that reads `market.ice.value` — the two `unitFob` reads, the
-hedge's `liveIce` reference (`buildHedge`), and cost line 1 "ICE LSGO" (`rateFrom: market.ice.value`,
-resolved against an `effTrade` clone). It is **one shared value, never a second ICE reference on the same
-tonnes** — so the swap and the physical offset cleanly. Result:
-
-- **(a)** landed cost recomputes at the settled ICE (purchase floats);
-- **(b)** swap gain/loss = `hedgedPhysical × (effectiveIce − fixedPrice)`, scoped to **RETAINED tonnes only**
-  (`iceCostDelta`, never full cargo, never partner tonnes);
-- **(c)** partner principal (∝ cargo value) and partner tonnes (÷ landed) recompute at the new landed cost —
-  **self-offsetting at par**, so the swap must NOT cover them (it doesn't: default hedged volume = retained).
-
-**SAFETY RULE — BLANK ⇒ live ⇒ byte-for-byte unchanged.** When `final` is absent, `effectiveIce === liveIce`
-and `effTrade === trade` *by reference*: zero structural change, every existing number identical. No new
-result fields are emitted (the UI reads the input + existing hedge fields). Guarded by the full suite
-(reference/Profogas trade byte-for-byte) plus the **FI0–FI8** tests (settled-ICE behavior + net stability:
-hedged TIS net stays ~stable across the ICE range while unhedged swings widely). UI: "Final ICE $/MT
-(settlement)" in the Pricing section (placeholder = live ICE); the ICE hedge card relabels "Live ICE" →
-"Settlement ICE (final)" and surfaces a **Realized hedge P&L** row + realized-outcome note when set.
-
-## Config-driven cost/tax lines (`engine/config/cost-line-schema.json`)
-
-Policy-change-proofing: **every cost/tax line's structure lives in config, not code.** The schema JSON
-defines each line as a self-describing object; `buildCostBuildup` is a generic evaluator that reads
-`type` and applies the matching base — **no rate, percentage, or %-vs-fixed assumption is hardcoded in
-calculation logic.** A policy change (rate edit, %→fixed flip, base change) is a config edit.
-
-- **type** (editable): `pct_of_freight | pct_of_cargo_value | pct_of_services | pct_of_LC | pct_of_sell
-  | fixed | derived`. `derived` names a structural `derivation` (per_mt, tc_hire, demurrage,
-  credit_interest, wc_interest, ngn_per_mt, ngn_fixed, pct_of_depot_cargo_value).
-- **rate** (inline) or **rateFrom** (path into the trade) for percentage types; **amount**/**amountFrom**
-  for `fixed`. `statusFrom`, `legalRef`, `recoverable`, `taxLine` (tax-block membership), `group`
-  (`storage`) are all config fields.
-- **Per-trade overrides:** `trade.costLineOverrides[id] = { ... }` overrides any field for one trade —
-  e.g. flip a 2% levy to a fixed fee, or move a line to a different base, with zero code change.
-- Editing a **rate** (VAT 7.5%→10%): edit `trade.tax.vatRate` (or the line's `rate`). Editing a **type**:
-  edit the schema or a per-trade override. Both are config edits; the engine re-flows everything.
-- Verified: rate change propagates (CFG1), type flip computes + reconciles (CFG2), base change recomputes
-  (CFG3), config is the sole rate source (CFG4), tax-block membership is config-driven (CFG5). The
-  reference-trade is byte-for-byte unchanged with current defaults.
+(Detailed ICE/FX hedge mechanics, including the bank-repayment-obligation base and basis-risk surfacing,
+are in `engine/core/CLAUDE.md`.)
 
 ## Status-flag taxonomy (Batch D — final, 3 states)
 
@@ -271,218 +138,9 @@ which are remapped at render time in `badge()` and `pip()`. Do not change engine
 **UNVERIFIED lines (open items):** NIMASA cabotage, NIMASA freight levy, SPOMO/CVFF, WHT on freight 5%
 (TAA 2025 s.51 — rate unverified), VAT on services (INFERRED base composition).
 
-## Interactive dashboard — real-trade features (`scripts/build-interactive.js`)
+## Module documentation
 
-### Per-trade vs house-defaults split
-
-Two named arrays in the client script control which inputs are cleared/reloaded on **New Trade**:
-
-- **`PER_TRADE_IDS`** — identity (name/partner/supplier/inspector), market prices, FX, freight,
-  financing, partner terms, toggles. Cleared on New Trade.
-- **`DEFAULT_IDS`** — cost-line rates/flat fees, tax rates, storage rates, density, hedge bank
-  terms. Persist across trades; loaded from saved house defaults on New Trade.
-
-### Professional trade library — state machine + footer layout
-
-Three-state badge (`#trade-state-badge`) driven by `_currentTradeName` (null = new) and `_modified`:
-- **New · unsaved** — slate/grey; `_currentTradeName === null`
-- **{name} · saved** — blue-grey; loaded/saved, no pending edits
-- **{name} · modified** — amber; any `onInputChange()` or toggle click since last save/load
-
-Footer is a four-row column layout (requires `display:flex; flex-direction:column` on `.sb-footer`
-— parent sidebar uses flex:row, which is why the explicit direction is needed):
-1. **Row 1** (`.sb-footer-row1`) — New Trade · Save · Save As…
-2. **State row** (`.sb-state-row`) — three-state badge (full width)
-3. **Row 2** (`.sb-footer-row2`) — dropdown · ↓ (force-load) · ✎ (rename) · ✕ (delete)
-4. **Report row** (`.sb-report-row`) — Download Report button (added with the report-pdf feature)
-
-**CSS cascade note:** three `.sb-footer` blocks exist in the stylesheet (original ~line 322, spacing-system
-~line 693, new-feature ~line 766). The new-feature block must explicitly set `align-items:stretch; padding:0;
-gap:0; overflow:hidden; box-sizing:border-box; width:100%` to override all conflicting properties from the
-earlier blocks. Each inner row (`sb-footer-row1`, `sb-state-row`, `sb-footer-row2`) carries its own padding
-and `box-sizing:border-box; width:100%; overflow:hidden`. The lib-select dropdown uses `flex:1; min-width:0;
-max-width:100%; box-sizing:border-box` to shrink within its flex row without bleeding past the sidebar edge.
-
-Key behaviours:
-- **Smart Save** (`saveTrade()`): if `_currentTradeName !== null`, updates in place ("Updated: {name}");
-  otherwise reads `inp-trade-name`, prompts duplicate-check, saves as new.
-- **Save As…** (`saveAsTrade()`): always `prompt()`s for name; default is "{current} (copy)" or typed name.
-  Switches `_currentTradeName` to the new name on success.
-- **Rename** (`renameTrade()`): `prompt()`s; moves storage key; updates badge if renaming current trade.
-- **Delete** (`deleteSelectedTrade()`): confirm includes "(This is the trade currently in your form.)"
-  when deleting the current trade; sets `_currentTradeName = null` so badge reverts to "New · unsaved";
-  form inputs are **not** wiped.
-- **Load** (`loadSelectedTrade(explicit?)`): auto-loads on dropdown `onchange`; `↓` passes `explicit=true`
-  to surface "Select a saved trade first" on empty. Unsaved-changes confirm on either path.
-- **New Trade** (`newTrade()`): confirm if `_modified`; resets `_currentTradeName = null` + dropdown.
-
-**Template-literal escape rule:** `\n` inside the Node.js template literal emits a literal newline into
-the browser JS string, breaking single-quoted strings. Never use `\n` in string literals within the
-client JS block — use concatenation or omit newlines entirely.
-
-### Browser tab title
-
-`updateHeader()` (called on load, New Trade, rename, identity edits, and load-snapshot) sets
-`document.title`:
-- Sample fixture (`_isSample === true`) → `${INIT.meta.tradeId} — TIS Global Trading (Interactive)`
-- Unnamed / New Trade → `New Trade — TIS Global Trading`
-- Named real trade → `${name} — TIS Global Trading`
-
-### Status pip semantics — `pip()` (Batch F)
-
-The small colored dot before a field label (`ir(id, label, inputHtml, status, primary)`) signals the
-field's *verification status* against the Batch D taxonomy, via the same status strings the engine/
-config emit: green `pip-ok` = OK/FIXED, grey `pip-ind` = INDICATIVE/PLACEHOLDER/PENDING/EXAMPLE,
-orange `pip-unv` = CONFIRM/UNVERIFIED. This is real and varies meaningfully across the Costs and
-Hedge tabs, where every field is backed by a config-driven status (e.g. NIMASA levies → UNVERIFIED,
-VAT rate → OK).
-
-It does **not** apply to fields with no verification-status concept at all — free-text identity
-fields (trade name, partner, supplier, inspector), pure trader-discretion business terms (delivered
-MT, profit split %, financing days, capital lockup days), the equity-provider/bond%/equity%
-structural inputs, and FOB premium (no `status` field exists on `market.fobPremium` the way it does
-on `market.ice`). Before Batch F, `pip(status)` defaulted falsy/`''` status to green `pip-ok` — so
-these 12 Deal-tab fields showed an always-green "verified" dot that was actually just the function's
-fallback, not a real signal. `pip(null)` (the explicit "no status concept" sentinel, distinct from
-`''`) now renders no dot (`pip-none`) for exactly these fields; `ir()` callers elsewhere are
-unaffected (`''`/omitted still falls through to green, unchanged) — only the 12 call sites with no
-real status pass `null`. If you add a new Deal-tab field, pass `null` unless it's genuinely backed by
-an engine/config status string.
-
-### Hedge placeholder field state — `.si.ph` and `data-ph`
-
-`.si.ph` gives amber border/background + amber pip to signal "field is empty; unconfirmed default."
-Once a field has a value it must show **neutral** styling (normal border/bg, green pip, ink text).
-
-Implementation:
-- `ni()` adds `data-ph="1"` to inputs rendered with `cls='ph'`
-- `refreshHedgePh()` iterates `[data-ph]` inputs: has-value → removes `ph`, sets pip to `pip-ok`;
-  empty → ensures `ph` present, pip stays `pip-ind`
-- Called from `onInputChange()` (every keystroke), after each `applyInputSnapshot()` call, and at init
-- The `color` property was removed from `.si.ph` (prior pass) so text is always ink regardless
-
-### Hedged volume MT placeholder
-
-`inp-ice-hedged-vol` is empty when using the engine default (TIS retained tonnes, not full cargo —
-see *Dual-route hedge*). `updateHedgedVolPlaceholder()` sets its HTML `placeholder` attribute from
-`_lastRetainedTonnes` (the last compute's retained tonnage), e.g. `"7,500 (retained)"`, or the label
-`"retained tonnes"` before any compute has run. Called from `onInputChange()`, after each
-`applyInputSnapshot()` call, and at init so it tracks the live computed default.
-
-### Empty state / stale-results prevention
-
-`recompute()` gates on `inp-delivered` being non-empty before calling the engine. If blank (New Trade
-or first load with no data), it calls `showEmptyState()` which:
-1. Wipes all 7 result `<div>` sections (`sec-waterfall` through `sec-sens`) to empty HTML.
-2. Sets all header KPI values and subs to `—`.
-3. Clears the error banner.
-4. Renders a calm "Enter trade data to see results" prompt in `sec-waterfall`.
-
-If the engine throws on partial inputs (delivered MT filled but other fields invalid), `clearResults()`
-wipes the sections + KPIs and the red error banner shows — no stale prior-trade numbers remain.
-House defaults (Costs tab: tax rates, cost-line rates, hedge bank terms) are NOT cleared by this; they
-persist through New Trade as intended and rehydrate from saved house defaults.
-
-### Sell price is OPTIONAL (price-independent vs price-dependent outputs)
-
-Sell pricing is **per leg** via the revenue-leg editor (`_legs` / `trade.revenueLegs`, S2.1) — there is
-no longer a single scalar sell-price field (the old `inp-exship-price` id only survives as a read in
-legacy-snapshot migration, for trades saved before the leg editor existed). A trade is priced once
-**every** leg has a positive price; until then the trader prices *from* the ladder, so the cost
-build-up and pricing ladder must be visible before any price is chosen.
-
-**Price-INDEPENDENT** (compute/render without every leg priced):
-- Cost Build-Up (`renderCost`) — `buildCostBuildup` never receives `sellValue` in the unified
-  `engine/flows/trade.js` path, so `pct_of_sell` lines resolve to 0; landed cost is pure cost-side.
-- Pricing Ladder (`renderLadder`) — each tier derives its own price from `exShipLandedPerMT` and runs
-  the engine at that price (`runAtPrice`); the ladder base never needs the entered sell price.
-
-**Price-DEPENDENT** (need every leg priced; shown as a calm PENDING state until then):
-- Profit Waterfall, TIS Net Profit KPI, Annualised Return KPI, Ex-Ship Margin KPI,
-  Partner Deliverables (cash share), Hedge Analysis comparison, Tax surcharge, Sensitivities.
-
-**How `recompute()` handles it** (no engine math changed):
-- Detects `hasSellPrice = legsAll.length > 0 && legsAll.every(l => isFinite(l.price) && l.price > 0)`
-  — every leg must carry a positive price.
-- The engine *throws* if the ex-ship channel is active and the price isn't positive. So when any leg
-  is unpriced, it runs the engine once with **synthetic per-leg placeholder prices** filled in
-  (`(ice+fob)*1.25` USD, fallback 1000, converted to a ₦/L equivalent for NGN-unit legs) purely to
-  extract the price-independent outputs. Those synthetic values are **never displayed** — confirmed:
-  `renderLadder`'s current-price marker only adopts a leg's price when the *real* (non-synthetic)
-  `trade.revenueLegs[].price` is finite, falling back through `res.price.exShipPricePerMT`
-  (explicitly nulled below) otherwise.
-- After the run, `res.price.exShipPricePerMT` and `res.price.depotPriceNgnPerL` are both set to
-  `null` so neither ladder shows a fake current-price marker, and sensitivities are skipped.
-- `renderAll(trade, res, ladder, hasSellPrice)` then renders cost + ladder + a pending card in the
-  waterfall slot and clears the P&L-dependent sections; `renderKPIs(res, false)` shows `—` with an
-  "enter leg prices" sub. Pricing every leg re-runs normally and everything computes; clearing any
-  leg's price returns to pending with the ladder intact.
-
-The 220 invariant tests exercise the engine directly (with a real sell price), so they are unaffected.
-
-### Storage abstraction (`TISStorage`)
-
-All persistence is routed through `TISStorage` (an IIFE in the client script). Current backend:
-**`localStorage`** (`tis_saved_trades_v1`, `tis_house_defaults_v1`). To swap to a hosted backend,
-replace only the four methods: `saveTrade`, `loadTrade`, `loadTrades`, `deleteTrade`,
-`saveDefaults`, `loadDefaults`. The rest of the UI is backend-agnostic.
-
-### Identity fields + Fixture badge
-
-Trade name, Partner, Supplier, Inspector are editable text fields in the **Trade Identity** section
-of the Deal tab. They update the header live (`updateHeader()`).
-
-**`_isSample` flag:** `true` at boot when `INIT_IS_SAMPLE` detects the bundled sample fixture name
-(REGRESSION/FIXTURE/dummy/test/sample keywords). Cleared to `false` on: any `onInputChange()` call
-(any text/number input change), any toggle click (`.tgl-wrap` listener), `newTrade()`, or loading a
-real saved trade via `loadSelectedTrade()`. When `_isSample` is `false`, `updateHeader()` hides the
-`#hdr-fixture-badge` span and sets `#hdr-trade-id` to `display:none`. The badge only reappears if the
-page is reloaded with the original sample fixture.
-
-**Header identity segments:** each of Partner / Supplier / Inspector is wrapped in a `<span id="hdr-X-seg">`.
-`updateHeader()` sets `display:none` on any segment whose value is empty — so blank fields are omitted
-entirely from the header strip rather than showing a stale or placeholder value. When a value is filled
-in, the segment reverts to the default display (empty string).
-
-**Logo SVG:** the raw SVG (`assets/tis-logo-2.svg`) has an `<?xml...?>` declaration and `<!DOCTYPE>` stripped
-before inlining; no `<title>` is injected into the inline SVG (accessibility is handled by `role="img"` +
-`aria-label="TIS Global Trading"` on the container div). This prevents doubled text from SVG-title + aria-label
-rendering in certain environments.
-
-### Favicon
-
-Embedded as a data URI in `<head>` — the TIS mark (`tis-logo-4.svg` viewBox, red #d41d1d) rendered
-as a minimal inline SVG. No external request; works from `file://` and `localhost` equally.
-
-### Color-semantics palette (Batch C — final)
-
-`#d41d1d` red = **BRAND ACCENT ONLY** — never danger/loss/error in financials.
-`#15803d` green = positive / active.  `#f59e0b`/`#92400e` amber = caution / unverified.
-`#242331` ink.  `#717c89` slate.  `#991b1b` deep-red = genuine error or real P&L loss.
-
-**Red KEEP list** (all justified as brand accent or genuine error):
-- `--red` tab active underline (brand)
-- `@keyframes val-flash` subtle amber-red wash (brand, opacity .07)
-- `.err-banner` / `.tie-out-box.tie-warn` (`#991b1b`) — genuine computation errors
-- `lc < 0 ? 'var(--red)'` in `updateLcDisplay()` — equity stack overallocated (genuine error)
-- `fixtureBadgeHtml` uses `rgba(212,29,29,.20)` / `#fca5a5` — sample fixture label (brand)
-- Favicon fill `#d41d1d` (brand)
-- `.leg-del:hover { color: #991b1b }` (S2.1, revenue-leg editor) — destructive-action hover affordance
-  on a delete button, the standard UX convention; not financial-negative semantics, so not a Batch C
-  regression
-
-**Changed (C1–C6):**
-- `.neg { color: #717c89 }` — expected structural negatives (hedge cost delta, margin foregone,
-  sensitivity deltas) → slate. Previously `#991b1b` alarm-red.
-- `.loss { color: #991b1b }` — NEW class for real P&L losses (ladder TIS NET when negative).
-  Ladder cells use `tier.tisNetProfit >= 0 ? 'pos' : 'loss'` (was `'neg'`).
-- `.btn-save` background → `var(--ink)` (was `var(--red)`). Hover `#3a3545`. (C2)
-- `.tgl-track.on` → ink default; `[data-type="hedge"]` → green `#10b981`;
-  `[data-type="surcharge"]` → amber `#f59e0b`. No untyped toggles exist in UI. (C6)
-- `.si:focus` / `.ss:focus` / `.lib-select:focus` border/shadow → ink (was red). (C6)
-- `.si.ph` / `.hedge-warn-note` / `.h-lock-warn` → amber `#92400e` text (was `#9a3412`). (C5)
-- `.pip-ph` → `#f59e0b` amber (was `#f97316` orange). (C4)
-- `.bdg.bdg-placeholder` → `#92400e` text / `#fef3c7` bg (was blue `#1e40af`/`#dbeafe`).
-  Double-class selector (0,2,0) + `!important` defeats reportCss cascade. (C4)
-- Route seg-btn active state → ink (C3).
-- Sensitivity heat cells `.sens-neg` / `.sens-neg-strong` → dark-grey text, heat-map bg. (C1)
+- `engine/core/CLAUDE.md` — pricing ladder, ICE/FX hedge mechanics, settlement ICE, config-driven cost/tax lines
+- `engine/flows/CLAUDE.md` — the unified `trade.js` flow (five independent dimensions)
+- `.claude/rules/build-interactive-*.md` — interactive dashboard (`scripts/build-interactive.js`)
+  behavior and gotchas; path-scoped so they only load when that file is in play
