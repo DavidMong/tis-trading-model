@@ -39,6 +39,41 @@ const logo = logoSvgRaw
 function css() {
   const { reportCss } = require('./report-renderer');
   return reportCss + `
+/* ════ DESIGN TOKENS (Batch F) ══════════════════════════════════════════════
+   Additive only — does not replace any existing rule. A second :root block
+   layers fine on top of reportCss's :root (different custom-property names,
+   no redeclaration) per the same cascade-layering pattern already used for
+   .sb-footer / .wf-box overrides below. Color roles map onto the EXISTING
+   Batch C palette (ink/slate/amber/red/green) — no new colors introduced. ── */
+:root {
+  /* Type scale — named by role, not size, so a component's intent reads from
+     its CSS rather than a magic px value. 6 sizes, smallest to largest. */
+  --type-label:   9px;   /* section/field labels, uppercase eyebrow text */
+  --type-body:    11px;  /* body copy, sub-text, table cells */
+  --type-input:   12px;  /* form inputs, default UI text */
+  --type-value:   13px;  /* emphasized inline figures (primary inputs, table totals) */
+  --type-kpi:     21px;  /* header KPI figures */
+  --type-display: 28px;  /* reserved for hero/display figures */
+
+  /* 8px spacing scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+
+  /* Color roles — aliases onto the existing Batch C palette, not new hex values */
+  --role-ink:      var(--ink);     /* primary text, terminal/emphasis fills */
+  --role-slate:    var(--slate);   /* secondary text, neutral borders */
+  --role-positive: #15803d;        /* Batch C green — positive / active */
+  --role-caution:  #f59e0b;        /* Batch C amber — caution / unverified */
+  --role-loss:     #991b1b;        /* Batch C deep-red — genuine error / real P&L loss */
+  --role-accent:   var(--red);     /* Batch C red — brand accent ONLY, never loss */
+}
+
 /* ════ INTERACTIVE: full-viewport sidebar layout ══════════════════════════ */
 html, body { height: 100%; overflow: hidden; }
 body { display: flex; flex-direction: column; }
@@ -704,6 +739,15 @@ body { display: flex; flex-direction: column; }
   padding: 0 28px;
 }
 .kpi-chip { padding: 10px 16px; min-width: 126px; }
+/* Batch F: Annualised Return + Ex-Ship Margin are a clear secondary pair next
+   to the filled/green TIS Net Profit primary card. They already inherited the
+   same unmodified .kpi-chip base (no kpi-accent/kpi-loss) — this makes that
+   pairing an explicit, shared rule instead of "no class happens to match no
+   class", so the two can't drift apart if either one later needs a one-off
+   tweak that isn't deliberately applied to its pair too. Same min-width as
+   the base .kpi-chip (no change) — width otherwise follows content so the
+   longer "on bank LC mobilised · 45d lockup" sub-text isn't clipped. */
+.kpi-chip.kpi-secondary { min-width: 126px; }
 
 /* ── 2. Section headings: breathe above cards ────────────────────────────── */
 .section-heading { margin-bottom: 14px; }
@@ -722,58 +766,104 @@ body { display: flex; flex-direction: column; }
 .wf-row { padding: 24px; }
 /* Override reportCss padding on the shared wf-box class */
 .wf-box { padding: 18px 16px; }
+/* Batch F: neutralize the 3 intermediate cards (margin foregone / adjusted /
+   partner cash share — TIS-funded flow's "all-in cost" shares wf-deduct, same
+   treatment applies). Colored fill is reserved for the terminal TIS Net
+   Profit card (.wf-net, untouched — still green/deep-red) and the leading
+   .wf-standalone card (untouched — its dark-ink fill marks it as the anchor
+   figure, not a pastel status tint, so it's out of scope for this pass).
+   Override-after-cascade: these classes are defined in reportCss (shared
+   with the PDF, out of scope to edit directly), so they're neutralized here
+   the same way .wf-box's padding already is two lines up. */
+.wf-box.wf-deduct,
+.wf-box.wf-adjusted,
+.wf-box.wf-share { background: var(--white); border-color: var(--border); }
 /* reportCss uses display:flex+gap on .wf-reconcile but content is inline;
-   override to block so text wraps naturally with consistent line spacing   */
-.wf-reconcile { display: block; padding: 12px 24px; line-height: 1.7; }
+   override to block so text wraps naturally with consistent line spacing.
+   Promoted to section-header weight (ink, semibold, --type-value) — was
+   small slate/gray afterthought text (--ink-60, 12px, no weight) for a line
+   that states whether the trade's numbers actually reconcile. */
+.wf-reconcile {
+  display: block;
+  padding: var(--space-3) var(--space-6);
+  line-height: 1.7;
+  font-size: var(--type-value);
+  font-weight: 600;
+  color: var(--role-ink);
+}
 
 /* ── 5. Cost Build-Up totals: standard card padding, row breathing ───────── */
-.cost-totals      { padding: 14px 24px; gap: 8px; }
-.cost-total-row   { padding: 2px 0; }
+/* Batch F: snapped onto the --space-*/--type-* token scale (step 1) — values
+   that didn't land exactly on a token (14px, 2px, 6px) move to the nearest
+   one rather than staying as one-off magic numbers. Small (≤2px) spacing
+   shifts only; no figure/number is affected. */
+.cost-totals      { padding: var(--space-4) var(--space-6); gap: var(--space-2); }
+.cost-total-row   { padding: var(--space-1) 0; }
 
 /* ── 6. Partner Deliverables — all three missing style definitions ────────── */
 /* .info-block separates logical groups within each column                   */
-.info-block            { margin-bottom: 16px; }
+.info-block            { margin-bottom: var(--space-4); }
 .info-block:last-child { margin-bottom: 0; }
 
 /* .info-sub is the sub-heading for each group ("(1) Product Received" etc.) */
 .info-sub {
   font-family: var(--f-display);
-  font-size: 10px;
+  font-size: var(--type-label);
   font-weight: 700;
   letter-spacing: .07em;
   text-transform: uppercase;
   color: var(--slate);
-  margin-bottom: 8px;
-  padding-bottom: 6px;
+  margin-bottom: var(--space-2);
+  padding-bottom: var(--space-2);
   border-bottom: 1px solid var(--border);
 }
 
-/* .tie-out-box is the principal reconciliation callout at the card bottom   */
+/* .tie-out-box is the principal reconciliation callout at the card bottom.
+   Batch F: unified with the cost-table recoverable badge and the waterfall
+   reconcile line — same "verified / ties out" signal everywhere is now a
+   single .bdg pill, not a separately-colored box. The box itself stays
+   neutral in both states; only the pill (already bdg-recoverable / bdg-confirm,
+   shared with the other two surfaces) carries the ok/mismatch color. */
 .tie-out-box {
-  margin-top: 16px;
-  padding: 12px 16px;
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-4);
   border-radius: 8px;
   font-family: var(--f-body);
-  font-size: 12px;
+  font-size: var(--type-body);
   line-height: 1.5;
   border: 1.5px solid var(--border);
   background: var(--bg);
   color: var(--ink-60);
 }
-.tie-out-box.tie-ok   { background: #f0fdf4; border-color: #86efac; color: #166534; }
-.tie-out-box.tie-warn { background: #fff5f5; border-color: #fca5a5; color: #991b1b; }
-.tie-out-box b        { color: inherit; font-weight: 600; }
+.tie-out-box b { color: inherit; font-weight: 600; }
 
 /* Info rows in partner two-col-grid and hedge detail: more vertical padding  */
 .h-detail .info-row,
-.two-col-grid .info-row { padding: 4px 0; }
+.two-col-grid .info-row { padding: var(--space-1) 0; }
 
 /* ── 7. Hedge cards: more space throughout ───────────────────────────────── */
-.hedge-cards    { gap: 20px; }
-.h-card-hdr     { padding: 14px 20px; }
-.h-detail-inner { padding: 16px 20px; }
-.h-cmp          { padding: 14px 20px; }
-.h-cmp-row      { padding: 3px 0; }
+/* Batch F: snapped onto the token scale, same as the Cost Build-Up totals
+   block above — 14px/3px didn't land on a token so move to the nearest one. */
+.hedge-cards    { gap: var(--space-5); }
+.h-card-hdr     { padding: var(--space-4) var(--space-5); }
+.h-detail-inner { padding: var(--space-4) var(--space-5); }
+.h-cmp          { padding: var(--space-4) var(--space-5); }
+.h-cmp-row      { padding: var(--space-1) 0; }
+
+/* ── Costs tab: two-column field grid (Batch F) ──────────────────────────────
+   Port & Cargo Dues / Maritime Levies / Cargo & Services / Banking & Admin
+   were single-column stacked .ir rows, full sidebar width, for short
+   $/MT-or-% fields that don't need it. Two columns halves the section height
+   without crowding the (already small, 10px) labels. Gutter uses the token
+   scale; .ir's own column layout (label stacked above input) is untouched —
+   it just becomes a grid item instead of a full-width flex child. Storage
+   isn't included — its rows carry a unit-toggle control the simple field
+   pattern doesn't, so it stays single-column. */
+.field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: var(--space-3);
+}
 
 /* ── 8. Sensitivities / tornado: breathing room ──────────────────────────── */
 .tn-wrap            { padding: 24px 24px 8px; }
@@ -1059,7 +1149,12 @@ function tog(id, label, active, type) {
   </div>`;
 }
 
+// status === null is the explicit "this field has no verification-status concept" signal
+// (free text, trader-discretion business terms, structural choices) — distinct from a falsy
+// '' which historically also fell through to the green pip-ok default. See CLAUDE.md
+// "Status pip semantics" — only call pip(null) for fields with no real status to report.
 function pip(status) {
+  if (status === null) return `<span class="pip pip-none"></span>`;
   const s = (status || '').toUpperCase();
   let cls;
   if (!status || s === 'OK' || s.includes('FIXED')) cls = 'pip-ok';
@@ -1117,29 +1212,29 @@ const fxOn          = !!(fxhg.fxHedged);
 const shortTitleRaw = t.meta.tradeName.replace(/\s*\([^)]*(?:REGRESSION|FIXTURE|dummy|test|sample)[^)]*\)/gi, '').trim();
 const tabDeal = `
 ${sec('Trade Identity <span class="per-trade-tag">per-trade</span>', [
-  ir('inp-trade-name',    'Trade name',  ti('inp-trade-name',    shortTitleRaw,                   'e.g. Reference Trade 001'), ''),
-  ir('inp-partner-name',  'Partner',     ti('inp-partner-name',  (t.parties||{}).partner  || '', 'Partner name'), ''),
-  ir('inp-supplier-name', 'Supplier',    ti('inp-supplier-name', (t.parties||{}).supplier || '', 'Supplier name'), ''),
-  ir('inp-inspector-name','Inspector',   ti('inp-inspector-name',(t.parties||{}).inspector|| '', 'Inspector name'), ''),
+  ir('inp-trade-name',    'Trade name',  ti('inp-trade-name',    shortTitleRaw,                   'e.g. Reference Trade 001'), null),
+  ir('inp-partner-name',  'Partner',     ti('inp-partner-name',  (t.parties||{}).partner  || '', 'Partner name'), null),
+  ir('inp-supplier-name', 'Supplier',    ti('inp-supplier-name', (t.parties||{}).supplier || '', 'Supplier name'), null),
+  ir('inp-inspector-name','Inspector',   ti('inp-inspector-name',(t.parties||{}).inspector|| '', 'Inspector name'), null),
 ].join(''))}
 ${sec('Pricing <span class="live-badge">Live</span>', [
   ir('inp-ice',       'ICE LSGO $/MT',      ni('inp-ice',       t.market.ice.value,           0.01, 0),     t.market.ice.status, true),
   ir('inp-ice-final', 'Final ICE $/MT (settlement)', ni('inp-ice-final', t.market.ice.final != null ? t.market.ice.final : '', 0.01, 0, 'ph'), 'INDICATIVE'),
   '<p class="defaults-note">Leave blank to use live ICE. Enter the settled ICE at payment to see the realized hedge outcome — your purchase floats at this price; the swap offsets it on hedged tonnes.</p>',
-  ir('inp-fob',       'FOB Premium $/MT',    ni('inp-fob',       t.market.fobPremium.value,    0.01),        '', true),
+  ir('inp-fob',       'FOB Premium $/MT',    ni('inp-fob',       t.market.fobPremium.value,    0.01),        null, true),
   `<div class="ir pri">
     <label class="ir-lbl" for="inp-fxnafem">${pip(t.fx.nafem.status)}FX NAFEM ₦/USD <span class="rate-tag rate-settle">settlement · P&amp;L</span></label>
     ${ni('inp-fxnafem', t.fx.nafem.value, 1, 1)}
   </div>`,
   '<p class="defaults-note" style="margin-top:-2px">Settlement rate — bank converts naira proceeds to USD at NAFEM, so this drives <b>all naira P&amp;L</b> (RULE 1). The live FX sensitivity lever.</p>',
-  ir('inp-delivered', 'Delivered MT',        ni('inp-delivered', t.cargo.deliveredQtyMT,        1, 1),        '', true),
+  ir('inp-delivered', 'Delivered MT',        ni('inp-delivered', t.cargo.deliveredQtyMT,        1, 1),        null, true),
 ].join(''))}
 ${sec('Sale — Revenue Legs', [
   '<div class="leg-editor" id="leg-editor"></div>',
   '<div class="leg-foot"><button type="button" id="btn-add-leg" class="leg-add">+ Add leg</button>'
     + '<div class="leg-total" id="leg-total"></div></div>',
   '<p class="defaults-note" style="margin-top:6px">Each leg = channel + pricing unit + tonnage (or % of cargo) + price in its native unit. Depot legs are always ₦/L. Leg tonnage must sum to Delivered MT. Price is optional per leg — leave blank to price from the ladder first.</p>',
-  ir('inp-profit-split', 'Partner Profit Split %', ni('inp-profit-split', pct2(p.profitSharePct), 1, 0), '', true),
+  ir('inp-profit-split', 'Partner Profit Split %', ni('inp-profit-split', pct2(p.profitSharePct), 1, 0), null, true),
 ].join(''))}
 ${sec('Toggles', `<div class="tgl-set">
   ${tog('tog-ice-hedge', 'ICE Gasoil Hedge', iceOn, 'hedge')}
@@ -1166,14 +1261,14 @@ ${sec('Freight', [
 ${sec('Financing', [
   ir('inp-credit-rate', 'Credit Rate %/yr',    ni('inp-credit-rate', pct2(f.creditRate), 0.1, 0), f.status || 'INDICATIVE'),
   ir('inp-lc-fee',      'LC Fee %',            ni('inp-lc-fee', pct2(f.lcFeePct), 0.01, 0),       f.status || 'INDICATIVE'),
-  ir('inp-fin-days',    'Financing Days',      ni('inp-fin-days', f.financingDays, 1, 1),          ''),
-  ir('inp-lockup',      'Capital Lockup Days', ni('inp-lockup', f.capitalLockupDays, 1, 1),        ''),
+  ir('inp-fin-days',    'Financing Days',      ni('inp-fin-days', f.financingDays, 1, 1),          null),
+  ir('inp-lockup',      'Capital Lockup Days', ni('inp-lockup', f.capitalLockupDays, 1, 1),        null),
   ir('inp-wc-sublimit', 'WC Sublimit $',       ni('inp-wc-sublimit', f.wcSublimit, 10000, 0),      'INDICATIVE'),
 ].join(''))}
 ${sec('Partner & Equity', [
-  ir('sel-equity-provider', 'Equity Provider',    si('sel-equity-provider', [['partner','Partner (equity split)'],['TIS','TIS (self-funded)']], p.equityProvider || 'partner'), ''),
-  ir('inp-bond',    'Bond % of cargo',  ni('inp-bond',    pct2(p.bondPct),  0.5, 0), ''),
-  ir('inp-equity',  'Equity % of cargo',ni('inp-equity',  pct2(p.equityPct),0.5, 0), ''),
+  ir('sel-equity-provider', 'Equity Provider',    si('sel-equity-provider', [['partner','Partner (equity split)'],['TIS','TIS (self-funded)']], p.equityProvider || 'partner'), null),
+  ir('inp-bond',    'Bond % of cargo',  ni('inp-bond',    pct2(p.bondPct),  0.5, 0), null),
+  ir('inp-equity',  'Equity % of cargo',ni('inp-equity',  pct2(p.equityPct),0.5, 0), null),
   `<div class="ir">
     <label class="ir-lbl" for="lc-display">${pip('')}LC % (auto-derived)</label>
     <div id="lc-display" class="sr">${lcPctInit.toFixed(2)}%</div>
@@ -1201,28 +1296,28 @@ ${sec('Tax Rates', [
 // ── Tab: Costs ───────────────────────────────────────────────────────────────
 const tabCosts = `
 <div class="costs-tab-banner">House defaults — rates &amp; fees that persist across new trades</div>
-${sec('Port & Cargo Dues', [
+${sec('Port & Cargo Dues', '<div class="field-grid">' + [
   ir('inp-npa-per-mt', 'NPA cargo dues $/MT', ni('inp-npa-per-mt', cl.npaCargoDuesPerMT, 0.1, 0), 'OK'),
   ir('inp-port-das',   'Port DAs $',          ni('inp-port-das',   cl.portDAs, 1000, 0),           'OK'),
   ir('inp-ncs-docs',   'NCS documentation $', ni('inp-ncs-docs',   cl.ncsDocs, 100, 0),            'OK'),
-].join(''))}
-${sec('Maritime Levies', [
+].join('') + '</div>')}
+${sec('Maritime Levies', '<div class="field-grid">' + [
   ir('inp-nimasa-cab',     'NIMASA cabotage %',     ni('inp-nimasa-cab',     pct2(cl.nimasaCabotagePct),     0.1, 0), 'UNVERIFIED'),
   ir('inp-nimasa-freight', 'NIMASA freight levy %', ni('inp-nimasa-freight', pct2(cl.nimasaFreightLevyPct), 0.1, 0), 'UNVERIFIED'),
   ir('inp-spomo',          'SPOMO / CVFF %',        ni('inp-spomo',          pct2(cl.spomoCvffPct),         0.1, 0), 'UNVERIFIED'),
-].join(''))}
-${sec('Cargo & Services', [
+].join('') + '</div>')}
+${sec('Cargo & Services', '<div class="field-grid">' + [
   ir('inp-marine-icc',    'Marine ICC(A) %',      ni('inp-marine-icc',    pct4(cl.marineIccPct),    0.001, 0), 'INDICATIVE'),
   ir('inp-sgs',           'SGS inspection $',     ni('inp-sgs',           cl.sgsInspection,         500,   0), 'OK'),
   ir('inp-port-agency',   'Port agency $',        ni('inp-port-agency',   cl.portAgency,            500,   0), 'OK'),
   ir('inp-alloc-security','Allocated security %', ni('inp-alloc-security',pct4(cl.allocSecurityPct),0.001, 0), 'INDICATIVE'),
-].join(''))}
-${sec('Banking & Admin', [
+].join('') + '</div>')}
+${sec('Banking & Admin', '<div class="field-grid">' + [
   ir('inp-bank-charges',  'Bank charges $',      ni('inp-bank-charges',  cl.bankCharges,      100,  0), 'OK'),
   ir('inp-overhead',      'Overhead $',          ni('inp-overhead',      cl.overhead,          100,  0), 'OK'),
   ir('inp-contingency',   'Contingency $',       ni('inp-contingency',   cl.contingency,       1000, 0), 'OK'),
   ir('inp-collateral-mgr','Collateral manager $',ni('inp-collateral-mgr',cl.collateralManager, 100,  0), 'OK'),
-].join(''))}
+].join('') + '</div>')}
 <div id="storage-sec"${!depotActive ? ' hidden' : ''}>
 ${sec('Storage (depot active)', [
   storageRow('inp-throughput',     'sel-throughput-unit', 'lbl-throughput-unit', 'Throughput',
@@ -1369,12 +1464,12 @@ ${sharedCss}
         <span class="kpi-value" id="kpi-tisnet-val">—</span>
         <span class="kpi-sub"  id="kpi-tisnet-sub">after partner split</span>
       </div>
-      <div class="kpi-chip">
+      <div class="kpi-chip kpi-secondary">
         <span class="kpi-label">Annualised Return</span>
         <span class="kpi-value" id="kpi-annret-val">—</span>
         <span class="kpi-sub"  id="kpi-annret-sub">—</span>
       </div>
-      <div class="kpi-chip">
+      <div class="kpi-chip kpi-secondary">
         <span class="kpi-label" id="kpi-margin-label">Ex-Ship Margin</span>
         <span class="kpi-value" id="kpi-margin-val">—</span>
         <span class="kpi-sub"  id="kpi-margin-sub">—</span>
@@ -2517,7 +2612,7 @@ function renderPartner(trade, res) {
         </div>\` : ''}
       </div>
     </div>
-    <div class="tie-out-box\${pd.principalTie?.ok ? ' tie-ok' : ' tie-warn'}">
+    <div class="tie-out-box">
       Principal tie-out: owed <b>\${fmtUsd(res.financing.partnerFunding)}</b> = product <b>\${fmtUsd(pd.principalTie?.returnedProductValue)}</b> + cash <b>\${fmtUsd(pd.principalTie?.returnedCash)}</b>
       \${pd.principalTie?.ok ? ' <span class="bdg bdg-recoverable">&#10003; OK</span>' : ' <span class="bdg bdg-confirm">MISMATCH</span>'}
     </div>
