@@ -793,24 +793,28 @@ body { display: flex; flex-direction: column; }
 }
 
 /* ── 5. Cost Build-Up totals: standard card padding, row breathing ───────── */
-.cost-totals      { padding: 14px 24px; gap: 8px; }
-.cost-total-row   { padding: 2px 0; }
+/* Batch F: snapped onto the --space-*/--type-* token scale (step 1) — values
+   that didn't land exactly on a token (14px, 2px, 6px) move to the nearest
+   one rather than staying as one-off magic numbers. Small (≤2px) spacing
+   shifts only; no figure/number is affected. */
+.cost-totals      { padding: var(--space-4) var(--space-6); gap: var(--space-2); }
+.cost-total-row   { padding: var(--space-1) 0; }
 
 /* ── 6. Partner Deliverables — all three missing style definitions ────────── */
 /* .info-block separates logical groups within each column                   */
-.info-block            { margin-bottom: 16px; }
+.info-block            { margin-bottom: var(--space-4); }
 .info-block:last-child { margin-bottom: 0; }
 
 /* .info-sub is the sub-heading for each group ("(1) Product Received" etc.) */
 .info-sub {
   font-family: var(--f-display);
-  font-size: 10px;
+  font-size: var(--type-label);
   font-weight: 700;
   letter-spacing: .07em;
   text-transform: uppercase;
   color: var(--slate);
-  margin-bottom: 8px;
-  padding-bottom: 6px;
+  margin-bottom: var(--space-2);
+  padding-bottom: var(--space-2);
   border-bottom: 1px solid var(--border);
 }
 
@@ -835,14 +839,16 @@ body { display: flex; flex-direction: column; }
 
 /* Info rows in partner two-col-grid and hedge detail: more vertical padding  */
 .h-detail .info-row,
-.two-col-grid .info-row { padding: 4px 0; }
+.two-col-grid .info-row { padding: var(--space-1) 0; }
 
 /* ── 7. Hedge cards: more space throughout ───────────────────────────────── */
-.hedge-cards    { gap: 20px; }
-.h-card-hdr     { padding: 14px 20px; }
-.h-detail-inner { padding: 16px 20px; }
-.h-cmp          { padding: 14px 20px; }
-.h-cmp-row      { padding: 3px 0; }
+/* Batch F: snapped onto the token scale, same as the Cost Build-Up totals
+   block above — 14px/3px didn't land on a token so move to the nearest one. */
+.hedge-cards    { gap: var(--space-5); }
+.h-card-hdr     { padding: var(--space-4) var(--space-5); }
+.h-detail-inner { padding: var(--space-4) var(--space-5); }
+.h-cmp          { padding: var(--space-4) var(--space-5); }
+.h-cmp-row      { padding: var(--space-1) 0; }
 
 /* ── 8. Sensitivities / tornado: breathing room ──────────────────────────── */
 .tn-wrap            { padding: 24px 24px 8px; }
