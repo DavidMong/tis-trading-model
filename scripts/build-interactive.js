@@ -783,21 +783,24 @@ body { display: flex; flex-direction: column; }
   border-bottom: 1px solid var(--border);
 }
 
-/* .tie-out-box is the principal reconciliation callout at the card bottom   */
+/* .tie-out-box is the principal reconciliation callout at the card bottom.
+   Batch F: unified with the cost-table recoverable badge and the waterfall
+   reconcile line — same "verified / ties out" signal everywhere is now a
+   single .bdg pill, not a separately-colored box. The box itself stays
+   neutral in both states; only the pill (already bdg-recoverable / bdg-confirm,
+   shared with the other two surfaces) carries the ok/mismatch color. */
 .tie-out-box {
-  margin-top: 16px;
-  padding: 12px 16px;
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-4);
   border-radius: 8px;
   font-family: var(--f-body);
-  font-size: 12px;
+  font-size: var(--type-body);
   line-height: 1.5;
   border: 1.5px solid var(--border);
   background: var(--bg);
   color: var(--ink-60);
 }
-.tie-out-box.tie-ok   { background: #f0fdf4; border-color: #86efac; color: #166534; }
-.tie-out-box.tie-warn { background: #fff5f5; border-color: #fca5a5; color: #991b1b; }
-.tie-out-box b        { color: inherit; font-weight: 600; }
+.tie-out-box b { color: inherit; font-weight: 600; }
 
 /* Info rows in partner two-col-grid and hedge detail: more vertical padding  */
 .h-detail .info-row,
@@ -2552,7 +2555,7 @@ function renderPartner(trade, res) {
         </div>\` : ''}
       </div>
     </div>
-    <div class="tie-out-box\${pd.principalTie?.ok ? ' tie-ok' : ' tie-warn'}">
+    <div class="tie-out-box">
       Principal tie-out: owed <b>\${fmtUsd(res.financing.partnerFunding)}</b> = product <b>\${fmtUsd(pd.principalTie?.returnedProductValue)}</b> + cash <b>\${fmtUsd(pd.principalTie?.returnedCash)}</b>
       \${pd.principalTie?.ok ? ' <span class="bdg bdg-recoverable">&#10003; OK</span>' : ' <span class="bdg bdg-confirm">MISMATCH</span>'}
     </div>
