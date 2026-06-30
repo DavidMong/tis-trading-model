@@ -397,7 +397,7 @@ build-up and pricing ladder must be visible before any price is chosen.
   "enter leg prices" sub. Pricing every leg re-runs normally and everything computes; clearing any
   leg's price returns to pending with the ladder intact.
 
-The 133 invariant tests exercise the engine directly (with a real sell price), so they are unaffected.
+The 220 invariant tests exercise the engine directly (with a real sell price), so they are unaffected.
 
 ### Storage abstraction (`TISStorage`)
 
