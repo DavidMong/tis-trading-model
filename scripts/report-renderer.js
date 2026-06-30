@@ -26,7 +26,7 @@ const fmt = {
   },
   pct(x, dec = 2) {
     if (x == null) return '—';
-    return (Number(x) * 100).toFixed(dec).replace(/\.?0+$/,'') + '%';
+    return (Number(x) * 100).toFixed(dec) + '%';
   },
   mt(x, dec = 2) {
     if (x == null) return '—';
