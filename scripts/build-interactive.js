@@ -1149,7 +1149,12 @@ function tog(id, label, active, type) {
   </div>`;
 }
 
+// status === null is the explicit "this field has no verification-status concept" signal
+// (free text, trader-discretion business terms, structural choices) — distinct from a falsy
+// '' which historically also fell through to the green pip-ok default. See CLAUDE.md
+// "Status pip semantics" — only call pip(null) for fields with no real status to report.
 function pip(status) {
+  if (status === null) return `<span class="pip pip-none"></span>`;
   const s = (status || '').toUpperCase();
   let cls;
   if (!status || s === 'OK' || s.includes('FIXED')) cls = 'pip-ok';
@@ -1207,29 +1212,29 @@ const fxOn          = !!(fxhg.fxHedged);
 const shortTitleRaw = t.meta.tradeName.replace(/\s*\([^)]*(?:REGRESSION|FIXTURE|dummy|test|sample)[^)]*\)/gi, '').trim();
 const tabDeal = `
 ${sec('Trade Identity <span class="per-trade-tag">per-trade</span>', [
-  ir('inp-trade-name',    'Trade name',  ti('inp-trade-name',    shortTitleRaw,                   'e.g. Reference Trade 001'), ''),
-  ir('inp-partner-name',  'Partner',     ti('inp-partner-name',  (t.parties||{}).partner  || '', 'Partner name'), ''),
-  ir('inp-supplier-name', 'Supplier',    ti('inp-supplier-name', (t.parties||{}).supplier || '', 'Supplier name'), ''),
-  ir('inp-inspector-name','Inspector',   ti('inp-inspector-name',(t.parties||{}).inspector|| '', 'Inspector name'), ''),
+  ir('inp-trade-name',    'Trade name',  ti('inp-trade-name',    shortTitleRaw,                   'e.g. Reference Trade 001'), null),
+  ir('inp-partner-name',  'Partner',     ti('inp-partner-name',  (t.parties||{}).partner  || '', 'Partner name'), null),
+  ir('inp-supplier-name', 'Supplier',    ti('inp-supplier-name', (t.parties||{}).supplier || '', 'Supplier name'), null),
+  ir('inp-inspector-name','Inspector',   ti('inp-inspector-name',(t.parties||{}).inspector|| '', 'Inspector name'), null),
 ].join(''))}
 ${sec('Pricing <span class="live-badge">Live</span>', [
   ir('inp-ice',       'ICE LSGO $/MT',      ni('inp-ice',       t.market.ice.value,           0.01, 0),     t.market.ice.status, true),
   ir('inp-ice-final', 'Final ICE $/MT (settlement)', ni('inp-ice-final', t.market.ice.final != null ? t.market.ice.final : '', 0.01, 0, 'ph'), 'INDICATIVE'),
   '<p class="defaults-note">Leave blank to use live ICE. Enter the settled ICE at payment to see the realized hedge outcome — your purchase floats at this price; the swap offsets it on hedged tonnes.</p>',
-  ir('inp-fob',       'FOB Premium $/MT',    ni('inp-fob',       t.market.fobPremium.value,    0.01),        '', true),
+  ir('inp-fob',       'FOB Premium $/MT',    ni('inp-fob',       t.market.fobPremium.value,    0.01),        null, true),
   `<div class="ir pri">
     <label class="ir-lbl" for="inp-fxnafem">${pip(t.fx.nafem.status)}FX NAFEM ₦/USD <span class="rate-tag rate-settle">settlement · P&amp;L</span></label>
     ${ni('inp-fxnafem', t.fx.nafem.value, 1, 1)}
   </div>`,
   '<p class="defaults-note" style="margin-top:-2px">Settlement rate — bank converts naira proceeds to USD at NAFEM, so this drives <b>all naira P&amp;L</b> (RULE 1). The live FX sensitivity lever.</p>',
-  ir('inp-delivered', 'Delivered MT',        ni('inp-delivered', t.cargo.deliveredQtyMT,        1, 1),        '', true),
+  ir('inp-delivered', 'Delivered MT',        ni('inp-delivered', t.cargo.deliveredQtyMT,        1, 1),        null, true),
 ].join(''))}
 ${sec('Sale — Revenue Legs', [
   '<div class="leg-editor" id="leg-editor"></div>',
   '<div class="leg-foot"><button type="button" id="btn-add-leg" class="leg-add">+ Add leg</button>'
     + '<div class="leg-total" id="leg-total"></div></div>',
   '<p class="defaults-note" style="margin-top:6px">Each leg = channel + pricing unit + tonnage (or % of cargo) + price in its native unit. Depot legs are always ₦/L. Leg tonnage must sum to Delivered MT. Price is optional per leg — leave blank to price from the ladder first.</p>',
-  ir('inp-profit-split', 'Partner Profit Split %', ni('inp-profit-split', pct2(p.profitSharePct), 1, 0), '', true),
+  ir('inp-profit-split', 'Partner Profit Split %', ni('inp-profit-split', pct2(p.profitSharePct), 1, 0), null, true),
 ].join(''))}
 ${sec('Toggles', `<div class="tgl-set">
   ${tog('tog-ice-hedge', 'ICE Gasoil Hedge', iceOn, 'hedge')}
@@ -1256,14 +1261,14 @@ ${sec('Freight', [
 ${sec('Financing', [
   ir('inp-credit-rate', 'Credit Rate %/yr',    ni('inp-credit-rate', pct2(f.creditRate), 0.1, 0), f.status || 'INDICATIVE'),
   ir('inp-lc-fee',      'LC Fee %',            ni('inp-lc-fee', pct2(f.lcFeePct), 0.01, 0),       f.status || 'INDICATIVE'),
-  ir('inp-fin-days',    'Financing Days',      ni('inp-fin-days', f.financingDays, 1, 1),          ''),
-  ir('inp-lockup',      'Capital Lockup Days', ni('inp-lockup', f.capitalLockupDays, 1, 1),        ''),
+  ir('inp-fin-days',    'Financing Days',      ni('inp-fin-days', f.financingDays, 1, 1),          null),
+  ir('inp-lockup',      'Capital Lockup Days', ni('inp-lockup', f.capitalLockupDays, 1, 1),        null),
   ir('inp-wc-sublimit', 'WC Sublimit $',       ni('inp-wc-sublimit', f.wcSublimit, 10000, 0),      'INDICATIVE'),
 ].join(''))}
 ${sec('Partner & Equity', [
-  ir('sel-equity-provider', 'Equity Provider',    si('sel-equity-provider', [['partner','Partner (equity split)'],['TIS','TIS (self-funded)']], p.equityProvider || 'partner'), ''),
-  ir('inp-bond',    'Bond % of cargo',  ni('inp-bond',    pct2(p.bondPct),  0.5, 0), ''),
-  ir('inp-equity',  'Equity % of cargo',ni('inp-equity',  pct2(p.equityPct),0.5, 0), ''),
+  ir('sel-equity-provider', 'Equity Provider',    si('sel-equity-provider', [['partner','Partner (equity split)'],['TIS','TIS (self-funded)']], p.equityProvider || 'partner'), null),
+  ir('inp-bond',    'Bond % of cargo',  ni('inp-bond',    pct2(p.bondPct),  0.5, 0), null),
+  ir('inp-equity',  'Equity % of cargo',ni('inp-equity',  pct2(p.equityPct),0.5, 0), null),
   `<div class="ir">
     <label class="ir-lbl" for="lc-display">${pip('')}LC % (auto-derived)</label>
     <div id="lc-display" class="sr">${lcPctInit.toFixed(2)}%</div>
