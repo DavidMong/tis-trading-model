@@ -289,11 +289,12 @@ Three-state badge (`#trade-state-badge`) driven by `_currentTradeName` (null = n
 - **{name} · saved** — blue-grey; loaded/saved, no pending edits
 - **{name} · modified** — amber; any `onInputChange()` or toggle click since last save/load
 
-Footer is a three-row column layout (requires `display:flex; flex-direction:column` on `.sb-footer`
+Footer is a four-row column layout (requires `display:flex; flex-direction:column` on `.sb-footer`
 — parent sidebar uses flex:row, which is why the explicit direction is needed):
-1. **Row 1** — New Trade · Save · Save As…
-2. **State row** — three-state badge (full width)
-3. **Row 2** — dropdown · ↓ (force-load) · ✎ (rename) · ✕ (delete)
+1. **Row 1** (`.sb-footer-row1`) — New Trade · Save · Save As…
+2. **State row** (`.sb-state-row`) — three-state badge (full width)
+3. **Row 2** (`.sb-footer-row2`) — dropdown · ↓ (force-load) · ✎ (rename) · ✕ (delete)
+4. **Report row** (`.sb-report-row`) — Download Report button (added with the report-pdf feature)
 
 **CSS cascade note:** three `.sb-footer` blocks exist in the stylesheet (original ~line 322, spacing-system
 ~line 693, new-feature ~line 766). The new-feature block must explicitly set `align-items:stretch; padding:0;
@@ -341,9 +342,11 @@ Implementation:
 
 ### Hedged volume MT placeholder
 
-`inp-ice-hedged-vol` is empty when using the full-cargo default. `updateHedgedVolPlaceholder()`
-sets its HTML `placeholder` attribute to e.g. `"10,000 (full cargo)"` from the current `inp-delivered`
-value. Called from `onInputChange()` and at init so it tracks the cargo MT live.
+`inp-ice-hedged-vol` is empty when using the engine default (TIS retained tonnes, not full cargo —
+see *Dual-route hedge*). `updateHedgedVolPlaceholder()` sets its HTML `placeholder` attribute from
+`_lastRetainedTonnes` (the last compute's retained tonnage), e.g. `"7,500 (retained)"`, or the label
+`"retained tonnes"` before any compute has run. Called from `onInputChange()`, after each
+`applyInputSnapshot()` call, and at init so it tracks the live computed default.
 
 ### Empty state / stale-results prevention
 
@@ -361,33 +364,40 @@ persist through New Trade as intended and rehydrate from saved house defaults.
 
 ### Sell price is OPTIONAL (price-independent vs price-dependent outputs)
 
-The Ex-Ship sell price (`inp-exship-price`) is **not required**. The trader prices *from* the ladder,
-so the cost build-up and pricing ladder must be visible before a price is chosen.
+Sell pricing is **per leg** via the revenue-leg editor (`_legs` / `trade.revenueLegs`, S2.1) — there is
+no longer a single scalar sell-price field (the old `inp-exship-price` id only survives as a read in
+legacy-snapshot migration, for trades saved before the leg editor existed). A trade is priced once
+**every** leg has a positive price; until then the trader prices *from* the ladder, so the cost
+build-up and pricing ladder must be visible before any price is chosen.
 
-**Price-INDEPENDENT** (compute/render without a sell price):
+**Price-INDEPENDENT** (compute/render without every leg priced):
 - Cost Build-Up (`renderCost`) — `buildCostBuildup` never receives `sellValue` in the unified
   `engine/flows/trade.js` path, so `pct_of_sell` lines resolve to 0; landed cost is pure cost-side.
 - Pricing Ladder (`renderLadder`) — each tier derives its own price from `exShipLandedPerMT` and runs
   the engine at that price (`runAtPrice`); the ladder base never needs the entered sell price.
 
-**Price-DEPENDENT** (need a sell price; shown as a calm PENDING state until one is entered):
+**Price-DEPENDENT** (need every leg priced; shown as a calm PENDING state until then):
 - Profit Waterfall, TIS Net Profit KPI, Annualised Return KPI, Ex-Ship Margin KPI,
   Partner Deliverables (cash share), Hedge Analysis comparison, Tax surcharge, Sensitivities.
 
 **How `recompute()` handles it** (no engine math changed):
-- Detects `hasSellPrice = isFinite(value) && value > 0` from the collected trade.
-- The engine (`trade.js:89`) *throws* if the ex-ship channel is active and the price isn't positive.
-  So when there's no price, it runs the engine once at a **synthetic placeholder** price
-  (`(ice+fob)*1.25`, fallback 1000) purely to extract the price-independent outputs. That synthetic
-  value is **never displayed**.
-- After the run, `res.price.exShipPricePerMT` is set to `null` so the ladder shows no fake
-  current-price marker, and sensitivities are skipped.
+- Detects `hasSellPrice = legsAll.length > 0 && legsAll.every(l => isFinite(l.price) && l.price > 0)`
+  — every leg must carry a positive price.
+- The engine *throws* if the ex-ship channel is active and the price isn't positive. So when any leg
+  is unpriced, it runs the engine once with **synthetic per-leg placeholder prices** filled in
+  (`(ice+fob)*1.25` USD, fallback 1000, converted to a ₦/L equivalent for NGN-unit legs) purely to
+  extract the price-independent outputs. Those synthetic values are **never displayed** — confirmed:
+  `renderLadder`'s current-price marker only adopts a leg's price when the *real* (non-synthetic)
+  `trade.revenueLegs[].price` is finite, falling back through `res.price.exShipPricePerMT`
+  (explicitly nulled below) otherwise.
+- After the run, `res.price.exShipPricePerMT` and `res.price.depotPriceNgnPerL` are both set to
+  `null` so neither ladder shows a fake current-price marker, and sensitivities are skipped.
 - `renderAll(trade, res, ladder, hasSellPrice)` then renders cost + ladder + a pending card in the
   waterfall slot and clears the P&L-dependent sections; `renderKPIs(res, false)` shows `—` with an
-  "enter sell price" sub. Entering a price re-runs normally and everything computes; clearing it
-  returns to pending with the ladder intact.
+  "enter leg prices" sub. Pricing every leg re-runs normally and everything computes; clearing any
+  leg's price returns to pending with the ladder intact.
 
-The 133 invariant tests exercise the engine directly (with a real sell price), so they are unaffected.
+The 220 invariant tests exercise the engine directly (with a real sell price), so they are unaffected.
 
 ### Storage abstraction (`TISStorage`)
 
@@ -436,6 +446,9 @@ as a minimal inline SVG. No external request; works from `file://` and `localhos
 - `lc < 0 ? 'var(--red)'` in `updateLcDisplay()` — equity stack overallocated (genuine error)
 - `fixtureBadgeHtml` uses `rgba(212,29,29,.20)` / `#fca5a5` — sample fixture label (brand)
 - Favicon fill `#d41d1d` (brand)
+- `.leg-del:hover { color: #991b1b }` (S2.1, revenue-leg editor) — destructive-action hover affordance
+  on a delete button, the standard UX convention; not financial-negative semantics, so not a Batch C
+  regression
 
 **Changed (C1–C6):**
 - `.neg { color: #717c89 }` — expected structural negatives (hedge cost delta, margin foregone,

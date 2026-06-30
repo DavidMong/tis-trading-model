@@ -13,27 +13,27 @@ function esc(s) {
 
 const fmt = {
   usd(x, dec = 2) {
-    if (x == null) return '—';
+    if (x == null || !Number.isFinite(Number(x))) return '—';
     const n = Number(x);
     const abs = Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:dec,maximumFractionDigits:dec});
     return (n < 0 ? '−$' : '$') + abs;
   },
   ngn(x) {
-    if (x == null) return '—';
+    if (x == null || !Number.isFinite(Number(x))) return '—';
     const n = Number(x);
     const abs = Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
     return (n < 0 ? '−₦' : '₦') + abs;
   },
   pct(x, dec = 2) {
-    if (x == null) return '—';
-    return (Number(x) * 100).toFixed(dec).replace(/\.?0+$/,'') + '%';
+    if (x == null || !Number.isFinite(Number(x))) return '—';
+    return (Number(x) * 100).toFixed(dec) + '%';
   },
   mt(x, dec = 2) {
-    if (x == null) return '—';
+    if (x == null || !Number.isFinite(Number(x))) return '—';
     return Number(x).toLocaleString('en-US',{minimumFractionDigits:dec,maximumFractionDigits:dec}) + ' MT';
   },
   num(x, dec = 2) {
-    if (x == null) return '—';
+    if (x == null || !Number.isFinite(Number(x))) return '—';
     return Number(x).toLocaleString('en-US',{minimumFractionDigits:dec,maximumFractionDigits:dec});
   },
 };

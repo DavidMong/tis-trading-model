@@ -35,14 +35,6 @@ const logo = logoSvgRaw
   .replace(/fill:#242331/g, 'fill:#f0f1f2');
 // aria-label on the container provides accessibility; no <title> injected into inline SVG
 
-// Report-style logo (matches build-report.js readLogo() exactly): same XML/DOCTYPE strip +
-// 260×31 sizing + ink→off-white fill. Injected into the client as LOGO_SVG so the
-// "Download Report" button feeds the bundled generateHtml the same logo the static report uses.
-const reportLogo = logoSvgRaw
-  .replace(/<\?xml[^?]*\?>/g,'').replace(/<!DOCTYPE[^>]*>/g,'').trim()
-  .replace(/width="[^"]*"/, 'width="260"').replace(/height="[^"]*"/, 'height="31"')
-  .replace(/fill:#242331/g, 'fill:#f0f1f2');
-
 // ── 4. CSS ───────────────────────────────────────────────────────────────────
 function css() {
   const { reportCss } = require('./report-renderer');
@@ -1436,9 +1428,6 @@ ${sharedCss}
 const INIT = ${JSON.stringify(initialTrade)};
 const INIT_IS_SAMPLE = /REGRESSION|FIXTURE|dummy|test|sample/i.test((INIT.meta || {}).tradeName || '');
 
-// Branded report logo (report-style 260×31 inline SVG) — fed to TISEngine.generateHtml.
-const LOGO_SVG = ${JSON.stringify(reportLogo)};
-
 // ── Shared set-value helpers (used by resetToDefaults, newTrade, loadTrade) ─
 function sv(id, v) { const el = document.getElementById(id); if (el) el.value = v; }
 function sd(id, v) { const el = document.getElementById(id); if (el) el.value = v; }
@@ -2432,7 +2421,7 @@ function renderCost(res) {
     <td>\${esc(l.label)}\${l.legalRef ? \`<div class="legal-ref">\${esc(l.legalRef)}</div>\` : ''}</td>
     <td class="muted">\${catLabel(l.category)}</td>
     <td class="r">\${l.amountUsd === 0 && l.category === 'storage' ? '<span class="muted">—</span>' : fmtUsd(l.amountUsd)}</td>
-    <td>\${badge(l.status)}</td>
+    <td>\${l.recoverable ? \`<span class="bdg bdg-recoverable" title="Recoverable input VAT">&#10003; OK</span>\` : badge(l.status)}</td>
   </tr>\`).join('');
 
   const rv = cost.recoverableVat;
@@ -3659,7 +3648,11 @@ function importTradesFromFile(inp) {
     }
     let count = 0;
     for (const name of incoming) {
-      TISStorage.saveTrade(name, payload.trades[name].snap);   // merges into the store; non-conflicting trades survive
+      // Any trade reaching local storage via Save/Save As is real — force-set here too, matching
+      // that path (saveTrade/saveAsTrade), so an imported snapshot can never carry a stale or
+      // tampered _isSample:true into the Fixture badge on load.
+      const snap = { ...payload.trades[name].snap, _isSample: 'false' };
+      TISStorage.saveTrade(name, snap);   // merges into the store; non-conflicting trades survive
       count++;
     }
     if (isPlainObject(payload.defaults)) TISStorage.saveDefaults(payload.defaults);
