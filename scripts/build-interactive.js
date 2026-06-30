@@ -2432,7 +2432,7 @@ function renderCost(res) {
     <td>\${esc(l.label)}\${l.legalRef ? \`<div class="legal-ref">\${esc(l.legalRef)}</div>\` : ''}</td>
     <td class="muted">\${catLabel(l.category)}</td>
     <td class="r">\${l.amountUsd === 0 && l.category === 'storage' ? '<span class="muted">—</span>' : fmtUsd(l.amountUsd)}</td>
-    <td>\${badge(l.status)}</td>
+    <td>\${l.recoverable ? \`<span class="bdg bdg-recoverable" title="Recoverable input VAT">&#10003; OK</span>\` : badge(l.status)}</td>
   </tr>\`).join('');
 
   const rv = cost.recoverableVat;
