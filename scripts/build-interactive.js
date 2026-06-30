@@ -420,21 +420,52 @@ body { display: flex; flex-direction: column; }
 }
 .err-banner[hidden] { display: none; }
 
-/* ── Waterfall row ──────────────────────────────────────────────── */
-.wf-row {
-  display: flex;
-  align-items: stretch;
-  overflow-x: auto;
-  padding: 20px 20px 4px;
-  gap: 0;
+/* ── Waterfall — hand-rolled SVG bridge chart (Batch G) ───────────────────
+   Replaces the old .wf-row card-row (now dead — see renderWaterfall). Bars
+   float between cumulative running totals read directly from res; viewBox
+   is a fixed logical 1000x220 coordinate system scaled responsively via
+   width:100% (same technique as the existing ladder-scale bar's percentage
+   positioning), so proportions hold at any rendered card width. */
+.wfsvg-wrap { padding: 20px 24px 4px; }
+.wfsvg { width: 100%; height: auto; display: block; overflow: visible; }
+.wfsvg-zero  { stroke: var(--border); stroke-width: 1; }
+.wfsvg-guide { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 3; }
+.wfsvg-bar   { stroke-width: 1.5; }
+/* Colored fill reserved for the terminal TIS Net Profit bar only (Batch F
+   precedent) — every intermediate/subtotal bar stays neutral white/bordered;
+   direction (rising vs falling) reads from bar position + the +/- sign on its
+   value label, never from color alone (also satisfies "don't convey
+   information by color alone" — see ACCESSIBILITY notes in the commit msg). */
+.wfsvg-bar-neutral  { fill: var(--white); stroke: var(--border); }
+.wfsvg-bar-terminal { fill: var(--role-positive); stroke: #14532d; }
+.wfsvg-bar-loss     { fill: var(--role-loss); stroke: #7f1d1d; }
+/* Font-size here is in SVG viewBox units, not screen px — it scales together
+   with the bars as the chart's rendered width changes (intentional: text and
+   geometry stay proportional, standard data-vis behavior), so this number is
+   NOT one of the --type-* px tokens even though it looks like one. */
+.wfsvg-value {
+  font-family: var(--f-display);
+  font-weight: 700;
+  font-size: 15px;
+  fill: var(--role-ink);
+  font-variant-numeric: tabular-nums lining-nums;
 }
-.wf-arrow {
-  display: flex;
-  align-items: center;
-  color: var(--slate);
-  font-size: 20px;
-  padding: 0 5px;
-  flex-shrink: 0;
+.wfsvg-collabels { position: relative; padding: 0 24px var(--space-3); min-height: 46px; }
+.wfsvg-collabel { position: absolute; top: 0; text-align: center; padding: 0 4px; box-sizing: border-box; }
+.wfsvg-collabel-name {
+  font-family: var(--f-display);
+  font-size: var(--type-label);
+  font-weight: 600;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--role-slate);
+}
+.wfsvg-collabel-sub {
+  font-family: var(--f-body);
+  font-size: var(--type-body);
+  color: var(--role-slate);
+  margin-top: 3px;
+  line-height: 1.3;
 }
 
 /* ── Hedge cards: side by side, each card heights independently ─── */
@@ -762,22 +793,11 @@ body { display: flex; flex-direction: column; }
 .tab-btn        { padding: 12px 0; }
 .tgl-set        { gap: 10px; }
 
-/* ── 4. Waterfall: more room in the row; proper reconcile text flow ──────── */
-.wf-row { padding: 24px; }
-/* Override reportCss padding on the shared wf-box class */
-.wf-box { padding: 18px 16px; }
-/* Batch F: neutralize the 3 intermediate cards (margin foregone / adjusted /
-   partner cash share — TIS-funded flow's "all-in cost" shares wf-deduct, same
-   treatment applies). Colored fill is reserved for the terminal TIS Net
-   Profit card (.wf-net, untouched — still green/deep-red) and the leading
-   .wf-standalone card (untouched — its dark-ink fill marks it as the anchor
-   figure, not a pastel status tint, so it's out of scope for this pass).
-   Override-after-cascade: these classes are defined in reportCss (shared
-   with the PDF, out of scope to edit directly), so they're neutralized here
-   the same way .wf-box's padding already is two lines up. */
-.wf-box.wf-deduct,
-.wf-box.wf-adjusted,
-.wf-box.wf-share { background: var(--white); border-color: var(--border); }
+/* ── 4. Waterfall reconcile line: proper text flow ────────────────────────
+   (the .wf-row/.wf-box overrides that used to live here are gone — Batch G
+   replaced the card-row markup with an SVG bridge chart; see the new
+   .wfsvg-* rules above. The underlying .wf-box/.wf-deduct/etc classes in
+   reportCss are untouched — the PDF's own waterfall still uses them.) */
 /* reportCss uses display:flex+gap on .wf-reconcile but content is inline;
    override to block so text wraps naturally with consistent line spacing.
    Promoted to section-header weight (ink, semibold, --type-value) — was
@@ -2273,45 +2293,120 @@ function renderKPIs(res, hasSellPrice) {
 }
 
 // ── 1. Profit Waterfall ────────────────────────────────────────────────────
+// Bars float between cumulative running totals read DIRECTLY from res — never
+// recomputed here. "total" steps (start/subtotal/terminal) run from 0 to the
+// engine's own value; "delta" steps float between the engine's own before/
+// after totals (e.g. Margin Foregone floats between res.profit.standaloneProfit
+// and res.profit.adjustedProfit — the NEXT total step's own value, not
+// standalone-minus-marginForegone computed here) so consecutive bars line up
+// by construction from the engine's own identities (marginForegone+adjusted=
+// standalone; partnerCash+tisNet=adjusted) — no chart-side subtraction that
+// could ever drift from what the engine actually produced.
+function buildWaterfallSteps(res) {
+  const p = res.profit, qty = res.quantities, ep = res.equityProvider;
+  if (ep === 'TIS') {
+    const revenue = res.revenue.combinedUSD, net = p.tisNetProfit;
+    return [
+      { label: 'Revenue', sub: 'Combined channels', kind: 'total', value: revenue, before: 0, after: revenue, prefix: '' },
+      { label: 'All-in Cost', sub: 'Incl. irrecoverable VAT', kind: 'delta', before: revenue, after: net },
+      { label: 'TIS Net Profit', sub: 'Self-funded — no partner', kind: 'total', value: net, before: 0, after: net, prefix: '=', terminal: true },
+    ];
+  }
+  const standalone = p.standaloneProfit, adjusted = p.adjustedProfit, net = p.tisNetProfit;
+  return [
+    { label: 'Standalone Profit', sub: 'TIS as 100% owner', kind: 'total', value: standalone, before: 0, after: standalone, prefix: '' },
+    { label: 'Margin Foregone', sub: fmtMt(qty.economic.partnerTonnes, 2) + ' partner tonnes', kind: 'delta', before: standalone, after: adjusted },
+    { label: 'Adjusted Profit', sub: 'TIS retained tonnes share', kind: 'total', value: adjusted, before: 0, after: adjusted, prefix: '=' },
+    { label: 'Partner Cash Share', sub: fmtPct(p.profitSharePct) + ' of adjusted', kind: 'delta', before: adjusted, after: net },
+    { label: 'TIS Net Profit', sub: fmtPct(1 - p.profitSharePct) + ' of adjusted', kind: 'total', value: net, before: 0, after: net, prefix: '=', terminal: true },
+  ];
+}
+
+// viewBox is a fixed logical 1000x220 coordinate system, scaled responsively
+// via width:100% (same technique as ladderScale's percentage positioning) —
+// proportions hold at any rendered card width. Geometry is computed once and
+// shared between the SVG bars/guides/value-labels and the HTML column-label
+// row below, so the two can never drift out of alignment with each other.
+function renderWaterfallChart(steps) {
+  const W = 1000, H = 220, padX = 16, padTop = 36, padBottom = 36;
+  const plotW = W - padX * 2, plotH = H - padTop - padBottom;
+  const n = steps.length;
+  const gap = n > 1 ? (plotW * 0.10) / (n - 1) : 0;
+  const barW = (plotW - gap * (n - 1)) / n;
+
+  const allLevels = steps.flatMap(s => [s.before, s.after]).concat([0]);
+  const domLo = Math.min(...allLevels), domHi = Math.max(...allLevels);
+  const domRange = (domHi - domLo) || 1; // guard: degenerate all-zero/flat domain never divides by zero
+  function yFor(v) { return padTop + plotH - ((v - domLo) / domRange) * plotH; }
+
+  const bars = steps.map((s, i) => {
+    const x = padX + i * (barW + gap);
+    const yA = yFor(s.before), yB = yFor(s.after);
+    const yTop = Math.min(yA, yB);
+    const h = Math.max(1.5, Math.abs(yA - yB)); // 1.5px hairline floor — a true-zero delta still renders visibly
+    const isTerminal = !!s.terminal;
+    const cls = isTerminal ? (s.after < 0 ? 'wfsvg-bar-loss' : 'wfsvg-bar-terminal') : 'wfsvg-bar-neutral';
+
+    // Total steps print the engine's own value (fmtUsd already handles the lone
+    // sign). Delta steps derive sign from the GEOMETRIC delta (after-before),
+    // not from the underlying named field — so a structurally-unusual negative
+    // Margin Foregone / Partner Cash Share (e.g. selling below landed cost)
+    // never produces a double minus sign the way string-concatenating a
+    // hardcoded '−' prefix onto an already-negative fmtUsd() value would.
+    let valueText;
+    if (s.kind === 'total') {
+      valueText = s.prefix + fmtUsd(s.value);
+    } else {
+      const delta = s.after - s.before;
+      valueText = (delta < 0 ? '−' : '+') + fmtUsd(Math.abs(delta));
+    }
+    const placeAbove = (yTop - padTop) >= 16;
+    const labelY = placeAbove ? yTop - 10 : yTop + h + 16;
+    return { x, yTop, h, cls, valueText, labelY, mid: x + barW / 2, label: s.label, sub: s.sub };
+  });
+
+  const zeroY = yFor(0);
+  const zeroLine = \`<line class="wfsvg-zero" x1="\${padX}" y1="\${zeroY.toFixed(1)}" x2="\${W - padX}" y2="\${zeroY.toFixed(1)}"></line>\`;
+  const guides = [];
+  for (let i = 0; i < n - 1; i++) {
+    const xEnd = padX + i * (barW + gap) + barW;
+    const xStart = padX + (i + 1) * (barW + gap);
+    const y = yFor(steps[i].after);
+    guides.push(\`<line class="wfsvg-guide" x1="\${xEnd.toFixed(1)}" y1="\${y.toFixed(1)}" x2="\${xStart.toFixed(1)}" y2="\${y.toFixed(1)}"></line>\`);
+  }
+
+  const barsHtml = bars.map(b => \`<g>
+    <title>\${esc(b.label + ': ' + b.valueText)}</title>
+    <rect class="wfsvg-bar \${b.cls}" x="\${b.x.toFixed(2)}" y="\${b.yTop.toFixed(2)}" width="\${barW.toFixed(2)}" height="\${b.h.toFixed(2)}" rx="3"></rect>
+    <text class="wfsvg-value" x="\${b.mid.toFixed(1)}" y="\${b.labelY.toFixed(1)}" text-anchor="middle">\${esc(b.valueText)}</text>
+  </g>\`).join('');
+
+  const chartSummary = \`Profit waterfall, \${steps.length} steps: \${bars.map(b => b.label + ' ' + b.valueText).join(', ')}\`;
+  const svg = \`<svg class="wfsvg" viewBox="0 0 \${W} \${H}" role="img" aria-label="\${esc(chartSummary)}">
+    \${zeroLine}\${guides.join('')}\${barsHtml}
+  </svg>\`;
+
+  const labels = bars.map(b => {
+    const xPct = (b.x / W * 100).toFixed(2), wPct = (barW / W * 100).toFixed(2);
+    return \`<div class="wfsvg-collabel" style="left:\${xPct}%;width:\${wPct}%">
+      <div class="wfsvg-collabel-name">\${esc(b.label)}</div>
+      <div class="wfsvg-collabel-sub">\${esc(b.sub)}</div>
+    </div>\`;
+  }).join('');
+
+  return \`<div class="wfsvg-wrap">\${svg}</div><div class="wfsvg-collabels">\${labels}</div>\`;
+}
+
 function renderWaterfall(res) {
   const p   = res.profit;
   const ep  = res.equityProvider;
-  const qty = res.quantities;
   const rec = p.reconciliation;
   const okMark = rec.ok
     ? \`<span class="bdg bdg-recoverable">&#10003; OK</span>\`
     : \`<span class="bdg bdg-confirm">MISMATCH</span>\`;
 
-  function box(cls, label, prefix, amount, sub) {
-    return \`<div class="wf-box \${cls}">
-      <div class="wf-box-label">\${label}</div>
-      <div class="wf-box-amount">\${prefix}\${fmtUsd(amount)}</div>
-      <div class="wf-box-sub">\${sub}</div>
-    </div>\`;
-  }
-
-  let wfBoxes;
-  if (ep === 'TIS') {
-    wfBoxes = \`
-      \${box('wf-standalone','REVENUE','',   res.revenue.combinedUSD,  'Combined channels')}
-      <div class="wf-arrow">›</div>
-      \${box('wf-deduct',    'ALL-IN COST','−',res.cost.allInCost,     'Incl. irrecoverable VAT')}
-      <div class="wf-arrow">›</div>
-      \${box(p.tisNetProfit < 0 ? 'wf-net wf-loss' : 'wf-net', 'TIS NET PROFIT','=', p.tisNetProfit,     'Self-funded — no partner')}
-    \`;
-  } else {
-    wfBoxes = \`
-      \${box('wf-standalone','STANDALONE PROFIT','',  p.standaloneProfit, 'TIS as 100% owner')}
-      <div class="wf-arrow">›</div>
-      \${box('wf-deduct',    'MARGIN FOREGONE','−',   p.marginForegone,   fmtMt(qty.economic.partnerTonnes,2)+' partner tonnes')}
-      <div class="wf-arrow">›</div>
-      \${box('wf-adjusted',  'ADJUSTED PROFIT','=',   p.adjustedProfit,   'TIS retained tonnes share')}
-      <div class="wf-arrow">›</div>
-      \${box('wf-share',     'PARTNER CASH SHARE','−',p.partnerCashProfitShare, fmtPct(p.profitSharePct)+' of adjusted')}
-      <div class="wf-arrow">›</div>
-      \${box(p.tisNetProfit < 0 ? 'wf-net wf-loss' : 'wf-net', 'TIS NET PROFIT','=',    p.tisNetProfit,     fmtPct(1-p.profitSharePct)+' of adjusted')}
-    \`;
-  }
+  const steps = buildWaterfallSteps(res);
+  const chartHtml = renderWaterfallChart(steps);
 
   const hedgeNote = (res.hedges.iceHedgeNetImpact !== 0 || res.hedges.fxHedgeNetImpact !== 0)
     ? \`ICE hedge impact: <b>\${fmtUsdSign(res.hedges.iceHedgeNetImpact)}</b> &nbsp;·&nbsp; FX hedge: <b>\${fmtUsdSign(res.hedges.fxHedgeNetImpact)}</b> &nbsp;·&nbsp;\`
@@ -2324,7 +2419,7 @@ function renderWaterfall(res) {
   return \`<section class="section" aria-labelledby="wf-h">
   <h2 class="section-heading" id="wf-h">Profit Waterfall</h2>
   <div class="card">
-    <div class="wf-row">\${wfBoxes}</div>
+    \${chartHtml}
     <div class="wf-reconcile">
       \${hedgeNote}
       \${reconcile}
