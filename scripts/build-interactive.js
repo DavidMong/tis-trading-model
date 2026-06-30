@@ -850,6 +850,21 @@ body { display: flex; flex-direction: column; }
 .h-cmp          { padding: var(--space-4) var(--space-5); }
 .h-cmp-row      { padding: var(--space-1) 0; }
 
+/* ── Costs tab: two-column field grid (Batch F) ──────────────────────────────
+   Port & Cargo Dues / Maritime Levies / Cargo & Services / Banking & Admin
+   were single-column stacked .ir rows, full sidebar width, for short
+   $/MT-or-% fields that don't need it. Two columns halves the section height
+   without crowding the (already small, 10px) labels. Gutter uses the token
+   scale; .ir's own column layout (label stacked above input) is untouched —
+   it just becomes a grid item instead of a full-width flex child. Storage
+   isn't included — its rows carry a unit-toggle control the simple field
+   pattern doesn't, so it stays single-column. */
+.field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: var(--space-3);
+}
+
 /* ── 8. Sensitivities / tornado: breathing room ──────────────────────────── */
 .tn-wrap            { padding: 24px 24px 8px; }
 .tn-row             { margin-bottom: 8px; }
@@ -1276,28 +1291,28 @@ ${sec('Tax Rates', [
 // ── Tab: Costs ───────────────────────────────────────────────────────────────
 const tabCosts = `
 <div class="costs-tab-banner">House defaults — rates &amp; fees that persist across new trades</div>
-${sec('Port & Cargo Dues', [
+${sec('Port & Cargo Dues', '<div class="field-grid">' + [
   ir('inp-npa-per-mt', 'NPA cargo dues $/MT', ni('inp-npa-per-mt', cl.npaCargoDuesPerMT, 0.1, 0), 'OK'),
   ir('inp-port-das',   'Port DAs $',          ni('inp-port-das',   cl.portDAs, 1000, 0),           'OK'),
   ir('inp-ncs-docs',   'NCS documentation $', ni('inp-ncs-docs',   cl.ncsDocs, 100, 0),            'OK'),
-].join(''))}
-${sec('Maritime Levies', [
+].join('') + '</div>')}
+${sec('Maritime Levies', '<div class="field-grid">' + [
   ir('inp-nimasa-cab',     'NIMASA cabotage %',     ni('inp-nimasa-cab',     pct2(cl.nimasaCabotagePct),     0.1, 0), 'UNVERIFIED'),
   ir('inp-nimasa-freight', 'NIMASA freight levy %', ni('inp-nimasa-freight', pct2(cl.nimasaFreightLevyPct), 0.1, 0), 'UNVERIFIED'),
   ir('inp-spomo',          'SPOMO / CVFF %',        ni('inp-spomo',          pct2(cl.spomoCvffPct),         0.1, 0), 'UNVERIFIED'),
-].join(''))}
-${sec('Cargo & Services', [
+].join('') + '</div>')}
+${sec('Cargo & Services', '<div class="field-grid">' + [
   ir('inp-marine-icc',    'Marine ICC(A) %',      ni('inp-marine-icc',    pct4(cl.marineIccPct),    0.001, 0), 'INDICATIVE'),
   ir('inp-sgs',           'SGS inspection $',     ni('inp-sgs',           cl.sgsInspection,         500,   0), 'OK'),
   ir('inp-port-agency',   'Port agency $',        ni('inp-port-agency',   cl.portAgency,            500,   0), 'OK'),
   ir('inp-alloc-security','Allocated security %', ni('inp-alloc-security',pct4(cl.allocSecurityPct),0.001, 0), 'INDICATIVE'),
-].join(''))}
-${sec('Banking & Admin', [
+].join('') + '</div>')}
+${sec('Banking & Admin', '<div class="field-grid">' + [
   ir('inp-bank-charges',  'Bank charges $',      ni('inp-bank-charges',  cl.bankCharges,      100,  0), 'OK'),
   ir('inp-overhead',      'Overhead $',          ni('inp-overhead',      cl.overhead,          100,  0), 'OK'),
   ir('inp-contingency',   'Contingency $',       ni('inp-contingency',   cl.contingency,       1000, 0), 'OK'),
   ir('inp-collateral-mgr','Collateral manager $',ni('inp-collateral-mgr',cl.collateralManager, 100,  0), 'OK'),
-].join(''))}
+].join('') + '</div>')}
 <div id="storage-sec"${!depotActive ? ' hidden' : ''}>
 ${sec('Storage (depot active)', [
   storageRow('inp-throughput',     'sel-throughput-unit', 'lbl-throughput-unit', 'Throughput',
