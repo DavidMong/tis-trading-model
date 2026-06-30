@@ -39,6 +39,41 @@ const logo = logoSvgRaw
 function css() {
   const { reportCss } = require('./report-renderer');
   return reportCss + `
+/* ════ DESIGN TOKENS (Batch F) ══════════════════════════════════════════════
+   Additive only — does not replace any existing rule. A second :root block
+   layers fine on top of reportCss's :root (different custom-property names,
+   no redeclaration) per the same cascade-layering pattern already used for
+   .sb-footer / .wf-box overrides below. Color roles map onto the EXISTING
+   Batch C palette (ink/slate/amber/red/green) — no new colors introduced. ── */
+:root {
+  /* Type scale — named by role, not size, so a component's intent reads from
+     its CSS rather than a magic px value. 6 sizes, smallest to largest. */
+  --type-label:   9px;   /* section/field labels, uppercase eyebrow text */
+  --type-body:    11px;  /* body copy, sub-text, table cells */
+  --type-input:   12px;  /* form inputs, default UI text */
+  --type-value:   13px;  /* emphasized inline figures (primary inputs, table totals) */
+  --type-kpi:     21px;  /* header KPI figures */
+  --type-display: 28px;  /* reserved for hero/display figures */
+
+  /* 8px spacing scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+
+  /* Color roles — aliases onto the existing Batch C palette, not new hex values */
+  --role-ink:      var(--ink);     /* primary text, terminal/emphasis fills */
+  --role-slate:    var(--slate);   /* secondary text, neutral borders */
+  --role-positive: #15803d;        /* Batch C green — positive / active */
+  --role-caution:  #f59e0b;        /* Batch C amber — caution / unverified */
+  --role-loss:     #991b1b;        /* Batch C deep-red — genuine error / real P&L loss */
+  --role-accent:   var(--red);     /* Batch C red — brand accent ONLY, never loss */
+}
+
 /* ════ INTERACTIVE: full-viewport sidebar layout ══════════════════════════ */
 html, body { height: 100%; overflow: hidden; }
 body { display: flex; flex-direction: column; }
