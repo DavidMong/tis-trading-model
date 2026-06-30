@@ -1520,15 +1520,15 @@ const tabHedge = `
 
 // ── 7. Sidebar assembly ──────────────────────────────────────────────────────
 const sidebarHtml = `<aside class="sidebar" id="sidebar">
-  <div class="sb-tabs">
-    <button class="tab-btn active" data-tab="deal">Deal</button>
-    <button class="tab-btn" data-tab="costs">Costs</button>
-    <button class="tab-btn" data-tab="hedge">Hedge</button>
+  <div class="sb-tabs" role="tablist" aria-label="Trade input sections">
+    <button class="tab-btn active" data-tab="deal" role="tab" aria-selected="true" aria-controls="tab-deal" id="tabbtn-deal">Deal</button>
+    <button class="tab-btn" data-tab="costs" role="tab" aria-selected="false" aria-controls="tab-costs" id="tabbtn-costs">Costs</button>
+    <button class="tab-btn" data-tab="hedge" role="tab" aria-selected="false" aria-controls="tab-hedge" id="tabbtn-hedge">Hedge</button>
   </div>
   <div class="sb-scroll">
-    <div class="tab-panel active" id="tab-deal">${tabDeal}</div>
-    <div class="tab-panel" id="tab-costs">${tabCosts}</div>
-    <div class="tab-panel" id="tab-hedge">${tabHedge}</div>
+    <div class="tab-panel active" id="tab-deal" role="tabpanel" aria-labelledby="tabbtn-deal">${tabDeal}</div>
+    <div class="tab-panel" id="tab-costs" role="tabpanel" aria-labelledby="tabbtn-costs">${tabCosts}</div>
+    <div class="tab-panel" id="tab-hedge" role="tabpanel" aria-labelledby="tabbtn-hedge">${tabHedge}</div>
   </div>
   <div class="sb-footer">
     <div class="sb-footer-row1">
@@ -3269,9 +3269,10 @@ document.querySelectorAll('.tgl-wrap').forEach(wrap => {
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     const tabId = 'tab-' + btn.dataset.tab;
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-selected', 'false'); });
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
+    btn.setAttribute('aria-selected', 'true');
     const panel = document.getElementById(tabId);
     if (panel) panel.classList.add('active');
   });
