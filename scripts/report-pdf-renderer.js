@@ -644,7 +644,7 @@ function pricingLadder(ladder, res) {
       return `
       <tr class="${isCurrent ? 'row-current' : ''}">
         <td>${isCurrent ? '&#9658; ' : ''}${esc(t.name)}</td>
-        <td class="r">${fmt.pct(t.marginOfSell)}</td>
+        <td class="r">${fmt.pct(t.marginPctOfSell)}</td>
         <td class="r"><b>${fmt.usd(t.pricePerMT)}</b></td>
         <td class="r">${fmt.usd(t.spreadPerMT)}</td>
         <td class="r">${fmt.pct(t.markupPctOnCost)}</td>
