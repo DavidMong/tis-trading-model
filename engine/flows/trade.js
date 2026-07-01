@@ -109,16 +109,9 @@ function computeTrade(trade, opts = {}) {
     computedPositive(fx.parallelPayment, 'parallel (payment) rate');
   }
 
-  // 4. Cost build-up (storage active for depot tonnes; naira storage converted at NAFEM — RULE 1).
-  //    effTrade => cost line 1 ("ICE LSGO", rateFrom market.ice.value) resolves to the effective ICE.
-  const cost = buildCostBuildup(effTrade, {
-    cargoValue, deliveredQty, depotTonnes, financing, nafemRate, litresPerMT,
-  });
-  const exShipLandedPerMT = cost.exShipLandedPerMT; // base, excl storage
-  const depotLandedPerMT = cost.depotLandedPerMT; // base + storage/depotTonnes
-  computedPositive(exShipLandedPerMT, 'ex-ship landed cost / MT');
-
-  // 5. Revenue — sum the legs. USD_PER_MT legs carry no FX risk; every NGN_PER_L leg (depot OR native
+  // 4. Revenue — sum the legs. Every leg's price is already a resolved trade input at this point
+  // (normalizeLegs validates/throws otherwise — no placeholder mode in this flow), so this can run
+  // BEFORE cost build-up. USD_PER_MT legs carry no FX risk; every NGN_PER_L leg (depot OR native
   // ex-ship-NGN) converts identically: (ngnPerL × litresPerMT) / nafemRate, naira fixed for exposure.
   const legResults = legs.map((l) => ({ leg: l, rev: computeLegRevenue(l, { nafemRate, litresPerMT }) }));
   let exShipRevenueUSD = 0;
@@ -129,6 +122,19 @@ function computeTrade(trade, opts = {}) {
     else depotRevenueUSD += rev.usdRevenue;
     totalNairaRevenueNgnRaw += rev.nairaNgn; // 0 for USD legs
   }
+  const combinedRevenue = exShipRevenueUSD + depotRevenueUSD;
+
+  // 5. Cost build-up (storage active for depot tonnes; naira storage converted at NAFEM — RULE 1).
+  //    effTrade => cost line 1 ("ICE LSGO", rateFrom market.ice.value) resolves to the effective ICE.
+  //    pct_of_sell cost lines (config-driven) base off combinedRevenue — the SAME sell value the flow
+  //    uses for revenue above; no second source of truth for sell price.
+  const cost = buildCostBuildup(effTrade, {
+    cargoValue, deliveredQty, depotTonnes, financing, nafemRate, litresPerMT, sellValue: combinedRevenue,
+  });
+  const exShipLandedPerMT = cost.exShipLandedPerMT; // base, excl storage
+  const depotLandedPerMT = cost.depotLandedPerMT; // base + storage/depotTonnes
+  computedPositive(exShipLandedPerMT, 'ex-ship landed cost / MT');
+
   // Representative per-channel prices (display + benchmark). exShipPriceUSD = the USD ex-ship leg price
   // (or a legacy naira-settled leg's retained USD ref); depot from the depot leg's USD-equivalent.
   const exShipUsdLeg = legs.find((l) => l.channel === 'ex-ship' && l.pricingUnit === 'USD_PER_MT');
@@ -162,12 +168,11 @@ function computeTrade(trade, opts = {}) {
   const nairaRevenueUsd = round(legResults.reduce((s, x) => s + (x.leg.pricingUnit === 'NGN_PER_L' ? x.rev.usdRevenue : 0), 0), 2);
 
   // FLOATING (unhedged) baseline: all naira at parallel payment, ICE at marked.
-  const combinedRevenue = exShipRevenueUSD + depotRevenueUSD;
   const combinedCost = cost.allInCost; // baseAllIn + storageTotal
   const standaloneFloat = combinedRevenue - combinedCost;
   const avgRealizedPriceUSDperMT = combinedRevenue / deliveredQty;
 
-  // 5. Equity provider — partner tonnes / retained (independent of standalone; needed before hedges).
+  // 6. Equity provider — partner tonnes / retained (independent of standalone; needed before hedges).
   const equityProvider = (trade.partner && trade.partner.equityProvider) || 'partner';
   let partnerPrincipal = 0;
   let principalAsProduct = 0;
@@ -202,7 +207,7 @@ function computeTrade(trade, opts = {}) {
   }
   const tisRetainedTonnes = deliveredQty - partnerTonnes;
 
-  // 6. Hedges — two INDEPENDENT toggles. buildHedge is unchanged (shared with computeEquityPartner).
+  // 7. Hedges — two INDEPENDENT toggles. buildHedge is unchanged (shared with computeEquityPartner).
   const iceHedged = !!(trade.hedge && trade.hedge.iceHedged);
   const fxHedged = !!(trade.fxHedge && trade.fxHedge.fxHedged);
   const hedge = buildHedge(effTrade, { tisRetainedTonnes }); // effTrade => liveIce ref = effective (settlement) ICE

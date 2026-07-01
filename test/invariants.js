@@ -492,6 +492,66 @@ const bothOn = computeTrade({ ...bothChannels, hedge: { ...bothChannels.hedge, i
 check('HX9 reconciliation holds with ICE+FX both ON', bothOn.profit.reconciliation.ok === true);
 
 // ============================================================================================
+// HP1 — computeEquityPartner ICE-hedge wiring (bug fix): buildHedge() was already called and its
+// result attached to the output, but iceCostDelta/extraFinancingCost were NEVER subtracted into the
+// profit chain — toggling trade.hedge.iceHedged had ZERO P&L effect (dead code). Assert against an
+// INDEPENDENTLY computed expected value (hedge cost x partner split), not a tautology re-derived from
+// the flow's own output — this is what would have caught the original bug (under the bug, hpOn and
+// hpOff were exactly equal regardless of the toggle).
+// ============================================================================================
+const hpOff = computeEquityPartner({ ...trade, hedge: { ...trade.hedge, iceHedged: false } });
+const hpOn = computeEquityPartner({ ...trade, hedge: { ...trade.hedge, iceHedged: true } });
+// Independently-known hedge economics (buildHedge itself was always correct — only its wiring into
+// the profit chain was missing) and the trade's own profit-share input, NOT hpOn's own tisNetProfit.
+const hpAllInCost = hpOn.hedge.iceCostDelta + hpOn.hedge.extraFinancingCost;
+const hpExpectedTisNetOn = hpOff.profit.tisNetProfit - (1 - hpOff.profit.profitSharePct) * hpAllInCost;
+check('HP1 ICE hedge OFF is a no-op (byte-identical to base run)', approx(hpOff.profit.tisNetProfit, r.profit.tisNetProfit));
+check('HP1 ICE hedge ON reduces TIS net by EXACTLY (1-share) x all-in hedge cost (independently computed)',
+  approx(hpOn.profit.tisNetProfit, hpExpectedTisNetOn, 0.5));
+check('HP1 ICE hedge ON strictly reduces TIS net vs OFF (real cost — proves the toggle is wired, not dead code)',
+  hpOn.profit.tisNetProfit < hpOff.profit.tisNetProfit);
+check('HP1 reconciliation still holds with hedge ON', hpOn.profit.reconciliation.ok === true);
+check('HP1 hedge result still attached to output (unchanged shape)', hpOn.hedge && typeof hpOn.hedge.iceCostDelta === 'number');
+
+// ============================================================================================
+// PS1/PS2 — cost-buildup ctx.sellValue wiring (bug fix): baseFor.pct_of_sell read ctx.sellValue, but
+// NEITHER flow passed it, so any costLineOverride flipping a line to pct_of_sell silently evaluated
+// to $0. sellValue is now sourced from the SAME value each flow already uses for revenue — no second
+// source of truth. Expected values below are computed directly from raw trade inputs (rate x sell
+// value), NOT read back from the engine's own output — a tautological "was it wired" check would
+// pass even if the wrong number were wired in.
+// ============================================================================================
+// PS1 (equity-partner.js): sell price is a FIXED input (sell.exShipPricePerMT.value), so
+// sellValue = price x deliveredQty is knowable before cost build-up runs, no circular dependency.
+const ps1RateOverride = 0.01;
+const ps1SellValueExpected = trade.sell.exShipPricePerMT.value * trade.cargo.deliveredQtyMT;
+const ps1 = computeEquityPartner({ ...trade, costLineOverrides: { 7: { type: 'pct_of_sell', rate: ps1RateOverride } } });
+check('PS1 equity-partner pct_of_sell line = rate x (fixed sell price x deliveredQty), not $0',
+  approx(ps1.cost.byId[7].amountUsd, ps1RateOverride * ps1SellValueExpected, 0.01));
+check('PS1 equity-partner pct_of_sell line is non-zero (was exactly 0 under the original bug)',
+  ps1.cost.byId[7].amountUsd > 0);
+
+// PS2 (trade.js / computeTrade): combinedRevenue (ex-ship + depot USD revenue) is the correct
+// absolute-dollar base for "% of sell" — consistent with pct_of_freight/pct_of_cargo_value/pct_of_LC
+// all being absolute-dollar bases, never per-unit rates. Re-derived here from raw trade inputs
+// (legacy adapter's USD-price round-trip + depot NGN/L->USD at NAFEM), NOT from the engine's own
+// revenue.combinedUSD.
+const ps2RateOverride = 0.01;
+const ps2ExShipTonnes = bothChannels.cargo.deliveredQtyMT * bothChannels.channels.exShipPct;
+const ps2DepotTonnes = bothChannels.cargo.deliveredQtyMT * bothChannels.channels.depotPct;
+// USD price round-trips exactly regardless of currencyMode split (revenue.js legacyLegs backward map).
+const ps2ExShipRevenue = bothChannels.sell.exShipPricePerMT.value * ps2ExShipTonnes;
+const ps2DepotRevenue = (bothChannels.sell.depotPriceNgnPerL.value * bothChannels.pricing.conversion.litresPerMT * ps2DepotTonnes) / bothChannels.fx.nafem.value;
+const ps2SellValueExpected = ps2ExShipRevenue + ps2DepotRevenue;
+const ps2 = computeTrade({ ...bothChannels, costLineOverrides: { 7: { type: 'pct_of_sell', rate: ps2RateOverride } } });
+check('PS2 computeTrade pct_of_sell line = rate x combinedRevenue (independently re-derived), not $0',
+  approx(ps2.cost.byId[7].amountUsd, ps2RateOverride * ps2SellValueExpected, 1));
+check('PS2 computeTrade pct_of_sell line is non-zero (was exactly 0 under the original bug)',
+  ps2.cost.byId[7].amountUsd > 0);
+check('PS2 independently re-derived sellValue matches engine combinedUSD (sanity cross-check)',
+  approx(ps2SellValueExpected, ps2.revenue.combinedUSD, 1));
+
+// ============================================================================================
 // PER-LEG REVENUE MODEL (Stage 1) — native trade.revenueLegs: ex-ship-USD / ex-ship-NGN / depot-NGN mix,
 // the shared NGN→USD conversion, N-leg NGN aggregation into the FX hedge, the partner-benchmark fallback,
 // and per-leg validation. Legacy trades are covered byte-for-byte by FX1–FX10 above (same engine, adapter).

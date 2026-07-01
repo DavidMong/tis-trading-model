@@ -1279,6 +1279,10 @@ function pricingLadder(ladder, res) {
       const net = (t.tisNetProfit == null)
         ? '<span class="muted">PENDING</span>'
         : `<span class="${t.tisNetProfit >= 0 ? 'pos' : 'neg'}">${fmt.usd(t.tisNetProfit)}</span>`;
+      const rec = t.reconciliation || {};
+      const delta = rec.deltaUsdPerMT != null
+        ? `<span class="${rec.deltaUsdPerMT >= 0 ? 'pos' : 'neg'}" title="${esc(rec.note || '')}">${usdSign(rec.deltaUsdPerMT)}/MT</span>`
+        : '<span class="muted">—</span>';
       return `
       <tr class="${isCur ? 'ladder-current' : ''}">
         <td class="ladder-tier-name">${isCur ? '&#9658; ' : ''}${esc(t.name)}</td>
@@ -1286,21 +1290,31 @@ function pricingLadder(ladder, res) {
         <td class="r">&#8358;${fmt.num(t.spreadNgnPerL, 0)}/L</td>
         <td class="r">${fmt.pct(t.marginPctOfSell)}</td>
         <td class="r">${fmt.pct(t.markupPctOnCost)}</td>
+        <td class="r">${delta}</td>
         <td class="r">${net}</td>
       </tr>`;
     }).join('');
+    const tierRate = ladder.depot.fxUsed;
+    const tierBasisLabel = String(ladder.depot.fxBasis || 'parallel').toUpperCase(); // DERIVED from trade.pricing.conversion.fxMarketForDepot — never hardcoded
+    const nafemRate = ladder.depot.nafemUsed;
+    const deltaColLabel = `&#916; ${esc(tierBasisLabel)}&#8596;NAFEM`;
+    const basisNote = nafemRate != null
+      ? `Margin % / Markup % Cost ${badge('INDICATIVE')} are priced at ${esc(tierBasisLabel)} &#8358;${fmt.num(tierRate, 2)}/USD (market-quoting basis) &middot; TIS Net settles at NAFEM &#8358;${fmt.num(nafemRate, 2)}/USD (RULE 1) &middot; &ldquo;${deltaColLabel}&rdquo; is the reconciliation gap between the two bases, not a P&amp;L error.`
+      : `Margin % / Markup % Cost ${badge('INDICATIVE')} are priced at ${esc(tierBasisLabel)} &#8358;${fmt.num(tierRate, 2)}/USD (market-quoting basis) &middot; TIS Net settles at NAFEM (RULE 1).`;
     depotBlock = `${ladderSub('Depot ₦/L Ladder')}
     <div class="tbl-wrap">
       <table aria-label="Depot pricing ladder">
         <thead>
           <tr>
             <th>Tier</th><th class="r">Price ₦/L</th><th class="r">Spread ₦/L</th>
-            <th class="r">Margin %</th><th class="r">Markup % Cost</th><th class="r">TIS Net</th>
+            <th class="r">Margin %</th><th class="r">Markup % Cost</th>
+            <th class="r">${deltaColLabel}</th><th class="r">TIS Net</th>
           </tr>
         </thead>
         <tbody>${depotRows}</tbody>
       </table>
-    </div>`;
+    </div>
+    <div class="card-footer" style="border-top:1px solid var(--border)">${basisNote}</div>`;
   }
 
   // ----- Cross-leg comparison (only when BOTH legs actually exist) -----

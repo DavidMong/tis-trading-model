@@ -213,6 +213,24 @@ function verifyTrade(tradeId, computeFn, hasSellPrice = true) {
   // ── Depot ladder ────────────────────────────────────────────────────────────
   if (ladder.depot && ladder.depot.applicable && ladder.depot.tiers && ladder.depot.tiers.length) {
     assert('Depot ladder: costBaseNgnPerL in HTML', ladder.depot.costBaseNgnPerL != null && html.includes(ladder.depot.costBaseNgnPerL.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})));
+
+    // ── Depot ladder labeling/reconciliation fix: margin/markup column must carry an INDICATIVE
+    // tag (parallel-basis, not reconciled to P&L) and the parallel-vs-NAFEM reconciliation delta must
+    // be present and non-empty whenever the trade's parallel rate differs from NAFEM. TIS Net (the
+    // engine's settlement figure) must stay untouched by this labeling change.
+    const parallelRate = ladder.depot.fxUsed;
+    const nafemRate = ladder.depot.nafemUsed;
+    if (parallelRate != null && nafemRate != null && parallelRate !== nafemRate) {
+      assert('Depot ladder: margin/markup column carries an INDICATIVE badge (parallel-vs-NAFEM ≠)',
+        html.includes('bdg-indicative') && html.includes('Indicative'));
+      const firstTier = ladder.depot.tiers[0];
+      assert('Depot ladder: per-tier reconciliation object present with a non-zero delta',
+        !!firstTier.reconciliation && firstTier.reconciliation.deltaUsdPerMT != null && firstTier.reconciliation.deltaUsdPerMT !== 0);
+      assert('Depot ladder: reconciliation delta column header present in HTML',
+        html.includes('&#8596;NAFEM') || html.includes('↔NAFEM'));
+      assert('Depot ladder: TIS Net (settlement) still present — no engine number displaced by labeling',
+        firstTier.tisNetProfit != null && html.includes(fmtUsd(firstTier.tisNetProfit)));
+    }
   }
 
   // ── Status badge taxonomy spot-check ───────────────────────────────────────
