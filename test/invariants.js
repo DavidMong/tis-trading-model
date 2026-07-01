@@ -196,6 +196,19 @@ check('#7 over-hedge flagged as overHedgeTonnes', rOver.hedge.overHedgeTonnes > 
 check('#7 over-hedge comparison stays apples-to-apples (delta ~0 at fixed=live)', Math.abs(rOver.hedge.iceCostDelta) < 1);
 check('#7 effective ICE priced on retained basis, not hedged volume', approx(rOver.hedge.effectiveIceCost, rOver.hedge.comparisonBasisTonnes * rOver.hedge.liveIce, 1));
 
+// #7b — buildHedge() must not throw a raw TypeError when trade.hedge is absent entirely (hedging is
+// documented optional/default-off). Missing trade.hedge must mirror the SAME output shape as an explicit
+// iceHedged:false hedge config (default bank_book route, zero fees, fixedPrice = live ICE), not a new shape.
+const dNoHedge = clone(trade); delete dNoHedge.hedge;
+const rNoHedgeKey = computeEquityPartner(dNoHedge);
+const rHedgeOff = computeEquityPartner({ ...trade, hedge: { ...trade.hedge, iceHedged: false } });
+check('#7b missing trade.hedge does not throw', typeof rNoHedgeKey.hedge === 'object' && rNoHedgeKey.hedge !== null);
+check('#7b missing trade.hedge defaults route to bank_book (mirrors configured-off shape)', rNoHedgeKey.hedge.route === 'bank_book');
+check('#7b missing trade.hedge -> zero swap fee, zero extra financing cost', rNoHedgeKey.hedge.swapFee === 0 && rNoHedgeKey.hedge.extraFinancingCost === 0);
+check('#7b missing trade.hedge -> fixedPrice falls back to live ICE (unhedged)', rNoHedgeKey.hedge.fixedPrice === rNoHedgeKey.hedge.liveIce);
+check('#7b missing trade.hedge -> TIS net profit identical to iceHedged:false with hedge present', approx(rNoHedgeKey.profit.tisNetProfit, rHedgeOff.profit.tisNetProfit));
+check('#7b missing trade.hedge -> same output keys as configured-off hedge result', JSON.stringify(Object.keys(rNoHedgeKey.hedge).sort()) === JSON.stringify(Object.keys(rHedgeOff.hedge).sort()));
+
 // ============================================================================================
 // FX engine + depot channel (unified computeTrade flow)
 // ============================================================================================

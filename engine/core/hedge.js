@@ -17,7 +17,7 @@ const { round, roundToLots } = require('./rounding');
 // PLACEHOLDERS (flag + verify before any live hedge): feePerMT, initialMarginPct, fixedPrice (~ locked ICE).
 
 function buildHedge(trade, ctx) {
-  const h = trade.hedge;
+  const h = trade.hedge || {}; // hedging is optional/default-off — missing trade.hedge means unhedged
   const liveIce = trade.market.ice.value;
   const retained = ctx.tisRetainedTonnes;
 
@@ -34,16 +34,17 @@ function buildHedge(trade, ctx) {
   const unhedgedTonnes = round(Math.max(retained - hedgedPhysical, 0), 4);
 
   const notional = hedgedTonnes * fixedPrice; // swap traded on the full hedged volume
-  const swapFee = h.feePerMT * hedgedTonnes; // per-MT fee on the full hedged volume, both routes
+  const swapFee = (h.feePerMT || 0) * hedgedTonnes; // per-MT fee on the full hedged volume, both routes
 
   const effectiveIceCost = hedgedPhysical * fixedPrice + unhedgedTonnes * liveIce; // on retained basis
   const unhedgedIceCost = retained * liveIce; // same retained basis
 
-  const route = { type: h.route, initialMargin: 0, bankProvidedMargin: 0, marginInterest: 0, thirdPartyFee: 0, bankSpread: 0 };
-  if (h.route === 'bank_book') {
+  const routeType = h.route || 'bank_book'; // default route when unconfigured (mirrors build-interactive.js)
+  const route = { type: routeType, initialMargin: 0, bankProvidedMargin: 0, marginInterest: 0, thirdPartyFee: 0, bankSpread: 0 };
+  if (routeType === 'bank_book') {
     route.bankSpread = (h.bankSpreadPerMT || 0) * hedgedTonnes;
-  } else if (h.route === 'third_party') {
-    const initialMargin = h.initialMarginPct * notional; // bank-provided, NOT partner equity
+  } else if (routeType === 'third_party') {
+    const initialMargin = (h.initialMarginPct || 0) * notional; // bank-provided, NOT partner equity
     const dayCountBasis = trade.financing.dayCountBasis ?? 365; // mirror financing.js (Actual/365|360)
     const marginInterest = (initialMargin * trade.financing.creditRate * trade.financing.financingDays) / dayCountBasis;
     route.initialMargin = round(initialMargin, 2);
@@ -51,13 +52,13 @@ function buildHedge(trade, ctx) {
     route.marginInterest = round(marginInterest, 2);
     route.thirdPartyFee = h.thirdPartyFee || 0;
   } else {
-    throw new Error(`buildHedge: unknown route '${h.route}' (expected 'bank_book' or 'third_party')`);
+    throw new Error(`buildHedge: unknown route '${routeType}' (expected 'bank_book' or 'third_party')`);
   }
 
   const extraFinancingCost = round(route.marginInterest + route.thirdPartyFee + route.bankSpread + swapFee, 2);
 
   return {
-    route: h.route,
+    route: routeType,
     lots,
     hedgedTonnes,
     hedgedPhysical: round(hedgedPhysical, 4),
