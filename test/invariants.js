@@ -685,6 +685,23 @@ check('PL6 native depot ladder: tier net == direct engine run at repriced depot 
     return approx(t.tisNetProfit, direct.profit.tisNetProfit, 0.5);
   }));
 
+// LBL — pin the depot ladder's label fields themselves (marginBasis/fxBasis/marginStatus/pnlBasis),
+// not just the numeric values they gate. nativeDepot inherits trade.pricing.conversion.fxMarketForDepot
+// = 'parallel' (1600) while trade.fx.nafem = 1500 — parallel != NAFEM here, so this is a real reconciling
+// case, not a no-op where the two bases coincide. Regression guard: a future change that flips these
+// literals (e.g. hardcodes 'nafem' as the margin basis, or drops the INDICATIVE/nafem status literals)
+// must fail the suite instead of only being catchable by manual inspection (fcb82aa re-review finding).
+check('LBL depot ladder tier.marginBasis == the configured fxMarketForDepot ("parallel", not hardcoded to some other market)',
+  ladDep.tiers.every((t) => t.marginBasis === 'parallel'));
+check('LBL depot ladder tier.marginStatus == "INDICATIVE" (advisory, not reconciled to P&L)',
+  ladDep.tiers.every((t) => t.marginStatus === 'INDICATIVE'));
+check('LBL depot ladder tier.pnlBasis == "nafem" (P&L is unconditionally NAFEM-settled per RULE 1, regardless of the parallel tier-pricing basis)',
+  ladDep.tiers.every((t) => t.pnlBasis === 'nafem'));
+check('LBL depot ladder top-level fxBasis == the configured fxMarketForDepot ("parallel")',
+  ladDep.fxBasis === 'parallel');
+check('LBL depot ladder tier.reconciliation.note names the parallel-vs-NAFEM gap when the bases differ',
+  ladDep.tiers.every((t) => t.reconciliation.tierBasis === 'parallel' && /NAFEM/.test(t.reconciliation.note) && /PARALLEL|parallel/i.test(t.reconciliation.note)));
+
 // PL7 — LADDER per-tier P&L must VARY for a NATIVE ex-ship leg priced in ₦/L (NGN_PER_L). REGRESSION
 // GUARD for the runAtPrice fix: before it, runAtPrice only repriced USD_PER_MT ex-ship legs, so an
 // ex-ship-₦/L leg stayed at its original price and every tier returned the SAME (inert/identical) net.
