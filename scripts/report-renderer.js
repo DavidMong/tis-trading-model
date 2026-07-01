@@ -786,6 +786,7 @@ function headerSection(logo, trade, res) {
   const marginPct    = (exShipPrice && exShipLanded) ? (exShipPrice - exShipLanded) / exShipPrice : null;
 
   const parties = res.meta.parties || {};
+  const isTisFunded = res.equityProvider === 'TIS';
 
   // Short title: strip "(REGRESSION FIXTURE, dummy data)" or similar parenthetical caveats
   const shortTitle = esc(res.meta.tradeName.replace(/\s*\([^)]*(?:REGRESSION|FIXTURE|dummy|test|sample)[^)]*\)/gi, '').trim());
@@ -816,7 +817,7 @@ function headerSection(logo, trade, res) {
       <div class="kpi-chip ${tisNet < 0 ? 'kpi-loss' : 'kpi-accent'}">
         <span class="kpi-label">TIS Net Profit</span>
         <span class="kpi-value">${fmt.usd(tisNet)}</span>
-        <span class="kpi-sub">after partner split</span>
+        <span class="kpi-sub">${isTisFunded ? 'self-funded — no partner' : 'after partner split'}</span>
       </div>
       <div class="kpi-chip">
         <span class="kpi-label">Annualised Return</span>
@@ -1467,11 +1468,15 @@ function sensitivitiesSection(sens) {
 }
 
 function footerSection(generatedAt, res) {
+  const isFixture = /REGRESSION|FIXTURE|dummy/i.test(res.meta.tradeName);
+  const disclaimer = isFixture
+    ? 'All figures DUMMY/EXAMPLE data only. Not a real trade.'
+    : 'Confidential — internal use only.';
   return `
 <footer class="report-footer" role="contentinfo">
   TIS Global Trading &mdash; Internal Trade Model Report &mdash;
   ${esc(res.meta.tradeId)} &mdash; Generated ${generatedAt}
-  &mdash; All figures DUMMY/EXAMPLE data only. Not a real trade.
+  &mdash; ${disclaimer}
 </footer>`;
 }
 
