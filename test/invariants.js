@@ -654,6 +654,35 @@ const ladLegacyNgn = buildLadder(legacyExNgn, fnCT, computeTrade(legacyExNgn, { 
 check('PL7 native ₦/L ladder nets == legacy-equivalent NGN ladder nets (spread matches, byte-for-byte)',
   ladExNgn.tiers.every((t, i) => approx(t.tisNetProfit, ladLegacyNgn.tiers[i].tisNetProfit, 0.5)));
 
+// SC-LADDER — LADDER-LEVEL surcharge threading (regression guard for the a1e7cf0 change that threads
+// r.profit.tisNetAfterSurcharge into every ex-ship AND depot ladder tier row). The engine-level field is
+// covered at #3; this locks the LADDER passthrough across BOTH flows (equity-partner + unified trade) and
+// BOTH toggle states. Self-deriving — recomputes at each tier's rounded price, no hardcoded expected value
+// (so it cannot move the ALL-USD guard). One compound check over every tier:
+//   ON  -> tier.tisNetAfterSurcharge == direct engine recompute at the tier price  AND  < tier.tisNetProfit
+//   OFF -> tier.tisNetAfterSurcharge == tier.tisNetProfit  (no-op case proofed too)
+const scOnTax = (tt) => ({ ...tt, tax: { ...tt.tax, surcharge: { ...tt.tax.surcharge, enabled: true, incidence: 'cost' } } });
+// (i) Ex-ship leg via the equity-partner flow + buildExShipLadder.
+const scExOn = scOnTax(trade);
+const scLadExOn = buildExShipLadder(scExOn, (t) => computeEquityPartner(t), computeEquityPartner(scExOn));
+const scLadExOff = buildExShipLadder(trade, (t) => computeEquityPartner(t), computeEquityPartner(trade));
+const scExOnOk = scLadExOn.tiers.every((t) => {
+  const direct = computeEquityPartner({ ...scExOn, sell: { exShipPricePerMT: { value: t.pricePerMT } } });
+  return approx(t.tisNetAfterSurcharge, direct.profit.tisNetAfterSurcharge, 0.5) && t.tisNetAfterSurcharge < t.tisNetProfit;
+});
+const scExOffOk = scLadExOff.tiers.every((t) => approx(t.tisNetAfterSurcharge, t.tisNetProfit, 0.01));
+// (ii) Depot leg via the unified trade flow + buildLadder().depot (native both-legs trade -> depot live).
+const scDepOn = scOnTax(nativeDepot);
+const scLadDepOn = buildLadder(scDepOn, fnCT, computeTrade(scDepOn, { skipHedgeCompare: true })).depot;
+const scLadDepOff = buildLadder(nativeDepot, fnCT, computeTrade(nativeDepot, { skipHedgeCompare: true })).depot;
+const scDepOnOk = scLadDepOn.tiers.every((t) => {
+  const direct = computeTrade({ ...scDepOn, revenueLegs: scDepOn.revenueLegs.map((l) => (l.channel === 'depot' ? { ...l, price: t.priceNgnPerL } : l)) }, { skipHedgeCompare: true });
+  return approx(t.tisNetAfterSurcharge, direct.profit.tisNetAfterSurcharge, 0.5) && t.tisNetAfterSurcharge < t.tisNetProfit;
+});
+const scDepOffOk = scLadDepOff.tiers.every((t) => approx(t.tisNetAfterSurcharge, t.tisNetProfit, 0.01));
+check('SC-LADDER tier.tisNetAfterSurcharge threads engine value (ex-ship+depot): ON == recompute & < net, OFF == net',
+  scExOnOk && scExOffOk && scDepOnOk && scDepOffOk);
+
 // ============================================================================================
 // MX — NEW (2026-06-23): RULE 1 + RULE 2 together on a SPLIT trade (ex-ship USD + depot). Confirms the
 // MAX-channel margin-foregone benchmark and that NAFEM (not parallel) is the live FX P&L lever.
