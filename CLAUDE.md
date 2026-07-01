@@ -318,3 +318,24 @@ Documented in **path-scoped rules** that auto-load only when editing `scripts/bu
   placeholder state, hedged-volume MT placeholder.
 - `.claude/rules/build-interactive-identity-display.md` — browser tab title, identity fields +
   fixture badge, favicon, Batch C color-semantics palette.
+
+
+## Effort policy
+- Default to medium effort for normal work.
+- Use high effort only for: tricky debugging, multi-file
+  refactors, architecture decisions.
+- Use low effort for: formatting, renames, simple edits,
+  boilerplate.
+
+Match the effort to the task. Don't burn high effort on trivial work.
+
+## Model routing
+Default: Claude Sonnet 5. Use it for coding, tool use,
+refactors, and day-to-day work.
+
+Escalate to Opus 4.8 only when:
+- Sonnet 5 has failed the same task twice, or
+- the task needs the deepest reasoning (complex system
+  design, subtle correctness proofs).
+
+Start on Sonnet 5. Escalate on evidence, not by default.
