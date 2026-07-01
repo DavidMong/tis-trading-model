@@ -1,0 +1,28 @@
+{
+  "model": "claude-sonnet-5",
+  "effortLevel": "medium",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.command // empty' | { read -r cmd; if echo \"$cmd\" | grep -Eq 'git[[:space:]]+stash([[:space:]]|$)|git[[:space:]]+checkout[[:space:]]+--([[:space:]]|$)|git[[:space:]]+reset[[:space:]]+--hard|git[[:space:]]+clean[[:space:]]+(-[a-zA-Z]*f[a-zA-Z]*|--force)'; then printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Blocked: destructive git command (git stash / git checkout -- / git reset --hard / git clean -f) is not allowed via automated Bash calls -- these commands are known to cause working-tree races with concurrent agents/subagents. If this is genuinely needed, ask the user to run it manually.\"}}'; fi; }"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "file=$(jq -r '.tool_input.file_path // empty'); case \"$file\" in */engine/*) node test/invariants.js ;; esac"
+          }
+        ]
+      }
+    ]
+  }
+}

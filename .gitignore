@@ -23,5 +23,8 @@ out/
 ui-audit-shots/
 
 # Claude Code internal (worktrees, local config)
-.claude/
+.claude/launch.json
+.claude/worktrees/
+.claude/settings.local.json
+.claude/.DS_Store
 .worktrees/
