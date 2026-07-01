@@ -24,3 +24,4 @@ ui-audit-shots/
 
 # Claude Code internal (worktrees, local config)
 .claude/
+.worktrees/
