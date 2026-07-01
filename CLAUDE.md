@@ -25,10 +25,13 @@ by `test/invariants.js`'s LOCAL exact-value guards — is **not** tracked. A fre
 gets a clean checkout with none of the untracked/ignored files the main worktree has accumulated, so
 `reference-trade-001.json` (and any other untracked local trade file) silently won't exist there.
 
-**Symptom:** the suite reports fewer passing tests than expected (e.g. 216/220 instead of 220/220,
+**Symptom:** the suite reports fewer passing tests than expected (e.g. 217/221 instead of 221/221,
 missing the 4 LOCAL guards) and/or the fingerprint's ALL-USD guard combined hash comes back different
 from the documented baseline — both look like a real regression but are actually just an incomplete
-fixture set.
+fixture set. (Baseline was 220 as of the `2d094eb` doc sync; commit `49c5be3` added the SC-LADDER check
+— "Suite 220 -> 221, all existing tests unchanged" per its own commit message — without updating this
+line. Re-verify this count against `git log -- test/invariants.js` before trusting it long-term; a
+missing doc update after a passing test addition is a quiet, recurring failure mode here.)
 
 **Fix — before running `node test/invariants.js` or `node scripts/fingerprint.js` in any new
 worktree:** confirm `trades/reference-trade-001.json` is present; if not, copy it in from the main
