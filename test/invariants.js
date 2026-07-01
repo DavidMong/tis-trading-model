@@ -183,6 +183,17 @@ check('#4 interest ratio matches 365/360', approx(ci360 / ci365, 365 / 360, 1e-4
 const dNoBasis = clone(trade); delete dNoBasis.financing.dayCountBasis;
 check('#4 missing dayCountBasis defaults to 365', computeEquityPartner(dNoBasis).financing.dayCountBasis === 365);
 
+// #5 — round() correctness at REAL financial magnitude, not just near 1. A fixed +Number.EPSILON
+// nudge only corrects fp representation drift for values near magnitude 1; at real magnitudes
+// (thousands+, where this codebase's dollar amounts actually live) it's a no-op, so exact .xx5
+// boundaries can round the WRONG way (down instead of half-up). $10,000.005 is a representative
+// cost-line-sized value that exhibited this with the old +Number.EPSILON approach.
+const { round: roundFn } = require('../engine/core/rounding');
+check('#5 round() half-up boundary correct at thousands magnitude', roundFn(10000.005, 2) === 10000.01);
+check('#5 round() half-up boundary correct at hundreds magnitude', roundFn(2.135, 2) === 2.14);
+check('#5 round() half-up boundary correct at tens-of-thousands, 4dp', roundFn(12345.67895, 4) === 12345.679);
+check('#5 round() stays neutral (not TIS-favor-biased): tie-break direction unchanged for negatives (Math.round rounds ties toward +Infinity, same as before the fix)', roundFn(-2.135, 2) === -2.13);
+
 // #6 — pricing-ladder tier bounds (buildExShipLadder is in scope from the #12 block above)
 const baseR = computeEquityPartner(trade);
 const badTier = (m) => ({ ...trade, pricing: { ...trade.pricing, exShipTiers: [{ name: 'Bad', marginOfSell: m }] } });

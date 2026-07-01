@@ -35,11 +35,12 @@ line; commit `d06c341` then reconciled it to 221, but by then `fcb82aa` (same br
 arrival too. By the time the `fix/hedge-validation` PR landed on 2026-07-01, the suite had already
 drifted to 239/235 (fixture/no-fixture) without a doc update in between — another instance of the same
 recurring gap. That PR's own `#7b` regression test (missing-`trade.hedge` guard) then added 6 checks.
-Actual as of 2026-07-01 (post `fix/hedge-validation`): **245 passed with the fixture present, 241
-without it**. Re-verify this count against `git log -- test/invariants.js` before trusting it long-term
-— do not just reconcile it once and move on; **as part of any future PR that touches
-`test/invariants.js`, re-run the suite and update this line in the same PR**, since a missing doc
-update after a passing test addition is a quiet, recurring failure mode here.)
+The `fix/rounding-epsilon` PR then added its own `#5` regression block (4 checks). Actual as of
+2026-07-01 (post `fix/rounding-epsilon`): **249 passed with the fixture present, 245 without it**.
+Re-verify this count against `git log -- test/invariants.js` before trusting it long-term — do not
+just reconcile it once and move on; **as part of any future PR that touches `test/invariants.js`,
+re-run the suite and update this line in the same PR**, since a missing doc update after a passing
+test addition is a quiet, recurring failure mode here.)
 
 **Fix — before running `node test/invariants.js` or `node scripts/fingerprint.js` in any new
 worktree:** confirm `trades/reference-trade-001.json` is present; if not, copy it in from the main

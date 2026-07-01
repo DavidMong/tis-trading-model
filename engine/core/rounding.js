@@ -7,7 +7,12 @@
 function round(x, dp = 2) {
   if (x === null || x === undefined || Number.isNaN(x)) return x;
   const f = 10 ** dp;
-  return Math.round((x + Number.EPSILON) * f) / f;
+  // Doubles carry ~15-17 significant decimal digits; representation noise from the x*f
+  // multiplication lands past the 15th. toPrecision(15) strips that noise (relative to the
+  // value's own magnitude) before rounding, so exact .xx5 boundaries round correctly at ANY
+  // financial magnitude — unlike a fixed +Number.EPSILON nudge, which is only large enough to
+  // matter for values near magnitude 1 and is a no-op at real (hundreds/thousands+) magnitudes.
+  return Math.round(Number((x * f).toPrecision(15))) / f;
 }
 
 // Money rounded to 2 dp for display / cash settlement.
