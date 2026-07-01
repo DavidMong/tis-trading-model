@@ -54,6 +54,10 @@ partner terms, hedge terms, flat cost lines, taxableSupplyProportion, surcharge 
 
 ## NTA 2025 tax anchors  (authority: ../tax-reference.md — verified, do NOT re-derive)
 
+> `../tax-reference.md` is a **local working copy outside this repo** — it is not tracked here and a
+> fresh clone / `git worktree add` will not have it. The anchors below are the in-repo source of record;
+> treat them as authoritative when the external file is absent.
+
 - **VAT 7.5% standard-rated** on domestic gasoil — **s.147**. Gasoil is neither exempt (**s.185**) nor
   zero-rated (**s.186**). Do **NOT** cite s.186(n) (that concerns exports).
 - **Input VAT recoverable — s.155(4)**, apportioned by `taxableSupplyProportion` (proviso (a)).
@@ -292,216 +296,14 @@ which are remapped at render time in `badge()` and `pip()`. Do not change engine
 
 ## Interactive dashboard — real-trade features (`scripts/build-interactive.js`)
 
-### Per-trade vs house-defaults split
+Documented in **path-scoped rules** that auto-load only when editing `scripts/build-interactive.js`
+(kept out of this always-loaded root file to save context — do not copy them back here):
 
-Two named arrays in the client script control which inputs are cleared/reloaded on **New Trade**:
-
-- **`PER_TRADE_IDS`** — identity (name/partner/supplier/inspector), market prices, FX, freight,
-  financing, partner terms, toggles. Cleared on New Trade.
-- **`DEFAULT_IDS`** — cost-line rates/flat fees, tax rates, storage rates, density, hedge bank
-  terms. Persist across trades; loaded from saved house defaults on New Trade.
-
-### Professional trade library — state machine + footer layout
-
-Three-state badge (`#trade-state-badge`) driven by `_currentTradeName` (null = new) and `_modified`:
-- **New · unsaved** — slate/grey; `_currentTradeName === null`
-- **{name} · saved** — blue-grey; loaded/saved, no pending edits
-- **{name} · modified** — amber; any `onInputChange()` or toggle click since last save/load
-
-Footer is a four-row column layout (requires `display:flex; flex-direction:column` on `.sb-footer`
-— parent sidebar uses flex:row, which is why the explicit direction is needed):
-1. **Row 1** (`.sb-footer-row1`) — New Trade · Save · Save As…
-2. **State row** (`.sb-state-row`) — three-state badge (full width)
-3. **Row 2** (`.sb-footer-row2`) — dropdown · ↓ (force-load) · ✎ (rename) · ✕ (delete)
-4. **Report row** (`.sb-report-row`) — Download Report button (added with the report-pdf feature)
-
-**CSS cascade note:** three `.sb-footer` blocks exist in the stylesheet (original ~line 322, spacing-system
-~line 693, new-feature ~line 766). The new-feature block must explicitly set `align-items:stretch; padding:0;
-gap:0; overflow:hidden; box-sizing:border-box; width:100%` to override all conflicting properties from the
-earlier blocks. Each inner row (`sb-footer-row1`, `sb-state-row`, `sb-footer-row2`) carries its own padding
-and `box-sizing:border-box; width:100%; overflow:hidden`. The lib-select dropdown uses `flex:1; min-width:0;
-max-width:100%; box-sizing:border-box` to shrink within its flex row without bleeding past the sidebar edge.
-
-Key behaviours:
-- **Smart Save** (`saveTrade()`): if `_currentTradeName !== null`, updates in place ("Updated: {name}");
-  otherwise reads `inp-trade-name`, prompts duplicate-check, saves as new.
-- **Save As…** (`saveAsTrade()`): always `prompt()`s for name; default is "{current} (copy)" or typed name.
-  Switches `_currentTradeName` to the new name on success.
-- **Rename** (`renameTrade()`): `prompt()`s; moves storage key; updates badge if renaming current trade.
-- **Delete** (`deleteSelectedTrade()`): confirm includes "(This is the trade currently in your form.)"
-  when deleting the current trade; sets `_currentTradeName = null` so badge reverts to "New · unsaved";
-  form inputs are **not** wiped.
-- **Load** (`loadSelectedTrade(explicit?)`): auto-loads on dropdown `onchange`; `↓` passes `explicit=true`
-  to surface "Select a saved trade first" on empty. Unsaved-changes confirm on either path.
-- **New Trade** (`newTrade()`): confirm if `_modified`; resets `_currentTradeName = null` + dropdown.
-
-**Template-literal escape rule:** `\n` inside the Node.js template literal emits a literal newline into
-the browser JS string, breaking single-quoted strings. Never use `\n` in string literals within the
-client JS block — use concatenation or omit newlines entirely.
-
-### Browser tab title
-
-`updateHeader()` (called on load, New Trade, rename, identity edits, and load-snapshot) sets
-`document.title`:
-- Sample fixture (`_isSample === true`) → `${INIT.meta.tradeId} — TIS Global Trading (Interactive)`
-- Unnamed / New Trade → `New Trade — TIS Global Trading`
-- Named real trade → `${name} — TIS Global Trading`
-
-### Status pip semantics — `pip()` (Batch F)
-
-The small colored dot before a field label (`ir(id, label, inputHtml, status, primary)`) signals the
-field's *verification status* against the Batch D taxonomy, via the same status strings the engine/
-config emit: green `pip-ok` = OK/FIXED, grey `pip-ind` = INDICATIVE/PLACEHOLDER/PENDING/EXAMPLE,
-orange `pip-unv` = CONFIRM/UNVERIFIED. This is real and varies meaningfully across the Costs and
-Hedge tabs, where every field is backed by a config-driven status (e.g. NIMASA levies → UNVERIFIED,
-VAT rate → OK).
-
-It does **not** apply to fields with no verification-status concept at all — free-text identity
-fields (trade name, partner, supplier, inspector), pure trader-discretion business terms (delivered
-MT, profit split %, financing days, capital lockup days), the equity-provider/bond%/equity%
-structural inputs, and FOB premium (no `status` field exists on `market.fobPremium` the way it does
-on `market.ice`). Before Batch F, `pip(status)` defaulted falsy/`''` status to green `pip-ok` — so
-these 12 Deal-tab fields showed an always-green "verified" dot that was actually just the function's
-fallback, not a real signal. `pip(null)` (the explicit "no status concept" sentinel, distinct from
-`''`) now renders no dot (`pip-none`) for exactly these fields; `ir()` callers elsewhere are
-unaffected (`''`/omitted still falls through to green, unchanged) — only the 12 call sites with no
-real status pass `null`. If you add a new Deal-tab field, pass `null` unless it's genuinely backed by
-an engine/config status string.
-
-### Hedge placeholder field state — `.si.ph` and `data-ph`
-
-`.si.ph` gives amber border/background + amber pip to signal "field is empty; unconfirmed default."
-Once a field has a value it must show **neutral** styling (normal border/bg, green pip, ink text).
-
-Implementation:
-- `ni()` adds `data-ph="1"` to inputs rendered with `cls='ph'`
-- `refreshHedgePh()` iterates `[data-ph]` inputs: has-value → removes `ph`, sets pip to `pip-ok`;
-  empty → ensures `ph` present, pip stays `pip-ind`
-- Called from `onInputChange()` (every keystroke), after each `applyInputSnapshot()` call, and at init
-- The `color` property was removed from `.si.ph` (prior pass) so text is always ink regardless
-
-### Hedged volume MT placeholder
-
-`inp-ice-hedged-vol` is empty when using the engine default (TIS retained tonnes, not full cargo —
-see *Dual-route hedge*). `updateHedgedVolPlaceholder()` sets its HTML `placeholder` attribute from
-`_lastRetainedTonnes` (the last compute's retained tonnage), e.g. `"7,500 (retained)"`, or the label
-`"retained tonnes"` before any compute has run. Called from `onInputChange()`, after each
-`applyInputSnapshot()` call, and at init so it tracks the live computed default.
-
-### Empty state / stale-results prevention
-
-`recompute()` gates on `inp-delivered` being non-empty before calling the engine. If blank (New Trade
-or first load with no data), it calls `showEmptyState()` which:
-1. Wipes all 7 result `<div>` sections (`sec-waterfall` through `sec-sens`) to empty HTML.
-2. Sets all header KPI values and subs to `—`.
-3. Clears the error banner.
-4. Renders a calm "Enter trade data to see results" prompt in `sec-waterfall`.
-
-If the engine throws on partial inputs (delivered MT filled but other fields invalid), `clearResults()`
-wipes the sections + KPIs and the red error banner shows — no stale prior-trade numbers remain.
-House defaults (Costs tab: tax rates, cost-line rates, hedge bank terms) are NOT cleared by this; they
-persist through New Trade as intended and rehydrate from saved house defaults.
-
-### Sell price is OPTIONAL (price-independent vs price-dependent outputs)
-
-Sell pricing is **per leg** via the revenue-leg editor (`_legs` / `trade.revenueLegs`, S2.1) — there is
-no longer a single scalar sell-price field (the old `inp-exship-price` id only survives as a read in
-legacy-snapshot migration, for trades saved before the leg editor existed). A trade is priced once
-**every** leg has a positive price; until then the trader prices *from* the ladder, so the cost
-build-up and pricing ladder must be visible before any price is chosen.
-
-**Price-INDEPENDENT** (compute/render without every leg priced):
-- Cost Build-Up (`renderCost`) — `buildCostBuildup` never receives `sellValue` in the unified
-  `engine/flows/trade.js` path, so `pct_of_sell` lines resolve to 0; landed cost is pure cost-side.
-- Pricing Ladder (`renderLadder`) — each tier derives its own price from `exShipLandedPerMT` and runs
-  the engine at that price (`runAtPrice`); the ladder base never needs the entered sell price.
-
-**Price-DEPENDENT** (need every leg priced; shown as a calm PENDING state until then):
-- Profit Waterfall, TIS Net Profit KPI, Annualised Return KPI, Ex-Ship Margin KPI,
-  Partner Deliverables (cash share), Hedge Analysis comparison, Tax surcharge, Sensitivities.
-
-**How `recompute()` handles it** (no engine math changed):
-- Detects `hasSellPrice = legsAll.length > 0 && legsAll.every(l => isFinite(l.price) && l.price > 0)`
-  — every leg must carry a positive price.
-- The engine *throws* if the ex-ship channel is active and the price isn't positive. So when any leg
-  is unpriced, it runs the engine once with **synthetic per-leg placeholder prices** filled in
-  (`(ice+fob)*1.25` USD, fallback 1000, converted to a ₦/L equivalent for NGN-unit legs) purely to
-  extract the price-independent outputs. Those synthetic values are **never displayed** — confirmed:
-  `renderLadder`'s current-price marker only adopts a leg's price when the *real* (non-synthetic)
-  `trade.revenueLegs[].price` is finite, falling back through `res.price.exShipPricePerMT`
-  (explicitly nulled below) otherwise.
-- After the run, `res.price.exShipPricePerMT` and `res.price.depotPriceNgnPerL` are both set to
-  `null` so neither ladder shows a fake current-price marker, and sensitivities are skipped.
-- `renderAll(trade, res, ladder, hasSellPrice)` then renders cost + ladder + a pending card in the
-  waterfall slot and clears the P&L-dependent sections; `renderKPIs(res, false)` shows `—` with an
-  "enter leg prices" sub. Pricing every leg re-runs normally and everything computes; clearing any
-  leg's price returns to pending with the ladder intact.
-
-The 220 invariant tests exercise the engine directly (with a real sell price), so they are unaffected.
-
-### Storage abstraction (`TISStorage`)
-
-All persistence is routed through `TISStorage` (an IIFE in the client script). Current backend:
-**`localStorage`** (`tis_saved_trades_v1`, `tis_house_defaults_v1`). To swap to a hosted backend,
-replace only the four methods: `saveTrade`, `loadTrade`, `loadTrades`, `deleteTrade`,
-`saveDefaults`, `loadDefaults`. The rest of the UI is backend-agnostic.
-
-### Identity fields + Fixture badge
-
-Trade name, Partner, Supplier, Inspector are editable text fields in the **Trade Identity** section
-of the Deal tab. They update the header live (`updateHeader()`).
-
-**`_isSample` flag:** `true` at boot when `INIT_IS_SAMPLE` detects the bundled sample fixture name
-(REGRESSION/FIXTURE/dummy/test/sample keywords). Cleared to `false` on: any `onInputChange()` call
-(any text/number input change), any toggle click (`.tgl-wrap` listener), `newTrade()`, or loading a
-real saved trade via `loadSelectedTrade()`. When `_isSample` is `false`, `updateHeader()` hides the
-`#hdr-fixture-badge` span and sets `#hdr-trade-id` to `display:none`. The badge only reappears if the
-page is reloaded with the original sample fixture.
-
-**Header identity segments:** each of Partner / Supplier / Inspector is wrapped in a `<span id="hdr-X-seg">`.
-`updateHeader()` sets `display:none` on any segment whose value is empty — so blank fields are omitted
-entirely from the header strip rather than showing a stale or placeholder value. When a value is filled
-in, the segment reverts to the default display (empty string).
-
-**Logo SVG:** the raw SVG (`assets/tis-logo-2.svg`) has an `<?xml...?>` declaration and `<!DOCTYPE>` stripped
-before inlining; no `<title>` is injected into the inline SVG (accessibility is handled by `role="img"` +
-`aria-label="TIS Global Trading"` on the container div). This prevents doubled text from SVG-title + aria-label
-rendering in certain environments.
-
-### Favicon
-
-Embedded as a data URI in `<head>` — the TIS mark (`tis-logo-4.svg` viewBox, red #d41d1d) rendered
-as a minimal inline SVG. No external request; works from `file://` and `localhost` equally.
-
-### Color-semantics palette (Batch C — final)
-
-`#d41d1d` red = **BRAND ACCENT ONLY** — never danger/loss/error in financials.
-`#15803d` green = positive / active.  `#f59e0b`/`#92400e` amber = caution / unverified.
-`#242331` ink.  `#717c89` slate.  `#991b1b` deep-red = genuine error or real P&L loss.
-
-**Red KEEP list** (all justified as brand accent or genuine error):
-- `--red` tab active underline (brand)
-- `@keyframes val-flash` subtle amber-red wash (brand, opacity .07)
-- `.err-banner` / `.tie-out-box.tie-warn` (`#991b1b`) — genuine computation errors
-- `lc < 0 ? 'var(--red)'` in `updateLcDisplay()` — equity stack overallocated (genuine error)
-- `fixtureBadgeHtml` uses `rgba(212,29,29,.20)` / `#fca5a5` — sample fixture label (brand)
-- Favicon fill `#d41d1d` (brand)
-- `.leg-del:hover { color: #991b1b }` (S2.1, revenue-leg editor) — destructive-action hover affordance
-  on a delete button, the standard UX convention; not financial-negative semantics, so not a Batch C
-  regression
-
-**Changed (C1–C6):**
-- `.neg { color: #717c89 }` — expected structural negatives (hedge cost delta, margin foregone,
-  sensitivity deltas) → slate. Previously `#991b1b` alarm-red.
-- `.loss { color: #991b1b }` — NEW class for real P&L losses (ladder TIS NET when negative).
-  Ladder cells use `tier.tisNetProfit >= 0 ? 'pos' : 'loss'` (was `'neg'`).
-- `.btn-save` background → `var(--ink)` (was `var(--red)`). Hover `#3a3545`. (C2)
-- `.tgl-track.on` → ink default; `[data-type="hedge"]` → green `#10b981`;
-  `[data-type="surcharge"]` → amber `#f59e0b`. No untyped toggles exist in UI. (C6)
-- `.si:focus` / `.ss:focus` / `.lib-select:focus` border/shadow → ink (was red). (C6)
-- `.si.ph` / `.hedge-warn-note` / `.h-lock-warn` → amber `#92400e` text (was `#9a3412`). (C5)
-- `.pip-ph` → `#f59e0b` amber (was `#f97316` orange). (C4)
-- `.bdg.bdg-placeholder` → `#92400e` text / `#fef3c7` bg (was blue `#1e40af`/`#dbeafe`).
-  Double-class selector (0,2,0) + `!important` defeats reportCss cascade. (C4)
-- Route seg-btn active state → ink (C3).
-- Sensitivity heat cells `.sens-neg` / `.sens-neg-strong` → dark-grey text, heat-map bg. (C1)
+- `.claude/rules/build-interactive-state.md` — per-trade vs house-defaults split, trade-library
+  state machine + footer layout, `TISStorage` persistence.
+- `.claude/rules/build-interactive-results-flow.md` — empty-state / stale-results prevention,
+  optional sell price (price-independent vs price-dependent outputs).
+- `.claude/rules/build-interactive-field-status.md` — `pip()` status semantics, `.si.ph`
+  placeholder state, hedged-volume MT placeholder.
+- `.claude/rules/build-interactive-identity-display.md` — browser tab title, identity fields +
+  fixture badge, favicon, Batch C color-semantics palette.
