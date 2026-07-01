@@ -42,7 +42,15 @@ function runSensitivities(trade, computeFn, options = {}) {
     if (fxMode === 'parallel') {
       bump(`FX parallel ${s}${tag}`, (t) => { t.fx = { ...(t.fx || {}), paymentBumpPct: dir * pct }; });
     } else {
-      bump(`FX NAFEM ${s}${tag}`, (t) => { if (t.fx?.nafem) t.fx.nafem.value *= 1 + dir * pct; });
+      // Bump whichever field resolveRate() actually reads (override wins over value there — fx.js)
+      // so the simulated move is never silently absorbed by an override sitting on top of it.
+      bump(`FX NAFEM ${s}${tag}`, (t) => {
+        const nafem = t.fx?.nafem;
+        if (!nafem) return;
+        const usesOverride = nafem.override !== null && nafem.override !== undefined;
+        if (usesOverride) nafem.override *= 1 + dir * pct;
+        else nafem.value *= 1 + dir * pct;
+      });
     }
   }
 

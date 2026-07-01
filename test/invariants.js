@@ -310,6 +310,38 @@ check('FX-TRUEUP principalTie verifies real identity (paper product + true-up + 
   tuPd.principalTie.ok
   && approx(tuPd.principalTie.returnedProductValue + tuPd.principalTie.returnedCash, both.financing.partnerFunding, 0.02));
 
+// FX11 — regression guard for the override-absorption bug: resolveRate() (fx.js) prefers
+// fx.nafem.override over .value whenever an override is set (non-null). Before the fix, the
+// sensitivity bump in sensitivities.js mutated .value ONLY, so any trade with a NAFEM override
+// configured silently absorbed the bump and reported $0 FX risk regardless of real exposure.
+// Uses depotOnly (genuine naira depot exposure, per FX5/FX6 above) with an override layered on
+// top — exactly the configuration the old bug went blind on.
+const depotOverride = { ...depotOnly, fx: { ...depotOnly.fx, nafem: { ...depotOnly.fx.nafem, override: 1550 } } };
+const ovSensFn = (t) => computeTrade(t);
+const ovSens = runSensitivities(depotOverride, ovSensFn, { fxMode: 'nafem' });
+const ovFxUp = ovSens.scenarios.find((s) => /FX NAFEM \+/.test(s.lever));
+const ovFxDown = ovSens.scenarios.find((s) => /FX NAFEM -/.test(s.lever));
+check('FX11 override trade: FX NAFEM sensitivity is non-zero (not silently absorbed by the override)',
+  Math.abs(ovFxUp.deltaVsBase) > 1 && Math.abs(ovFxDown.deltaVsBase) > 1);
+
+// Independent (non-tautological) re-derivation: bump the OVERRIDE field directly ourselves — written
+// here independently of sensitivities.js's own bump helper, mirroring only resolveRate()'s documented
+// precedence (fx.js) — and re-run the verified engine. The scenario's reported net must equal this
+// direct, hand-constructed rerun (no duplicated math, no calling runSensitivities twice).
+const ovUpTrade = { ...depotOverride, fx: { ...depotOverride.fx, nafem: { ...depotOverride.fx.nafem, override: depotOverride.fx.nafem.override * 1.1 } } };
+const ovUpDirect = computeTrade(ovUpTrade);
+check('FX11 override trade: scenario net == direct engine run with override bumped +10% (hand-derived)',
+  approx(ovFxUp.tisNet, ovUpDirect.profit.tisNetProfit, 0.5));
+
+// Counterfactual: confirms the OLD bug pattern (bumping .value alone while override stays fixed)
+// would indeed still show ~$0 net movement — proves it was specifically the override field the
+// sensitivity check was blind to, not some other cause.
+const staleValueTrade = { ...depotOverride, fx: { ...depotOverride.fx, nafem: { ...depotOverride.fx.nafem, value: depotOverride.fx.nafem.value * 1.1 } } };
+const staleValueNet = computeTrade(staleValueTrade).profit.tisNetProfit;
+const depotOverrideBaseNet = computeTrade(depotOverride).profit.tisNetProfit;
+check('FX11 counterfactual: bumping .value alone (old buggy behavior) leaves net ~unchanged (override still wins)',
+  approx(staleValueNet, depotOverrideBaseNet, 0.01));
+
 // FX10 — validation throws on bad funding stack / channel split.
 expectThrow('FX10 funding stack not summing to 1 throws', () => computeTrade({ ...bothChannels, partner: { ...bothChannels.partner, equityPct: 0.3 } }), 'sum to 1.0');
 expectThrow('FX10 channel split not summing to 1 throws', () => computeTrade({ ...depotOnly, channels: { exShipPct: 0.5, depotPct: 0.4 } }), 'channels');
