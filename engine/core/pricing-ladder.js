@@ -133,6 +133,7 @@ function buildExShipLadder(trade, compute, baseResult) {
       markupPctOnCost: round(spreadPerMT / exShipLandedPerMT, 6), // metric 2
       spreadNgnPerL: fx != null ? round((spreadPerMT * fx) / conv.litresPerMT, 4) : null, // common-currency
       tisNetProfit: r.profit.tisNetProfit, // from engine
+      tisNetAfterSurcharge: r.profit.tisNetAfterSurcharge, // from engine
       adjustedProfit: r.profit.adjustedProfit, // from engine
     };
   });
@@ -207,6 +208,7 @@ function buildDepotLadder(trade, compute, baseResult) {
     const priceNgnPerL = depotLandedNgnPerL + t.spreadNgnPerL;
     const priceUsdPerMT = (priceNgnPerL * conv.litresPerMT) / fx;
     let tisNetProfit = null;
+    let tisNetAfterSurcharge = null;
     let adjustedProfit = null;
     let pnlStatus = 'PENDING (no depot channel in this trade)';
     if (depotFlowLive) {
@@ -219,6 +221,7 @@ function buildDepotLadder(trade, compute, baseResult) {
       }
       const r = compute(tt);
       tisNetProfit = r.profit.tisNetProfit;
+      tisNetAfterSurcharge = r.profit.tisNetAfterSurcharge;
       adjustedProfit = r.profit.adjustedProfit;
       pnlStatus = 'engine';
     }
@@ -230,6 +233,7 @@ function buildDepotLadder(trade, compute, baseResult) {
       marginPctOfSell: round(t.spreadNgnPerL / priceNgnPerL, 6), // metric 1 (reference)
       markupPctOnCost: round(t.spreadNgnPerL / depotLandedNgnPerL, 6), // metric 2
       tisNetProfit,
+      tisNetAfterSurcharge,
       adjustedProfit,
       pnlStatus,
     };

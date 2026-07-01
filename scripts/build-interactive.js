@@ -77,6 +77,11 @@ function css() {
 /* ════ INTERACTIVE: full-viewport sidebar layout ══════════════════════════ */
 html, body { height: 100%; overflow: hidden; }
 body { display: flex; flex-direction: column; }
+/* Typography (Batch G): kerning explicitly on — "no exceptions" per the
+   typography skill, even though most browsers default it on for the fonts
+   already in use here. Ligatures on too (fi/fl pairs in running prose like
+   "financing"/"reflow"). reportCss's body rule doesn't set either. */
+body { font-feature-settings: "kern" 1, "liga" 1; text-rendering: optimizeLegibility; }
 
 /* Drawer toggle — hidden on wide screens */
 .drawer-btn {
@@ -398,6 +403,18 @@ body { display: flex; flex-direction: column; }
 .state-modified { color: #92400e;      background: #fef3c7; border: 1px solid #fbbf24; }
 
 /* ── Results area ───────────────────────────────────────────────── */
+/* .results-col holds the (always-reserved) sticky-KPI row + the actual
+   scrolling .results box, stacked in a column. It occupies the flex slot
+   .results used to occupy directly in .app-body (row layout desktop /
+   column layout narrow — see .app-body media query below; unaffected
+   either way since .results-col just inherits whichever role .results had). */
+.results-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0; /* flex-child scroll-clipping fix (Safari/Firefox) */
+  overflow: hidden;
+}
 .results {
   flex: 1;
   overflow-y: auto;
@@ -406,6 +423,65 @@ body { display: flex; flex-direction: column; }
   display: flex;
   flex-direction: column;
   gap: 24px;
+}
+
+/* ── Sticky condensed KPI (Batch G) ──────────────────────────────────────
+   Deliberately NOT position:sticky over .results' own scroll content.
+   position:sticky only reserves ITS OWN row once, at its natural document
+   position near the top — it does not create a repeating no-go zone for
+   the rest of the scroll range, so once scrolled further, later content
+   passes back UNDER the visually-pinned pill and gets hidden behind it
+   (confirmed: it hid an UNVERIFIED status badge on a cost line). A first
+   attempt at reserving space via padding-top on .results had the same
+   flaw — padding is a one-time constant offset in document space, so it
+   only delayed the overlap by a fixed amount instead of preventing it
+   (re-verified by sweeping 12 scroll positions × 5 sections: overlaps
+   still occurred well past the reserved amount).
+   Fix that actually holds for the ENTIRE scroll range: the pill is a
+   genuine FLEX SIBLING of .results (both inside .results-col above), so
+   .results' own border-box is permanently a fixed amount shorter — and
+   since overflow-y:auto clips .results' content strictly to its own box,
+   that content can NEVER geometrically render outside it, at any
+   scrollTop. The space is reserved unconditionally (not just once the
+   pill is visible), so the opacity/transform reveal causes no layout
+   shift — same "hidden until scrolled past threshold" UX as before,
+   entrance-only, ease-out 200ms, transform+opacity only (GPU-friendly,
+   motion-spec "tooltip appear" / "state change" bucket), no bounce/scale
+   per the project's existing subtle-motion register. */
+.results-sticky-kpi {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  align-self: flex-start;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: var(--space-2) var(--space-4);
+  margin: 24px 28px 0;
+  box-shadow: 0 2px 8px rgba(36,35,49,.08);
+  opacity: 0;
+  transform: translateY(-6px);
+  pointer-events: none;
+  transition: opacity .2s cubic-bezier(0,0,0.2,1), transform .2s cubic-bezier(0,0,0.2,1);
+}
+.results-sticky-kpi.visible { opacity: 1; transform: translateY(0); }
+.results-sticky-kpi-label {
+  font-family: var(--f-display);
+  font-size: var(--type-label);
+  font-weight: 600;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--role-slate);
+}
+.results-sticky-kpi-val {
+  font-family: var(--f-display);
+  font-size: var(--type-kpi);
+  font-weight: 700;
+  color: var(--role-ink);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+@media (prefers-reduced-motion: reduce) {
+  .results-sticky-kpi { transition-duration: .01ms; }
 }
 
 /* Error banner */
@@ -512,6 +588,8 @@ body { display: flex; flex-direction: column; }
   padding: 8px 12px;
   margin-bottom: 12px;
   line-height: 1.4;
+  max-width: 65ch; /* typography: 45-90ch line length — this note renders inside the wide
+                       Hedge Analysis card, not the narrow sidebar, so it actually needs the cap */
 }
 /* Unit-sanity guard: implausibly large fee/spread (likely a units typo). Deeper amber than the
    INDICATIVE notes so it reads as "stop and check", not a routine placeholder hint. */
@@ -766,18 +844,31 @@ body { display: flex; flex-direction: column; }
 .wf-row { padding: 24px; }
 /* Override reportCss padding on the shared wf-box class */
 .wf-box { padding: 18px 16px; }
-/* Batch F: neutralize the 3 intermediate cards (margin foregone / adjusted /
-   partner cash share — TIS-funded flow's "all-in cost" shares wf-deduct, same
-   treatment applies). Colored fill is reserved for the terminal TIS Net
-   Profit card (.wf-net, untouched — still green/deep-red) and the leading
-   .wf-standalone card (untouched — its dark-ink fill marks it as the anchor
-   figure, not a pastel status tint, so it's out of scope for this pass).
+/* Batch G v2 (cards, deliberate color system — replaces both the original
+   arbitrary per-card pastels (red/amber/red in reportCss) and Batch F's
+   all-neutral pass). Three roles, independent of step count so this still
+   reads correctly whether a flow has 3 boxes (TIS self-funded) or 5
+   (partner-funded) or more:
+     - ANCHOR  (.wf-standalone, untouched) — dark-ink fill marks the starting
+       figure. Out of scope here.
+     - DEDUCTION (.wf-deduct, .wf-share — every "minus" step, e.g. cost,
+       margin foregone, partner cash share) — ONE consistent muted slate
+       fill. Same treatment regardless of which deduction it is: a deduction
+       is a deduction, not a status to differentiate by tint. Slate, not red
+       — root CLAUDE.md reserves red for brand accent / genuine P&L loss,
+       and these are expected structural reductions, not errors.
+     - CHECKPOINT (.wf-adjusted — a subtotal the flow passes through, e.g.
+       Adjusted Profit) — bordered-not-filled: white card, ink-weight
+       border, so it reads as a pause/landmark distinct from both the muted
+       deductions and the terminal result.
+   Terminal (.wf-net / .wf-net.wf-loss, untouched) keeps its green/deep-red
+   fill — still the headline result.
    Override-after-cascade: these classes are defined in reportCss (shared
-   with the PDF, out of scope to edit directly), so they're neutralized here
+   with the PDF, out of scope to edit directly), so they're restyled here
    the same way .wf-box's padding already is two lines up. */
 .wf-box.wf-deduct,
-.wf-box.wf-adjusted,
-.wf-box.wf-share { background: var(--white); border-color: var(--border); }
+.wf-box.wf-share    { background: var(--slate-bg); border-color: var(--border); }
+.wf-box.wf-adjusted { background: var(--white); border: 2px solid var(--ink); }
 /* reportCss uses display:flex+gap on .wf-reconcile but content is inline;
    override to block so text wraps naturally with consistent line spacing.
    Promoted to section-header weight (ink, semibold, --type-value) — was
@@ -867,8 +958,46 @@ body { display: flex; flex-direction: column; }
 
 /* ── 8. Sensitivities / tornado: breathing room ──────────────────────────── */
 .tn-wrap            { padding: 24px 24px 8px; }
-.tn-row             { margin-bottom: 8px; }
 .tn-baseline-label  { padding: 12px 0 8px; margin-top: 12px; }
+
+/* ── Tornado rows — hand-rolled SVG diverging bars (Batch G) ─────────────────
+   Replaces the old .tn-row/.tn-bars/.tn-half/.tn-bar CSS-width-div bars (now
+   dead in this file — reportCss's own .tn-* classes are untouched, the PDF's
+   tornado still uses them). Same grid layout (150px label | 1fr bars) and the
+   same BAR/THRESH proportions as before, just drawn as SVG <rect>s. */
+.tnsvg-row {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: var(--space-3);
+  align-items: center;
+  margin-bottom: var(--space-2);
+}
+.tnsvg-label {
+  font-family: var(--f-body);
+  font-size: var(--type-input);
+  color: var(--role-ink);
+  text-align: right;
+  padding-right: var(--space-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tnsvg-bars { width: 100%; height: 26px; display: block; }
+.tnsvg-spine { stroke: var(--border); stroke-width: 2; }
+.tnsvg-bar-neg { fill: #fee2e2; }
+.tnsvg-bar-pos { fill: #d1fae5; }
+.tnsvg-val {
+  font-family: var(--f-body);
+  font-size: var(--type-body);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+/* C1 (Batch C, carried forward): expected structural negatives (sensitivity
+   deltas) read slate/neutral, never alarm-red — same colors as the prior
+   .tn-neg .tn-val / .tn-neg-val overrides this replaces. */
+.tnsvg-val-neg              { fill: var(--role-slate); }
+.tnsvg-val-neg.tnsvg-val-in { fill: #4b5563; }
+.tnsvg-val-pos               { fill: #065f46; }
 
 /* ════ NEW-FEATURE STYLES ════════════════════════════════════════════════════ */
 
@@ -961,7 +1090,10 @@ body { display: flex; flex-direction: column; }
   cursor:pointer; text-align:left; transition:background .12s, color .12s;
 }
 .btn-defaults:hover { background:var(--bg); color:var(--ink); }
-.defaults-note { font-family:var(--f-body); font-size:10px; color:#94a3b8; line-height:1.5; margin-top:5px; }
+/* typography: 45-90ch line length. .defaults-note appears in both the narrow
+   sidebar (already well under 65ch, so this is a no-op there) and the wide
+   results-pane cards (Hedge Analysis), where it actually needs the cap. */
+.defaults-note { font-family:var(--f-body); font-size:10px; color:#94a3b8; line-height:1.5; margin-top:5px; max-width: 65ch; }
 .costs-tab-banner {
   padding:8px 16px 7px; background:#f8fafc; border-bottom:1px solid var(--border);
   font-family:var(--f-body); font-size:10px; color:#94a3b8; line-height:1.5;
@@ -1014,7 +1146,7 @@ body { display: flex; flex-direction: column; }
 .empty-state { text-align:center; padding:48px 24px; }
 .empty-state-title { font-family:var(--f-display); font-size:14px; font-weight:600;
   color:#4b5563; margin:0 0 6px; letter-spacing:0; }
-.empty-state-sub { font-family:var(--f-body); font-size:11px; color:#94a3b8; margin:0; }
+.empty-state-sub { font-family:var(--f-body); font-size:11px; color:#94a3b8; margin:0 auto; max-width: 65ch; }
 
 /* ── C1: Expected negative figures → slate/neutral, not alarm-red ─────────── */
 /* .neg is used for expected structural negatives (hedge cost, sensitivity deltas).
@@ -1025,8 +1157,9 @@ body { display: flex; flex-direction: column; }
 .sens-neg-strong { background: var(--heat-neg-strong); color: #374151; font-weight: 700; }
 /* Subtle separator between lever groups in the sensitivities table (each lever's +/- pair) */
 .sens-group-start td { border-top: 2px solid var(--border); }
-.tn-neg .tn-val { color: #4b5563; }
-.tn-neg-val     { color: #717c89; }
+/* .tn-neg .tn-val / .tn-neg-val (old CSS-bar tornado overrides) removed —
+   Batch G replaced the markup with .tnsvg-val-neg, defined alongside the rest
+   of the .tnsvg-* tornado rules above, same colors. */
 
 /* ── Toast ───────────────────────────────────────────────────────────────── */
 .tis-toast {
@@ -1274,7 +1407,7 @@ ${sec('Partner & Equity', [
     <div id="lc-display" class="sr">${lcPctInit.toFixed(2)}%</div>
   </div>`,
   `<div class="ir">
-    <label class="ir-lbl" for="inp-product-alloc">${pip('')}<span title="Fraction of the partner's principal (their equity stake) returned in-kind as product rather than cash. 100% = full product; 0% = full cash. Does not change the partner's share of the cargo.">Partner principal as product %&nbsp;ⓘ</span></label>
+    <label class="ir-lbl" for="inp-product-alloc">${pip('')}<span title="Fraction of the partner&rsquo;s principal (their equity stake) returned in-kind as product rather than cash. 100% = full product; 0% = full cash. Does not change the partner&rsquo;s share of the cargo.">Partner principal as product %&nbsp;ⓘ</span></label>
     ${ni('inp-product-alloc', pct2(p.productAllocationPct ?? 1), 5, 0)}
   </div>`,
 ].join(''))}
@@ -1358,7 +1491,7 @@ const tabHedge = `
     ${ir('inp-ice-hedged-vol', 'Hedged volume MT', ni('inp-ice-hedged-vol', hg.hedgedVolumeMT != null ? hg.hedgedVolumeMT : '', 100, 0), 'INDICATIVE')}
     <p class="defaults-note">Swap fee and bank spread are absolute <b>$/MT</b> amounts (×&nbsp;hedged tonnes), not a fraction of notional — typically ~$0.5–$2/MT.</p>
     <div id="ice-fee-warn" class="h-unit-warn" hidden></div>
-    <p class="defaults-note">Defaults to TIS-retained tonnes — the fixed-price tonnes sold to clients. Partner principal is repaid at par (= landed cost), so ICE cancels on partner tonnes; only TIS's fixed-price tonnes carry ICE risk. Raise to full cargo only if partner repayment is fixed-VALUE rather than par/landed-cost.</p>
+    <p class="defaults-note">Defaults to TIS-retained tonnes — the fixed-price tonnes sold to clients. Partner principal is repaid at par (= landed cost), so ICE cancels on partner tonnes; only TIS&rsquo;s fixed-price tonnes carry ICE risk. Raise to full cargo only if partner repayment is fixed-VALUE rather than par/landed-cost.</p>
   </div>
 </div>
 <div class="sb-sec">
@@ -1387,15 +1520,15 @@ const tabHedge = `
 
 // ── 7. Sidebar assembly ──────────────────────────────────────────────────────
 const sidebarHtml = `<aside class="sidebar" id="sidebar">
-  <div class="sb-tabs">
-    <button class="tab-btn active" data-tab="deal">Deal</button>
-    <button class="tab-btn" data-tab="costs">Costs</button>
-    <button class="tab-btn" data-tab="hedge">Hedge</button>
+  <div class="sb-tabs" role="tablist" aria-label="Trade input sections">
+    <button class="tab-btn active" data-tab="deal" role="tab" aria-selected="true" aria-controls="tab-deal" id="tabbtn-deal">Deal</button>
+    <button class="tab-btn" data-tab="costs" role="tab" aria-selected="false" aria-controls="tab-costs" id="tabbtn-costs">Costs</button>
+    <button class="tab-btn" data-tab="hedge" role="tab" aria-selected="false" aria-controls="tab-hedge" id="tabbtn-hedge">Hedge</button>
   </div>
   <div class="sb-scroll">
-    <div class="tab-panel active" id="tab-deal">${tabDeal}</div>
-    <div class="tab-panel" id="tab-costs">${tabCosts}</div>
-    <div class="tab-panel" id="tab-hedge">${tabHedge}</div>
+    <div class="tab-panel active" id="tab-deal" role="tabpanel" aria-labelledby="tabbtn-deal">${tabDeal}</div>
+    <div class="tab-panel" id="tab-costs" role="tabpanel" aria-labelledby="tabbtn-costs">${tabCosts}</div>
+    <div class="tab-panel" id="tab-hedge" role="tabpanel" aria-labelledby="tabbtn-hedge">${tabHedge}</div>
   </div>
   <div class="sb-footer">
     <div class="sb-footer-row1">
@@ -1494,16 +1627,31 @@ ${sharedCss}
   ${sidebarHtml}
 
   <!-- ── Results ──────────────────────────────────────────────────────── -->
-  <main class="results" role="main">
-    <div id="rpt-error" class="err-banner" hidden></div>
-    <div id="sec-waterfall"></div>
-    <div id="sec-ladder"></div>
-    <div id="sec-cost"></div>
-    <div id="sec-partner"></div>
-    <div id="sec-hedge"></div>
-    <div id="sec-tax"></div>
-    <div id="sec-sens"></div>
-  </main>
+  <div class="results-col">
+    <!-- Sticky condensed KPI mirror (Batch G): the app header above is a fixed
+         shell element and is always visible regardless of scroll, so this is
+         a visual convenience for a long results scroll, not new information —
+         aria-hidden, the header's own labeled chip is the authoritative figure
+         for assistive tech. Hidden until scrolled past the threshold (JS).
+         Lives OUTSIDE <main class="results"> (a genuine flex sibling, not a
+         position:sticky child of its scroll content) so .results' own box is
+         permanently shorter and its clipped content can never reach this row
+         at any scroll position — see the .results-sticky-kpi CSS comment. -->
+    <div class="results-sticky-kpi" id="results-sticky-kpi" aria-hidden="true">
+      <span class="results-sticky-kpi-label">TIS Net Profit</span>
+      <span class="results-sticky-kpi-val" id="sticky-tisnet-val">—</span>
+    </div>
+    <main class="results" role="main">
+      <div id="rpt-error" class="err-banner" hidden></div>
+      <div id="sec-waterfall"></div>
+      <div id="sec-ladder"></div>
+      <div id="sec-cost"></div>
+      <div id="sec-partner"></div>
+      <div id="sec-hedge"></div>
+      <div id="sec-tax"></div>
+      <div id="sec-sens"></div>
+    </main>
+  </div>
 
 </div>
 
@@ -2223,6 +2371,11 @@ function renderKPIs(res, hasSellPrice) {
     netChip.classList.toggle('kpi-loss',   state === 'loss');
   }
 
+  // Sticky condensed KPI mirror (Batch G) — same #sticky-tisnet-val element
+  // updated in both branches below, right alongside the real #kpi-tisnet-val,
+  // so the two can never show different numbers.
+  const stickyVal = document.getElementById('sticky-tisnet-val');
+
   // P&L KPIs are pending until every leg has a price — show calm placeholders, no fake numbers.
   if (hasSellPrice === false) {
     setNetChip('neutral');
@@ -2233,14 +2386,16 @@ function renderKPIs(res, hasSellPrice) {
     if (ml) ml.textContent = depotActiveKpi ? 'Depot Margin' : 'Ex-Ship Margin';
     if (mv) mv.textContent = '—';
     if (ms) ms.textContent = 'enter leg prices';
+    if (stickyVal) stickyVal.textContent = '—';
     return;
   }
 
   const p   = res.profit;
-  const tisNet = p.tisNetProfit;
+  const tisNet = p.tisNetAfterSurcharge;
   setNetChip(tisNet < 0 ? 'loss' : 'pos');
   if (kv) { kv.textContent = fmtUsd(tisNet); kv.classList.add('kpi-flash'); setTimeout(() => kv.classList.remove('kpi-flash'), 350); }
   if (ks) ks.textContent = res.equityProvider === 'TIS' ? 'self-funded (no partner)' : 'after partner split';
+  if (stickyVal) stickyVal.textContent = fmtUsd(tisNet);
 
   const ann = res.tisAnnualisedReturn;
   if (av) av.textContent = ann != null ? fmtPct(ann) : '—';
@@ -2297,7 +2452,7 @@ function renderWaterfall(res) {
       <div class="wf-arrow">›</div>
       \${box('wf-deduct',    'ALL-IN COST','−',res.cost.allInCost,     'Incl. irrecoverable VAT')}
       <div class="wf-arrow">›</div>
-      \${box(p.tisNetProfit < 0 ? 'wf-net wf-loss' : 'wf-net', 'TIS NET PROFIT','=', p.tisNetProfit,     'Self-funded — no partner')}
+      \${box(p.tisNetAfterSurcharge < 0 ? 'wf-net wf-loss' : 'wf-net', 'TIS NET PROFIT','=', p.tisNetAfterSurcharge,     'Self-funded — no partner')}
     \`;
   } else {
     wfBoxes = \`
@@ -2309,7 +2464,7 @@ function renderWaterfall(res) {
       <div class="wf-arrow">›</div>
       \${box('wf-share',     'PARTNER CASH SHARE','−',p.partnerCashProfitShare, fmtPct(p.profitSharePct)+' of adjusted')}
       <div class="wf-arrow">›</div>
-      \${box(p.tisNetProfit < 0 ? 'wf-net wf-loss' : 'wf-net', 'TIS NET PROFIT','=',    p.tisNetProfit,     fmtPct(1-p.profitSharePct)+' of adjusted')}
+      \${box(p.tisNetAfterSurcharge < 0 ? 'wf-net wf-loss' : 'wf-net', 'TIS NET PROFIT','=',    p.tisNetAfterSurcharge,     fmtPct(1-p.profitSharePct)+' of adjusted')}
     \`;
   }
 
@@ -2318,7 +2473,7 @@ function renderWaterfall(res) {
     : '';
 
   const reconcile = ep === 'TIS'
-    ? \`Revenue − cost = TIS net: <b>\${fmtUsd(res.revenue.combinedUSD)} − \${fmtUsd(res.cost.allInCost)} = \${fmtUsd(p.tisNetProfit)}</b>\`
+    ? \`Revenue − cost = TIS net: <b>\${fmtUsd(res.revenue.combinedUSD)} − \${fmtUsd(res.cost.allInCost)} = \${fmtUsd(p.tisNetAfterSurcharge)}</b>\`
     : \`Reconciliation: marginForegone + adjusted = standalone <b>\${fmtUsd(p.marginForegone)} + \${fmtUsd(p.adjustedProfit)} = \${fmtUsd(p.standaloneProfit)}</b> \${okMark}\`;
 
   return \`<section class="section" aria-labelledby="wf-h">
@@ -2417,7 +2572,7 @@ function renderLadder(trade, res, ladder) {
         <td class="r">\${fmtPct(tier.marginPctOfSell)}</td>
         <td class="r">\${fmtPct(tier.markupPctOnCost)}</td>
         <td class="r">\${fmtUsd(tier.spreadPerMT)}/MT</td>
-        <td class="r \${tier.tisNetProfit >= 0 ? 'pos' : 'loss'}">\${fmtUsd(tier.tisNetProfit)}</td>
+        <td class="r \${tier.tisNetAfterSurcharge >= 0 ? 'pos' : 'loss'}">\${fmtUsd(tier.tisNetAfterSurcharge)}</td>
       </tr>\`;
     }).join('');
     // Label the ex-ship ladder only when a depot ladder is also shown (preserves the
@@ -2445,9 +2600,9 @@ function renderLadder(trade, res, ladder) {
     );
     const depotRows = ladder.depot.tiers.map(tier => {
       const isCur = curDepot != null && isFinite(curDepot) && Math.abs(tier.priceNgnPerL - curDepot) < 0.005;
-      const net = (tier.tisNetProfit == null)
+      const net = (tier.tisNetAfterSurcharge == null)
         ? '<span class="muted">PENDING</span>'
-        : \`<span class="\${tier.tisNetProfit >= 0 ? 'pos' : 'loss'}">\${fmtUsd(tier.tisNetProfit)}</span>\`;
+        : \`<span class="\${tier.tisNetAfterSurcharge >= 0 ? 'pos' : 'loss'}">\${fmtUsd(tier.tisNetAfterSurcharge)}</span>\`;
       return \`<tr class="\${isCur ? 'ladder-current' : ''}">
         <td><b>\${esc(tier.name)}</b></td>
         <td class="r">\${fmtNum(tier.priceNgnPerL, 2)} ₦/L</td>
@@ -2654,7 +2809,7 @@ function renderHedge(trade, res) {
       <div class="h-cmp-row"><span class="h-cmp-lbl">Hedged TIS Net</span><b class="h-cmp-val">\${fmtUsd(comp.hedgedTisNet)}</b></div>
       <div class="h-cmp-row"><span class="h-cmp-lbl">Unhedged TIS Net</span><b class="h-cmp-val">\${fmtUsd(comp.unhedgedTisNet)}</b></div>
       <div class="h-cmp-row"><span class="h-cmp-lbl">Hedge value vs unhedged</span><b class="h-cmp-delta \${dcls}">\${fmtUsdSign(delta)}</b></div>
-      <p class="defaults-note" style="margin-top:6px">Cost or benefit of hedging vs running unhedged, given how the rate actually moved. Negative = the hedge cost its fee/financing because the rate stayed flat or moved in your favour (protection you didn't need to claim). Positive = the hedge paid off because the rate moved against you. The hedge locks your margin both ways — it trades the chance of a windfall for certainty.</p>
+      <p class="defaults-note" style="margin-top:6px">Cost or benefit of hedging vs running unhedged, given how the rate actually moved. Negative = the hedge cost its fee/financing because the rate stayed flat or moved in your favour (protection you didn&rsquo;t need to claim). Positive = the hedge paid off because the rate moved against you. The hedge locks your margin both ways — it trades the chance of a windfall for certainty.</p>
     </div>\`;
   }
 
@@ -2684,7 +2839,7 @@ function renderHedge(trade, res) {
     \${iceRouteRows}
   \`;
   const settlementNote = finalSet
-    ? \`<div class="defaults-note">Realized at settlement ICE <b>\${fmtUsd(effIce)}/MT</b>: the purchase floats to this price (landed cost recomputed) and the swap settles (final − fixed) × hedged tonnes on TIS's retained tonnes only. "Hedge value vs unhedged" below is the realized outcome.</div>\`
+    ? \`<div class="defaults-note">Realized at settlement ICE <b>\${fmtUsd(effIce)}/MT</b>: the purchase floats to this price (landed cost recomputed) and the swap settles (final − fixed) × hedged tonnes on TIS&rsquo;s retained tonnes only. &ldquo;Hedge value vs unhedged&rdquo; below is the realized outcome.</div>\`
     : '';
   const iceDetail = settlementNote + (iceNullFixed
     ? \`<div class="h-lock-warn">⚠ Fixed price not set — hedge prices at live ICE (<b>\${fmtUsd(trade.market.ice.value)}/MT</b>). No lock-in effect. Set a fixed price in the Hedge tab.</div>\`
@@ -2702,7 +2857,7 @@ function renderHedge(trade, res) {
       \${infoRow('FX realized delta', fmtUsdSign(fxh.fxRealizedDeltaUsd || 0) + (fxOn ? '' : ' (OFF)'))}
       \${infoRow('FX hedge cost', fmtUsd(fxh.extraFinancingCost || 0))}
       \${fxh.basis ? infoRow('Basis risk (benchmark vs NAFEM)', fmtNum(fxh.basis.gapNgnPerUsd, 2) + ' ₦/USD residual') : ''}
-      <div class="defaults-note">FX hedge covers the naira needed to repay the bank's USD facility (principal + interest). Naira profit is retained in naira and not hedged.</div>
+      <div class="defaults-note">FX hedge covers the naira needed to repay the bank&rsquo;s USD facility (principal + interest). Naira profit is retained in naira and not hedged.</div>
     \`;
   }
   const fxWarning = (!fxh.noHedgeReason && fxNullFwd)
@@ -2825,35 +2980,57 @@ function pairLeverScenarios(scenarios) {
   return rows;
 }
 
+// One row's diverging bars as a percentage-positioned SVG (no viewBox — x/width
+// resolve against the SVG's own rendered pixel box per spec, exactly like
+// ladderScale's existing CSS left:X% positioning). Deliberately NOT using a
+// viewBox+preserveAspectRatio="none" stretch here: this row is extremely wide
+// and short (often >30:1), and non-uniform viewBox scaling would stretch
+// <text> glyphs along with the bars. Percentage coordinates sidestep that
+// entirely — font-size is a real, undistorted CSS px value.
+function renderTornadoRow(row, maxAbs) {
+  const BAR = 52, THRESH = 13; // unchanged from the prior CSS-bar version
+  const negPct = row.neg ? +(Math.abs(row.neg.deltaVsBase) / maxAbs * BAR).toFixed(1) : 0;
+  const posPct = row.pos ? +(Math.abs(row.pos.deltaVsBase) / maxAbs * BAR).toFixed(1) : 0;
+  const negVal = row.neg ? fmtUsd(row.neg.deltaVsBase) : '';
+  const posVal = row.pos ? (row.pos.deltaVsBase >= 0 ? '+' : '') + fmtUsd(row.pos.deltaVsBase) : '';
+  const negIn  = negPct >= THRESH, posIn = posPct >= THRESH;
+
+  // negPct/posPct are "% of one half" (0..BAR=52), matching the prior CSS
+  // version's width:X% of the 50%-wide .tn-half. Halve again for "% of the
+  // FULL row" since x/width here are percentages of the whole SVG. A small
+  // floor (0.5% of row width) keeps a real-but-tiny delta visible, mirroring
+  // the old .tn-bar{min-width:4px}.
+  const negW = row.neg ? Math.max(negPct / 2, 0.5) : 0;
+  const posW = row.pos ? Math.max(posPct / 2, 0.5) : 0;
+
+  const negRect = row.neg
+    ? \`<g><title>\${esc(row.label + ' (-10%): ' + negVal)}</title><rect class="tnsvg-bar tnsvg-bar-neg" x="\${(50 - negW).toFixed(2)}%" y="15%" width="\${negW.toFixed(2)}%" height="70%" rx="3"></rect></g>\`
+    : '';
+  const posRect = row.pos
+    ? \`<g><title>\${esc(row.label + ' (+10%): ' + posVal)}</title><rect class="tnsvg-bar tnsvg-bar-pos" x="50%" y="15%" width="\${posW.toFixed(2)}%" height="70%" rx="3"></rect></g>\`
+    : '';
+  const negText = row.neg
+    ? \`<text class="tnsvg-val tnsvg-val-neg\${negIn ? ' tnsvg-val-in' : ''}" x="\${(negIn ? 50 - negW + 0.8 : 50 - negW - 0.8).toFixed(2)}%" y="50%" text-anchor="\${negIn ? 'start' : 'end'}" dominant-baseline="middle">\${esc(negVal)}</text>\`
+    : '';
+  const posText = row.pos
+    ? \`<text class="tnsvg-val tnsvg-val-pos\${posIn ? ' tnsvg-val-in' : ''}" x="\${(posIn ? 50 + posW - 0.8 : 50 + posW + 0.8).toFixed(2)}%" y="50%" text-anchor="\${posIn ? 'end' : 'start'}" dominant-baseline="middle">\${esc(posVal)}</text>\`
+    : '';
+
+  const summary = \`\${row.label}: \${row.neg ? negVal + ' at -10%' : 'no -10% scenario'}, \${row.pos ? posVal + ' at +10%' : 'no +10% scenario'}\`;
+  return \`<div class="tnsvg-row">
+    <div class="tnsvg-label">\${esc(row.label)}</div>
+    <svg class="tnsvg-bars" role="img" aria-label="\${esc(summary)}">
+      <line class="tnsvg-spine" x1="50%" y1="0" x2="50%" y2="100%"></line>
+      \${negRect}\${posRect}\${negText}\${posText}
+    </svg>
+  </div>\`;
+}
+
 function renderTornado(sens) {
   const scenarios = sens.scenarios;
   const maxAbs = Math.max(...scenarios.map(s => Math.abs(s.deltaVsBase)), 1);
   const rows = pairLeverScenarios(scenarios);
-
-  const BAR = 52, THRESH = 13;
-  const rowHtml = rows.filter(r => r.impact > 1).map(row => {
-    const negPct = row.neg ? +(Math.abs(row.neg.deltaVsBase) / maxAbs * BAR).toFixed(1) : 0;
-    const posPct = row.pos ? +(Math.abs(row.pos.deltaVsBase) / maxAbs * BAR).toFixed(1) : 0;
-    const negVal = row.neg ? fmtUsd(row.neg.deltaVsBase) : '';
-    const posVal = row.pos ? (row.pos.deltaVsBase >= 0 ? '+' : '') + fmtUsd(row.pos.deltaVsBase) : '';
-    const negIn  = negPct >= THRESH, posIn = posPct >= THRESH;
-    const negBar = row.neg ? \`<div class="tn-bar tn-neg" style="width:\${negPct}%">\${negIn ? \`<span class="tn-val">\${esc(negVal)}</span>\` : ''}</div>\` : '';
-    const posBar = row.pos ? \`<div class="tn-bar tn-pos" style="width:\${posPct}%">\${posIn ? \`<span class="tn-val">\${esc(posVal)}</span>\` : ''}</div>\` : '';
-    return \`<div class="tn-row">
-      <div class="tn-label">\${esc(row.label)}</div>
-      <div class="tn-bars">
-        <div class="tn-half tn-left">
-          \${!negIn && row.neg ? \`<span class="tn-val-out tn-neg-val">\${esc(negVal)}</span>\` : ''}
-          \${negBar}
-        </div>
-        <div class="tn-spine"></div>
-        <div class="tn-half tn-right">
-          \${posBar}
-          \${!posIn && row.pos ? \`<span class="tn-val-out tn-pos-val">\${esc(posVal)}</span>\` : ''}
-        </div>
-      </div>
-    </div>\`;
-  }).join('');
+  const rowHtml = rows.filter(r => r.impact > 1).map(row => renderTornadoRow(row, maxAbs)).join('');
 
   return \`<div class="tn-wrap">
     <div class="tn-axis-labels">
@@ -2967,7 +3144,7 @@ function clearResults() {
     .forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
   [['kpi-tisnet-val','—'],['kpi-annret-val','—'],['kpi-margin-val','—'],
    ['kpi-tisnet-sub','—'],['kpi-annret-sub','—'],['kpi-margin-sub','—'],
-   ['kpi-margin-label','Ex-Ship Margin']]
+   ['kpi-margin-label','Ex-Ship Margin'],['sticky-tisnet-val','—']]
     .forEach(([id,t]) => { const el = document.getElementById(id); if (el) el.textContent = t; });
   // No value → neutral chip (never the green profit box).
   const nv = document.getElementById('kpi-tisnet-val');
@@ -3092,9 +3269,10 @@ document.querySelectorAll('.tgl-wrap').forEach(wrap => {
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     const tabId = 'tab-' + btn.dataset.tab;
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-selected', 'false'); });
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
+    btn.setAttribute('aria-selected', 'true');
     const panel = document.getElementById(tabId);
     if (panel) panel.classList.add('active');
   });
@@ -3791,6 +3969,29 @@ refreshHedgePh();
 refreshHedgeSanity();
 updateHedgedVolPlaceholder();
 updateFinalIcePlaceholder();
+
+// ── Condensed KPI on results scroll (Batch G) ─────────────────────────────
+// The outer app header (with the full KPI triad) is a fixed app-shell element
+// — html/body and .app-body all have overflow:hidden, so only .results
+// scrolls; the header is always visible regardless of scroll position and
+// never "scrolls off-screen" in this layout. This mirror instead gives a
+// persistent reference to the headline TIS Net Profit figure while reviewing
+// a long results scroll (Cost Build-Up -> Partner Deliverables -> Hedge ->
+// Tax -> Sensitivities) without scrolling back up to the still-visible-but-
+// farther-away real header. It lives as a flex sibling of .results (see the
+// .results-sticky-kpi CSS comment for why — not position:sticky over the
+// scroll content, which can't prevent overlap for the full scroll range),
+// so the space is already permanently reserved; this listener only toggles
+// the opacity/transform reveal, no layout measurement needed.
+(function () {
+  var resultsEl = document.querySelector('.results');
+  var stickyEl  = document.getElementById('results-sticky-kpi');
+  if (!resultsEl || !stickyEl) return;
+  var THRESHOLD = 140;
+  resultsEl.addEventListener('scroll', function () {
+    stickyEl.classList.toggle('visible', resultsEl.scrollTop > THRESHOLD);
+  });
+})();
 
 })();
 </script>

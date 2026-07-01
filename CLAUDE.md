@@ -17,6 +17,25 @@ test/           invariants.js — assertion harness (node test/invariants.js)
 Flows are pure compute functions `(trade, opts) -> result`. `run.js` formats; `sensitivities.js`
 re-runs the same pure function under perturbed inputs.
 
+## Worktree setup checklist (do this before trusting suite/fingerprint output)
+
+`trades/*.json` is gitignored (`.gitignore` line 2) except for the `sample-*.json` fixtures, which
+are force-tracked. `reference-trade-001.json` — used by `scripts/fingerprint.js`'s ALL-USD guard and
+by `test/invariants.js`'s LOCAL exact-value guards — is **not** tracked. A fresh `git worktree add`
+gets a clean checkout with none of the untracked/ignored files the main worktree has accumulated, so
+`reference-trade-001.json` (and any other untracked local trade file) silently won't exist there.
+
+**Symptom:** the suite reports fewer passing tests than expected (e.g. 216/220 instead of 220/220,
+missing the 4 LOCAL guards) and/or the fingerprint's ALL-USD guard combined hash comes back different
+from the documented baseline — both look like a real regression but are actually just an incomplete
+fixture set.
+
+**Fix — before running `node test/invariants.js` or `node scripts/fingerprint.js` in any new
+worktree:** confirm `trades/reference-trade-001.json` is present; if not, copy it in from the main
+worktree (`cp /path/to/main-worktree/trades/reference-trade-001.json trades/`) and say explicitly
+that you did this. Only trust suite/fingerprint output after that check — otherwise a missing
+fixture reads as a false regression and burns a session re-diagnosing it from scratch.
+
 ## Input -> derivative dependency graph
 
 **TRUE INPUTS (typed):** ICE $/MT (+asOf, feed hook; optional `market.ice.final` settlement ICE), FOB premium, cargo MT, ±5% seller option,
