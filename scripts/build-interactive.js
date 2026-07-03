@@ -74,6 +74,177 @@ function css() {
   --role-accent:   var(--red);     /* Batch C red — brand accent ONLY, never loss */
 }
 
+/* ════ DESIGN TOKENS (Stage 0) ═══════════════════════════════════
+   A second additive :root layer on top of Batch F, above. Deliberately uses
+   ITS OWN token namespace (--fs-*, --g-*) rather than redeclaring the Batch F
+   --type- / --role- names — this stage re-skins only the app shell (header,
+   sticky KPI strip, sidebar, footer) and the Profit Waterfall as a reference
+   implementation (root CLAUDE.md: "UI is not the priority" but still must be
+   deliberate); other result sections keep reading the Batch F tokens
+   unchanged until their own staged diff repoints them onto this scale.
+   Color roles below alias the EXISTING Batch C/F hex values (canvas==--bg,
+   panel==--white, hairline==--border, etc.) — no new colors invented except
+   the one inverse-ink text color and one neutral elevation shadow the brief
+   calls for explicitly. No gradients, no glow, no colored shadow anywhere. */
+:root {
+  /* Font stacks — --f-mono is new (Plex Mono, CDN-loaded + self-hosted via
+     report-fonts.js's 'TIS Mono' face for the PDF pipeline, not yet wired
+     into report-pdf-renderer.js this stage). --f-display/--f-body are NOT
+     repointed here — reportCss's existing Space Grotesk/IBM Plex Sans values
+     stay exactly as they are; only the report-stage diff moves those. */
+  --f-mono: 'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+
+  /* Type scale (px), named by role. data/value/kpi/display are set to use
+     --f-mono + tabular-nums at their call sites (mono is a font choice, not
+     a size, so it isn't baked into the token name). */
+  --fs-label:   10px;  /* section/field eyebrow labels, uppercase */
+  --fs-caption: 12px;  /* secondary/sub text under a value or heading */
+  --fs-body:    13px;  /* running prose, table cells */
+  --fs-input:   13px;  /* form inputs */
+  --fs-data:    13px;  /* table numerics, mono tabular */
+  --fs-value:   15px;  /* emphasized inline figures */
+  --fs-heading: 16px;  /* card/section headings */
+  --fs-kpi:     24px;  /* header KPI figures */
+  --fs-display: 32px;  /* hero/display figures */
+
+  /* Color roles — aliases onto existing hex values (no new palette this
+     stage), named for their ROLE per the brief rather than their value. */
+  --g-canvas:        var(--bg);      /* #f6f7f8 */
+  --g-panel:         var(--white);   /* #ffffff */
+  --g-chrome-ink:        #242331;    /* == --ink; named for header/rail chrome */
+  --g-chrome-ink-inverse:#f0f1f2;    /* text on --g-chrome-ink surfaces */
+  --g-text-slate:    var(--slate);   /* #717c89 */
+  --g-hairline:      var(--border);  /* rgba(113,124,137,.18) */
+  --g-brand-red:     var(--red);     /* #d41d1d — wayfinding/identity ONLY, never P&L */
+  --g-positive:      var(--role-positive); /* #15803d */
+  --g-loss:          var(--role-loss);     /* #991b1b */
+  --g-caution:       var(--role-caution);  /* #f59e0b */
+  /* One neutral elevation shadow, reserved for overlay/drawer surfaces only
+     — never used for card/KPI/button emphasis (no colored or glow shadows). */
+  --g-shadow-elevation: 0 8px 24px rgba(36,35,49,.14);
+
+  /* Motion — transform/opacity only (enforced at call sites, not by the
+     token system); prefers-reduced-motion override lives in the "Motion"
+     block below, right after the shell+waterfall rules that use these. */
+  --g-duration-fast:    120ms;
+  --g-duration-ui:      160ms;
+  --g-duration-surface: 220ms;  /* 200–240ms range per brief */
+  --g-easing-standard:  cubic-bezier(.2,0,0,1);
+  --g-easing-exit:      cubic-bezier(.4,0,1,1);
+}
+
+/* ── Shared component classes (Stage 0) ───────────────────────────
+   Defined now, proved on the app shell + Profit Waterfall this stage; rolled
+   out to the remaining result sections in a later staged diff (scope note
+   above). Each is additive — none of these class names exist anywhere else
+   in the stylesheet yet, so there is zero collision risk. */
+
+/* section-block: eyebrow/heading + optional right-aligned status badge, atop
+   a card body + optional reconcile/footer strip. Wraps the EXISTING .card
+   markup — it does not require changing .card's own rules, just adding a
+   heading row in front of it with this class. */
+.section-block { display: flex; flex-direction: column; }
+.section-block-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);   /* single controlled heading-to-chart offset */
+}
+.section-block-eyebrow {
+  font-family: var(--f-display);
+  font-size: var(--fs-label);
+  font-weight: 600;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--g-text-slate);
+  padding-left: var(--space-3);
+  border-left: 3px solid var(--g-brand-red);
+}
+.section-block-status { flex-shrink: 0; }
+
+/* data-table: caps header, labels left, numerics right in mono tabular,
+   hairline row separators, totals row set apart by weight + a top hairline
+   (never a filled background — the brief is explicit: "by weight + top
+   hairline not fill"). */
+.data-table { width: 100%; border-collapse: collapse; font-family: var(--f-body); font-size: var(--fs-body); }
+.data-table thead th {
+  font-family: var(--f-display);
+  font-size: var(--fs-label);
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--g-text-slate);
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--g-hairline);
+}
+.data-table thead th.num { text-align: right; }
+.data-table tbody td { padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--g-hairline); color: var(--g-chrome-ink); }
+.data-table tbody tr:last-child td { border-bottom: none; }
+.data-table tbody td.num {
+  text-align: right;
+  font-family: var(--f-mono);
+  font-size: var(--fs-data);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.data-table tbody tr.total td { font-weight: 600; border-top: 1px solid var(--g-hairline); border-bottom: none; background: none; }
+
+/* kpi-atom: label eyebrow + mono figure + optional delta/sub — the single
+   reusable KPI shape, used by both the header strip and the sticky mirror. */
+.kpi-atom { display: flex; flex-direction: column; gap: 2px; }
+.kpi-atom-label {
+  font-family: var(--f-display);
+  font-size: var(--fs-label);
+  font-weight: 600;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--g-text-slate);
+}
+.kpi-atom-figure {
+  font-family: var(--f-mono);
+  font-size: var(--fs-kpi);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--g-chrome-ink);
+  line-height: 1.1;
+}
+.kpi-atom-sub { font-family: var(--f-body); font-size: var(--fs-caption); color: var(--g-text-slate); }
+
+/* chart-frame: shared padding + guide hairlines for the waterfall now, and
+   future charts later. Intentionally does NOT touch .wfsvg-wrap's existing
+   rule — see the waterfall-specific spacing fix below, which folds label
+   headroom into the SVG viewBox instead of DOM padding. */
+.chart-frame { padding: 0 var(--space-4) var(--space-2); }
+.chart-frame-guide { stroke: var(--g-hairline); stroke-width: 1; }
+
+/* field-row grammar: label eyebrow + input + status pip + unit, on one row.
+   Reference definition only this stage — not yet applied to the Deal/Costs/
+   Hedge tab fields (that's the field-editor's own staged diff); the .ir/.si/
+   .pip classes those tabs use today are untouched. */
+.field-row { display: flex; flex-direction: column; gap: 3px; }
+.field-row-top { display: flex; align-items: center; gap: 6px; }
+.field-row-label {
+  font-family: var(--f-body);
+  font-size: var(--fs-label);
+  color: var(--g-text-slate);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.field-row-unit { font-family: var(--f-body); font-size: var(--fs-caption); color: var(--g-text-slate); }
+
+/* Motion: transform/opacity only, per Batch G tokens above. Honors
+   prefers-reduced-motion by collapsing all durations to near-zero — this is
+   additive (does not remove any existing transition property), matching the
+   pattern already used for .results-sticky-kpi below. */
+@media (prefers-reduced-motion: reduce) {
+  .section-block, .kpi-atom, .chart-frame, .field-row,
+  .section-block *, .kpi-atom *, .chart-frame *, .field-row * {
+    transition-duration: .01ms !important;
+    animation-duration: .01ms !important;
+  }
+}
+
 /* ════ INTERACTIVE: full-viewport sidebar layout ══════════════════════════ */
 html, body { height: 100%; overflow: hidden; }
 body { display: flex; flex-direction: column; }
@@ -1246,6 +1417,95 @@ body { font-feature-settings: "kern" 1, "liga" 1; text-rendering: optimizeLegibi
 .ladder-compare { margin:14px 20px 0; padding:10px 13px; background:#f8fafc; border:1px solid var(--border); border-radius:7px; font-family:var(--f-body); font-size:12px; color:var(--ink); line-height:1.5; }
 .ladder-compare b { font-family:var(--f-display); }
 .ladder-compare .lc-rationale { color:var(--slate); font-size:11px; }
+
+/* ════════════════════════════════════════════════════════════════════════
+   STAGE 0 FOUNDATION — app shell + Profit Waterfall reference implementation
+   Applies the Stage 0 tokens/component classes above to: header, sticky KPI
+   strip, left rail (sidebar), footer, and the Profit Waterfall. Placed last
+   in the stylesheet so it wins the cascade over the earlier reportCss/Batch F/
+   Batch C rules it re-skins (equal-or-lower specificity, later source order).
+   No engine output, data binding, or JS logic is touched by anything below —
+   CSS + one markup-free spacing fix only. ═══════════════════════════════ */
+
+/* ── App header: canvas/chrome roles + raised type floor ─────────────────── */
+.report-header { background: var(--g-chrome-ink); }
+.trade-name { font-family: var(--f-display); font-size: var(--fs-heading); font-weight: 600; color: var(--g-chrome-ink-inverse); }
+.trade-id { font-family: var(--f-body); font-size: var(--fs-caption); }
+.header-meta-inner { font-family: var(--f-body); font-size: var(--fs-caption); }
+.kpi-chip { background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.12); }
+.kpi-label { font-family: var(--f-display); font-size: var(--fs-label); }
+.kpi-value {
+  font-family: var(--f-mono);
+  font-size: var(--fs-kpi);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.kpi-sub { font-family: var(--f-body); font-size: var(--fs-caption); }
+/* KPI chip flash now rides the Stage 0 motion tokens (opacity-only, unchanged
+   visual) instead of the old hardcoded .3s ease-out — same effect, named
+   duration/easing so future chips inherit the same rhythm automatically. */
+.kpi-flash { animation: kpi-flash var(--g-duration-surface) var(--g-easing-standard); }
+
+/* ── Sticky condensed KPI mirror: same raised floor + mono figure ─────────── */
+.results-sticky-kpi-label { font-size: var(--fs-label); }
+.results-sticky-kpi-val {
+  font-family: var(--f-mono);
+  font-size: var(--fs-kpi);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.results-sticky-kpi {
+  transition: opacity var(--g-duration-surface) var(--g-easing-standard),
+              transform var(--g-duration-surface) var(--g-easing-standard);
+}
+
+/* ── Left rail (sidebar): raised type floor off 9/11px ────────────────────
+   .ir/.si/.ss/.sr keep their existing box model (padding/border/radius) —
+   only font-size moves onto the Stage 0 scale, so field-row heights shift by
+   a px or two at most, no layout rewrite. */
+.tab-btn { font-size: var(--fs-label); }
+.sb-sec-title { font-size: var(--fs-label); }
+.tier-div-lbl { font-size: var(--fs-label); }
+.disc-btn { font-size: var(--fs-label); }
+.ir-lbl { font-size: var(--fs-caption); }
+.si, .ss, .sr { font-size: var(--fs-input); }
+.si { font-variant-numeric: tabular-nums lining-nums; }
+.lib-select { font-size: var(--fs-caption); }
+
+/* ── Footer: raised type floor + visible keyboard focus on all footer
+   controls (New/Save/Save As/library dropdown/rename/delete/report) — none
+   of these had an explicit :focus-visible ring before; browser default
+   outline was the only cue. Ring uses the chrome-ink role, 2px offset,
+   consistent with .si:focus's existing box-shadow ring language. ────────── */
+.btn-new, .btn-save, .btn-saveas, .btn-lib, .btn-export, .btn-report, .lib-select {
+  font-size: var(--fs-caption);
+}
+.btn-new:focus-visible, .btn-save:focus-visible, .btn-saveas:focus-visible,
+.btn-lib:focus-visible, .btn-export:focus-visible, .btn-report:focus-visible,
+.lib-select:focus-visible, .tab-btn:focus-visible {
+  outline: 2px solid var(--g-chrome-ink);
+  outline-offset: 2px;
+}
+
+/* ── Profit Waterfall: single controlled heading-to-chart offset ──────────
+   BEFORE: #wf-h's .section-heading margin-bottom (14px) + .wfsvg-wrap's own
+   top padding (20px) stacked as two separate DOM gaps, on top of the SVG's
+   already-generous internal padTop (chart geometry, unchanged) — the visible
+   gap above the first bar was the SUM of three independent numbers nobody
+   was reading as one rhythm unit. AFTER: the heading's margin-bottom is
+   zeroed (ID selector beats the shared .section-heading class, no !important
+   needed) and .wfsvg-wrap's top padding becomes the SOLE offset, set to one
+   named spacing token — a single number controls the whole gap. The SVG's
+   own padTop=36 (of a 220-unit viewBox) already contains enough headroom for
+   the highest bar's value label without ever going negative (verified: the
+   tallest bar's top is always exactly at padTop, by construction of
+   buildWaterfallSteps' domain), so no viewBox/geometry change was needed —
+   this is framing only, per scope; bar geometry, computed values, and the
+   terminal-bar-only fill are byte-for-byte unchanged. */
+#wf-h { margin-bottom: 0; }
+#wf-h + .card .wfsvg-wrap { padding: var(--space-5) var(--space-4) var(--space-1); }
+.wfsvg-value { font-family: var(--f-mono); }
+.wfsvg-collabel-name { font-size: var(--fs-label); }
+.wfsvg-collabel-sub { font-size: var(--fs-caption); }
 `;
 }
 
@@ -1588,7 +1848,7 @@ const html = `<!DOCTYPE html>
 <link rel="icon" type="image/svg+xml" href="${faviconDataUri}">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 ${sharedCss}
 </style>
