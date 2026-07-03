@@ -435,9 +435,15 @@ function exportCsv(res, outDir) {
   rows.push(['profit', '', 'Adjusted profit', res.profit.adjustedProfit, 'USD', '']);
   rows.push(['profit', '', 'Partner cash profit share', res.profit.partnerCashProfitShare, 'USD', '']);
   rows.push(['profit', '', 'TIS net profit', res.profit.tisNetProfit, 'USD', '']);
-  rows.push(['partner', '', 'Product received (MT)', res.partnerDelivers.productReceived.tonnes, 'MT', '']);
-  rows.push(['partner', '', 'Product value', res.partnerDelivers.productReceived.valuedAtLandedCost, 'USD', '']);
-  rows.push(['partner', '', 'Cash profit share', res.partnerDelivers.cashReceived.profitShare, 'USD', '']);
+  // partnerDelivers.productReceived is TIS-self-funded-absent (no partner => no in-kind product) and
+  // its value field is named differently per flow: equity-partner.js -> valuedAtLandedCost,
+  // trade.js -> valuedAtExShipLandedCost (same fallback pattern as report-renderer.js's headerSection).
+  const pd = res.partnerDelivers || {};
+  const pr = pd.productReceived;
+  const cr = pd.cashReceived;
+  rows.push(['partner', '', 'Product received (MT)', pr ? pr.tonnes : 'N/A', pr ? 'MT' : '', '']);
+  rows.push(['partner', '', 'Product value', pr ? (pr.valuedAtExShipLandedCost ?? pr.valuedAtLandedCost) : 'N/A', pr ? 'USD' : '', '']);
+  rows.push(['partner', '', 'Cash profit share', cr ? cr.profitShare : 'N/A', cr ? 'USD' : '', '']);
 
   const csv = rows.map((r) => r.map((c) => (typeof c === 'string' && c.includes(',') ? `"${c}"` : c)).join(',')).join('\n');
   const file = path.join(outDir, `${res.meta.tradeId}.csv`);

@@ -6,6 +6,7 @@
 // Run: node test/verify-report-equivalence.js
 
 const path = require('path');
+const fs = require('fs');
 const { computeTrade }         = require('../engine/flows/trade');
 const { computeEquityPartner } = require('../engine/flows/equity-partner');
 const { runSensitivities }     = require('../engine/core/sensitivities');
@@ -78,12 +79,19 @@ function cloneNumbers(obj, path_ = '') {
 }
 
 function checkNoMutation(label, before, after) {
+  let mismatches = 0;
   for (const k of Object.keys(before)) {
     if (before[k] !== after[k]) {
+      mismatches++;
       assert(`${label}: res not mutated at ${k}`, false, `was ${before[k]}, now ${after[k]}`);
     }
   }
-  assert(`${label}: res not mutated`, true);
+  // Was previously a hardcoded assert(..., true) — always passed regardless of the loop above, so it
+  // asserted nothing of its own. Now derives from the actual per-key scan result: it can only pass if
+  // Object.keys(before) was genuinely non-empty AND every key matched (protects against the vacuous
+  // case of an empty snapshot silently "succeeding" too).
+  assert(`${label}: res not mutated (0 of ${Object.keys(before).length} snapshotted fields changed)`,
+    mismatches === 0 && Object.keys(before).length > 0);
 }
 
 // ── Core equivalence runner ────────────────────────────────────────────────────
@@ -129,10 +137,16 @@ function verifyTrade(tradeId, computeFn, hasSellPrice = true) {
     assert('No-sell-price: renderer did not crash (html > 10kB)', htmlPlaceholder.length > 10000);
     // No undefined/NaN from null price propagating
     assert('No-sell-price: no "undefined" in HTML', !htmlPlaceholder.includes('>undefined<'));
-    assert('No-sell-price: no "$NaN" in HTML', !htmlPlaceholder.includes('$NaN'));
-    // Download Report button gating: report is NOT available without a sell price
-    // (verified by code review: _lastRes set only when hasSellPrice is true, line 2964 build-interactive.js)
-    assert('No-sell-price: download button gated — _lastRes only set on full-price compute', true);
+    // Blanket substring check (see the priced-trade block below for why "$NaN" alone misses ₦NaN).
+    assert('No-sell-price: no "NaN" in HTML (blanket substring)', !htmlPlaceholder.includes('NaN'));
+    // Download Report button gating: report is NOT available without a sell price. This was previously
+    // asserted as a hardcoded `true` (a claim from a one-time code review, not a runtime check — it
+    // would "pass" even if the gating were later removed from build-interactive.js). Actually re-grep
+    // the source for the gating pattern every run, so a regression there fails this suite instead of
+    // silently drifting from the code.
+    const buildInteractiveSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'build-interactive.js'), 'utf8');
+    assert('No-sell-price: download button gated — _lastRes only set on full-price compute (re-verified against source, not hardcoded)',
+      /if\s*\(hasSellPrice\)\s*\{[^}]*_lastRes\s*=\s*res/.test(buildInteractiveSrc));
     console.log('  (no-sell-price spot-check complete)');
     return;
   }
@@ -213,6 +227,24 @@ function verifyTrade(tradeId, computeFn, hasSellPrice = true) {
   // ── Depot ladder ────────────────────────────────────────────────────────────
   if (ladder.depot && ladder.depot.applicable && ladder.depot.tiers && ladder.depot.tiers.length) {
     assert('Depot ladder: costBaseNgnPerL in HTML', ladder.depot.costBaseNgnPerL != null && html.includes(ladder.depot.costBaseNgnPerL.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})));
+
+    // ── Depot ladder labeling/reconciliation fix: margin/markup column must carry an INDICATIVE
+    // tag (parallel-basis, not reconciled to P&L) and the parallel-vs-NAFEM reconciliation delta must
+    // be present and non-empty whenever the trade's parallel rate differs from NAFEM. TIS Net (the
+    // engine's settlement figure) must stay untouched by this labeling change.
+    const parallelRate = ladder.depot.fxUsed;
+    const nafemRate = ladder.depot.nafemUsed;
+    if (parallelRate != null && nafemRate != null && parallelRate !== nafemRate) {
+      assert('Depot ladder: margin/markup column carries an INDICATIVE badge (parallel-vs-NAFEM ≠)',
+        html.includes('bdg-indicative') && html.includes('Indicative'));
+      const firstTier = ladder.depot.tiers[0];
+      assert('Depot ladder: per-tier reconciliation object present with a non-zero delta',
+        !!firstTier.reconciliation && firstTier.reconciliation.deltaUsdPerMT != null && firstTier.reconciliation.deltaUsdPerMT !== 0);
+      assert('Depot ladder: reconciliation delta column header present in HTML',
+        html.includes('&#8596;NAFEM') || html.includes('↔NAFEM'));
+      assert('Depot ladder: TIS Net (settlement) still present — no engine number displaced by labeling',
+        firstTier.tisNetProfit != null && html.includes(fmtUsd(firstTier.tisNetProfit)));
+    }
   }
 
   // ── Status badge taxonomy spot-check ───────────────────────────────────────
@@ -235,7 +267,12 @@ function verifyTrade(tradeId, computeFn, hasSellPrice = true) {
 
   // ── No undefined / NaN / [object Object] in output ────────────────────────
   assert('No "undefined" in HTML', !html.includes('>undefined<') && !html.includes('">undefined"'));
-  assert('No "NaN" in HTML', !html.includes('>NaN<') && !html.includes('$NaN') && !html.includes('NaN%'));
+  // Blanket substring check, not an enumerated ">NaN<"/"$NaN"/"NaN%" list: the enumerated list missed
+  // this codebase's own NGN formatter (fmtNgn / fmt.ngn), which prefixes "₦" (never "$"), so a leaked
+  // NaN there would render as "₦NaN" and slip past every one of the three old patterns undetected.
+  // "NaN" does not otherwise appear anywhere in the renderer's static labels/copy (verified by grep),
+  // so a blanket substring check has no false-positive risk here.
+  assert('No "NaN" in HTML (blanket substring — catches ₦NaN, bare NaN, and any other leak, not just $/%)', !html.includes('NaN'));
   assert('No "[object Object]" in HTML', !html.includes('[object Object]'));
 
   console.log(`  trade fields checked: tisNet=${fmtUsd(tisNet)}, landed=${fmtUsd(landed)}, annRet=${annRet != null ? fmtPct(annRet) : 'n/a'}, equityProvider=${equityProvider}`);

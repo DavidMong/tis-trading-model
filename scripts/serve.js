@@ -39,12 +39,20 @@ const MIME = {
 };
 
 // ─── Warm Chromium (reused across PDF requests) ───────────────────────────────
+// _launching serializes concurrent callers onto a single in-flight launch promise —
+// without it, two near-simultaneous requests can each see _browser as null/disconnected
+// and each call chromium.launch(), orphaning the second instance (never closed, not even
+// on SIGINT/SIGTERM, since only the last-assigned _browser reference gets tracked).
 let _browser = null;
+let _launching = null;
 async function getBrowser() {
   if (_browser && _browser.isConnected()) return _browser;
+  if (_launching) return _launching;
   const { chromium } = require('playwright');
-  _browser = await chromium.launch();
-  return _browser;
+  _launching = chromium.launch()
+    .then((b) => { _browser = b; _launching = null; return b; })
+    .catch((err) => { _launching = null; throw err; });
+  return _launching;
 }
 
 // ─── Static file serving (out/) ───────────────────────────────────────────────
@@ -118,5 +126,14 @@ server.listen(PORT, () => {
   console.log(`Report endpoint: POST http://localhost:${PORT}/api/report.pdf`);
 });
 
-process.on('SIGINT',  () => { if (_browser) _browser.close().catch(() => {}); process.exit(0); });
-process.on('SIGTERM', () => { if (_browser) _browser.close().catch(() => {}); process.exit(0); });
+// Await any in-flight launch before closing, so a shutdown signal arriving mid-launch doesn't
+// orphan the Chromium process it was about to track.
+async function shutdown() {
+  try {
+    const browser = _browser || (_launching ? await _launching : null);
+    if (browser) await browser.close();
+  } catch { /* best-effort close on shutdown */ }
+  process.exit(0);
+}
+process.on('SIGINT',  shutdown);
+process.on('SIGTERM', shutdown);

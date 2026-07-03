@@ -133,6 +133,7 @@ function buildExShipLadder(trade, compute, baseResult) {
       markupPctOnCost: round(spreadPerMT / exShipLandedPerMT, 6), // metric 2
       spreadNgnPerL: fx != null ? round((spreadPerMT * fx) / conv.litresPerMT, 4) : null, // common-currency
       tisNetProfit: r.profit.tisNetProfit, // from engine
+      tisNetAfterSurcharge: r.profit.tisNetAfterSurcharge, // from engine
       adjustedProfit: r.profit.adjustedProfit, // from engine
     };
   });
@@ -190,6 +191,9 @@ function buildDepotLadder(trade, compute, baseResult) {
   const tiers = (trade.pricing && trade.pricing.depotTiers) || DEFAULT_DEPOT_TIERS;
   const conv = { ...DEFAULT_CONVERSION, ...((trade.pricing && trade.pricing.conversion) || {}) };
   const { depotLandedPerMT } = costBases(baseResult);
+  // PARALLEL legitimately drives depot TIER PRICING (market-quoting mechanism) — unchanged. The engine's
+  // actual depot P&L (tisNetProfit etc., from compute() below) settles naira at NAFEM (RULE 1, revenue.js).
+  // NAFEM is resolved here ONLY to reconcile the two bases for display — it never feeds the tier price.
   const fx = resolveFx(trade, conv.fxMarketForDepot);
   if (!(typeof fx === 'number' && Number.isFinite(fx) && fx > 0)) {
     throw new Error(`Invalid depot FX rate ('${conv.fxMarketForDepot}'): must be > 0, got ${fx}`);
@@ -197,6 +201,7 @@ function buildDepotLadder(trade, compute, baseResult) {
   if (!(typeof conv.litresPerMT === 'number' && Number.isFinite(conv.litresPerMT) && conv.litresPerMT > 0)) {
     throw new Error(`Invalid pricing.conversion.litresPerMT: must be > 0, got ${conv.litresPerMT}`);
   }
+  const nafem = resolveFx(trade, 'nafem');
   const depotLandedNgnPerL = (depotLandedPerMT * fx) / conv.litresPerMT;
 
   // P&L per tier runs the verified engine at the tier's NGN/L price (when the unified flow exposes
@@ -205,8 +210,16 @@ function buildDepotLadder(trade, compute, baseResult) {
 
   const rows = tiers.map((t) => {
     const priceNgnPerL = depotLandedNgnPerL + t.spreadNgnPerL;
-    const priceUsdPerMT = (priceNgnPerL * conv.litresPerMT) / fx;
+    const priceUsdPerMT = (priceNgnPerL * conv.litresPerMT) / fx; // PARALLEL-basis conversion — matches the tier pricing basis, INDICATIVE
+    // Reconciliation only (never fed back into the tier price or the engine run below): the
+    // settlement-consistent USD/MT if this SAME ₦/L price were converted at NAFEM instead — the rate
+    // the engine's depot P&L actually uses (RULE 1, revenue.js). Explains the parallel-vs-NAFEM gap so
+    // the margin/markup column and the P&L column read as two reconciled bases, not a contradiction.
+    const priceUsdPerMTAtNafem = (typeof nafem === 'number' && Number.isFinite(nafem) && nafem > 0)
+      ? round((priceNgnPerL * conv.litresPerMT) / nafem, 2)
+      : null;
     let tisNetProfit = null;
+    let tisNetAfterSurcharge = null;
     let adjustedProfit = null;
     let pnlStatus = 'PENDING (no depot channel in this trade)';
     if (depotFlowLive) {
@@ -219,6 +232,7 @@ function buildDepotLadder(trade, compute, baseResult) {
       }
       const r = compute(tt);
       tisNetProfit = r.profit.tisNetProfit;
+      tisNetAfterSurcharge = r.profit.tisNetAfterSurcharge;
       adjustedProfit = r.profit.adjustedProfit;
       pnlStatus = 'engine';
     }
@@ -227,11 +241,27 @@ function buildDepotLadder(trade, compute, baseResult) {
       spreadNgnPerL: t.spreadNgnPerL, // metric 3 (absolute, headline)
       priceNgnPerL: round(priceNgnPerL, 4),
       priceUsdPerMT: round(priceUsdPerMT, 2),
-      marginPctOfSell: round(t.spreadNgnPerL / priceNgnPerL, 6), // metric 1 (reference)
-      markupPctOnCost: round(t.spreadNgnPerL / depotLandedNgnPerL, 6), // metric 2
+      marginPctOfSell: round(t.spreadNgnPerL / priceNgnPerL, 6), // metric 1 (reference) — tier-pricing FX basis
+      markupPctOnCost: round(t.spreadNgnPerL / depotLandedNgnPerL, 6), // metric 2 — tier-pricing FX basis
+      marginBasis: conv.fxMarketForDepot, // display only: DERIVED from the trade's actual pricing basis (config-driven, default 'parallel' — never hardcoded, since it's an overridable input)
+      marginStatus: 'INDICATIVE', // status-flag taxonomy — reasonable estimate, NOT reconciled to P&L
       tisNetProfit,
+      tisNetAfterSurcharge,
       adjustedProfit,
+      pnlBasis: 'nafem', // depot P&L is UNCONDITIONALLY NAFEM-settled (RULE 1, revenue.js) regardless of the ladder's pricing basis config — this literal is structurally guaranteed, not a live variable
       pnlStatus,
+      // Explicit reconciliation: the two margin figures are two bases, not a contradiction.
+      reconciliation: {
+        tierBasis: conv.fxMarketForDepot,
+        tierBasisRate: fx,
+        nafemRate: nafem,
+        priceUsdPerMTAtNafem,
+        deltaUsdPerMT: priceUsdPerMTAtNafem != null ? round(priceUsdPerMT - priceUsdPerMTAtNafem, 2) : null,
+        fxSpreadPct: (typeof nafem === 'number' && nafem > 0) ? round((fx - nafem) / nafem, 6) : null,
+        note: conv.fxMarketForDepot === 'nafem'
+          ? 'Margin/markup and TIS Net are both priced at NAFEM (RULE 1) in this trade\'s configuration — no reconciliation gap.'
+          : `Margin/markup are priced at the ${String(conv.fxMarketForDepot).toUpperCase()} rate (market-quoting basis) — INDICATIVE, not contractual. TIS Net settles at NAFEM (RULE 1). The delta reflects the ${conv.fxMarketForDepot}-vs-NAFEM FX spread, not a P&L error.`,
+      },
     };
   });
 
@@ -242,6 +272,8 @@ function buildDepotLadder(trade, compute, baseResult) {
     costBasePerMT: round(depotLandedPerMT, 4),
     costBaseNgnPerL: round(depotLandedNgnPerL, 4),
     fxUsed: fx,
+    fxBasis: conv.fxMarketForDepot, // DERIVED label for fxUsed — never hardcoded, since fxMarketForDepot is a per-trade config input
+    nafemUsed: nafem,
     litresPerMT: conv.litresPerMT,
     tiers: rows,
   };

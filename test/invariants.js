@@ -64,8 +64,16 @@ check('partner cash + TIS net = adjusted profit',
 check('TIS net = (1 - share) x adjusted',
   approx(r.profit.tisNetProfit, (1 - r.profit.profitSharePct) * r.profit.adjustedProfit));
 
-// 6. Partner principal tie-out
-check('partner principal tie: product + cash = principal owed', r.partnerDelivers.principalTie.ok);
+// 6. Partner principal tie-out. The old `r.partnerDelivers.principalTie.ok` flag is TAUTOLOGICAL:
+// engine/flows/equity-partner.js computes `principalAsCash = partnerPrincipal - principalAsProduct`
+// (a residual, by definition) and `.ok` just re-checks that residual identity on the SAME local
+// variables — it is algebraically guaranteed true and can never catch a bug (e.g. a funding-ratio
+// bug that miscomputes partnerPrincipal itself would leave the residual identity intact, since the
+// residual re-derives from whatever partnerPrincipal turns out to be). Ground it instead in the
+// 25% equity ratio computed from RAW cargo value (same independent method as the funding-stack
+// check above), which WOULD catch that class of bug.
+check('partner principal (product+cash delivered) = 25% of cargo value (independently grounded — NOT the definitional principalAsProduct+principalAsCash identity, which is tautological by construction)',
+  approx(r.partnerDelivers.principalTie.returnedProductValue + r.partnerDelivers.principalTie.returnedCash, 0.25 * r.cargoValue, 1));
 
 // 7. profitSharePct reflow — sum is invariant to the split
 for (const s of [0, 0.35, 0.5, 1]) {
@@ -183,6 +191,17 @@ check('#4 interest ratio matches 365/360', approx(ci360 / ci365, 365 / 360, 1e-4
 const dNoBasis = clone(trade); delete dNoBasis.financing.dayCountBasis;
 check('#4 missing dayCountBasis defaults to 365', computeEquityPartner(dNoBasis).financing.dayCountBasis === 365);
 
+// #5 — round() correctness at REAL financial magnitude, not just near 1. A fixed +Number.EPSILON
+// nudge only corrects fp representation drift for values near magnitude 1; at real magnitudes
+// (thousands+, where this codebase's dollar amounts actually live) it's a no-op, so exact .xx5
+// boundaries can round the WRONG way (down instead of half-up). $10,000.005 is a representative
+// cost-line-sized value that exhibited this with the old +Number.EPSILON approach.
+const { round: roundFn } = require('../engine/core/rounding');
+check('#5 round() half-up boundary correct at thousands magnitude', roundFn(10000.005, 2) === 10000.01);
+check('#5 round() half-up boundary correct at hundreds magnitude', roundFn(2.135, 2) === 2.14);
+check('#5 round() half-up boundary correct at tens-of-thousands, 4dp', roundFn(12345.67895, 4) === 12345.679);
+check('#5 round() stays neutral (not TIS-favor-biased): tie-break direction unchanged for negatives (Math.round rounds ties toward +Infinity, same as before the fix)', roundFn(-2.135, 2) === -2.13);
+
 // #6 — pricing-ladder tier bounds (buildExShipLadder is in scope from the #12 block above)
 const baseR = computeEquityPartner(trade);
 const badTier = (m) => ({ ...trade, pricing: { ...trade.pricing, exShipTiers: [{ name: 'Bad', marginOfSell: m }] } });
@@ -195,6 +214,19 @@ const rOver = computeEquityPartner({ ...trade, hedge: { ...trade.hedge, hedgedVo
 check('#7 over-hedge flagged as overHedgeTonnes', rOver.hedge.overHedgeTonnes > 0);
 check('#7 over-hedge comparison stays apples-to-apples (delta ~0 at fixed=live)', Math.abs(rOver.hedge.iceCostDelta) < 1);
 check('#7 effective ICE priced on retained basis, not hedged volume', approx(rOver.hedge.effectiveIceCost, rOver.hedge.comparisonBasisTonnes * rOver.hedge.liveIce, 1));
+
+// #7b — buildHedge() must not throw a raw TypeError when trade.hedge is absent entirely (hedging is
+// documented optional/default-off). Missing trade.hedge must mirror the SAME output shape as an explicit
+// iceHedged:false hedge config (default bank_book route, zero fees, fixedPrice = live ICE), not a new shape.
+const dNoHedge = clone(trade); delete dNoHedge.hedge;
+const rNoHedgeKey = computeEquityPartner(dNoHedge);
+const rHedgeOff = computeEquityPartner({ ...trade, hedge: { ...trade.hedge, iceHedged: false } });
+check('#7b missing trade.hedge does not throw', typeof rNoHedgeKey.hedge === 'object' && rNoHedgeKey.hedge !== null);
+check('#7b missing trade.hedge defaults route to bank_book (mirrors configured-off shape)', rNoHedgeKey.hedge.route === 'bank_book');
+check('#7b missing trade.hedge -> zero swap fee, zero extra financing cost', rNoHedgeKey.hedge.swapFee === 0 && rNoHedgeKey.hedge.extraFinancingCost === 0);
+check('#7b missing trade.hedge -> fixedPrice falls back to live ICE (unhedged)', rNoHedgeKey.hedge.fixedPrice === rNoHedgeKey.hedge.liveIce);
+check('#7b missing trade.hedge -> TIS net profit identical to iceHedged:false with hedge present', approx(rNoHedgeKey.profit.tisNetProfit, rHedgeOff.profit.tisNetProfit));
+check('#7b missing trade.hedge -> same output keys as configured-off hedge result', JSON.stringify(Object.keys(rNoHedgeKey.hedge).sort()) === JSON.stringify(Object.keys(rHedgeOff.hedge).sort()));
 
 // ============================================================================================
 // FX engine + depot channel (unified computeTrade flow)
@@ -248,7 +280,12 @@ const stBumped = stUsd(computeTrade({ ...depotOnly, fx: { ...depotOnly.fx, nafem
 check('FX6 naira depot costs FX-exposed (weaker NAFEM -> lower USD cost)', stBase > 0 && stBumped < stBase);
 
 // FX7 — depot reconciliations tie; depot-only TIS-funded => standalone = adjusted = TIS net.
-check('FX7 depot reconciliation ties', dBase.profit.reconciliation.ok === true);
+// `reconciliation.ok` alone is TAUTOLOGICAL (trade.js computes adjustedProfit = standaloneProfit -
+// marginForegone, so "marginForegone + adjusted = standalone" is guaranteed by construction and can
+// never be false — see the #6 fix above for the same pattern). Ground it in an independent recompute
+// of standalone from revenue/cost (fields NOT part of the reconciliation identity's own defining chain).
+check('FX7 depot standalone genuinely = revenue − cost (independent recompute, not just reconciliation.ok)',
+  approx(dBase.profit.standaloneProfit, dBase.revenue.combinedUSD - dBase.cost.allInCost, 1));
 check('FX7 TIS self-funded: standalone = adjusted = TIS net',
   approx(dBase.profit.standaloneProfit, dBase.profit.tisNetProfit, 0.01) && approx(dBase.profit.adjustedProfit, dBase.profit.tisNetProfit, 0.01));
 check('FX7 TIS self-funded: partner tonnes = 0', dBase.quantities.economic.partnerTonnes === 0);
@@ -304,11 +341,49 @@ const tuReceived = tuPaperValue + tuPd.cashReceived.settlementTrueUp
   + tuPd.cashReceived.principalCashPortion + tuPd.cashReceived.profitShare;
 check('FX-TRUEUP partner receives full economic entitlement (paper product + true-up + profit = par + profit)',
   approx(tuReceived, tuEntitlement, 0.02));
-// principalTie now verifies the REAL settlement identity (paper product + true-up + cash = principal owed),
-// not the tautological principalAsProduct + cash = principal.
-check('FX-TRUEUP principalTie verifies real identity (paper product + true-up + cash = principal)',
-  tuPd.principalTie.ok
-  && approx(tuPd.principalTie.returnedProductValue + tuPd.principalTie.returnedCash, both.financing.partnerFunding, 0.02));
+// NOTE (corrected from the original comment here): `tuPd.principalTie.ok` itself is ALSO tautological
+// by the same argument as equity-partner.js's version (fixed above at #6) — trade.js defines
+// cashTrueUp = principalAsProduct - partnerPaperValue and principalAsCash = partnerPrincipal -
+// principalAsProduct, both residuals, so "paperValue + trueUp + cash = principal" is guaranteed
+// algebraically regardless of any bug in what those residuals actually equal. The check below is the
+// genuinely meaningful half: it compares the EXPOSED output fields (principalTie.returnedProductValue/
+// returnedCash) against a SEPARATE engine field (financing.partnerFunding), catching a wiring
+// disconnect between principalTie's reported values and the rest of the output — the `.ok` clause
+// added nothing beyond this and has been dropped.
+check('FX-TRUEUP principalTie output fields (product+cash delivered) tie to financing.partnerFunding (wiring check, not the tautological internal .ok identity)',
+  approx(tuPd.principalTie.returnedProductValue + tuPd.principalTie.returnedCash, both.financing.partnerFunding, 0.02));
+
+// FX11 — regression guard for the override-absorption bug: resolveRate() (fx.js) prefers
+// fx.nafem.override over .value whenever an override is set (non-null). Before the fix, the
+// sensitivity bump in sensitivities.js mutated .value ONLY, so any trade with a NAFEM override
+// configured silently absorbed the bump and reported $0 FX risk regardless of real exposure.
+// Uses depotOnly (genuine naira depot exposure, per FX5/FX6 above) with an override layered on
+// top — exactly the configuration the old bug went blind on.
+const depotOverride = { ...depotOnly, fx: { ...depotOnly.fx, nafem: { ...depotOnly.fx.nafem, override: 1550 } } };
+const ovSensFn = (t) => computeTrade(t);
+const ovSens = runSensitivities(depotOverride, ovSensFn, { fxMode: 'nafem' });
+const ovFxUp = ovSens.scenarios.find((s) => /FX NAFEM \+/.test(s.lever));
+const ovFxDown = ovSens.scenarios.find((s) => /FX NAFEM -/.test(s.lever));
+check('FX11 override trade: FX NAFEM sensitivity is non-zero (not silently absorbed by the override)',
+  Math.abs(ovFxUp.deltaVsBase) > 1 && Math.abs(ovFxDown.deltaVsBase) > 1);
+
+// Independent (non-tautological) re-derivation: bump the OVERRIDE field directly ourselves — written
+// here independently of sensitivities.js's own bump helper, mirroring only resolveRate()'s documented
+// precedence (fx.js) — and re-run the verified engine. The scenario's reported net must equal this
+// direct, hand-constructed rerun (no duplicated math, no calling runSensitivities twice).
+const ovUpTrade = { ...depotOverride, fx: { ...depotOverride.fx, nafem: { ...depotOverride.fx.nafem, override: depotOverride.fx.nafem.override * 1.1 } } };
+const ovUpDirect = computeTrade(ovUpTrade);
+check('FX11 override trade: scenario net == direct engine run with override bumped +10% (hand-derived)',
+  approx(ovFxUp.tisNet, ovUpDirect.profit.tisNetProfit, 0.5));
+
+// Counterfactual: confirms the OLD bug pattern (bumping .value alone while override stays fixed)
+// would indeed still show ~$0 net movement — proves it was specifically the override field the
+// sensitivity check was blind to, not some other cause.
+const staleValueTrade = { ...depotOverride, fx: { ...depotOverride.fx, nafem: { ...depotOverride.fx.nafem, value: depotOverride.fx.nafem.value * 1.1 } } };
+const staleValueNet = computeTrade(staleValueTrade).profit.tisNetProfit;
+const depotOverrideBaseNet = computeTrade(depotOverride).profit.tisNetProfit;
+check('FX11 counterfactual: bumping .value alone (old buggy behavior) leaves net ~unchanged (override still wins)',
+  approx(staleValueNet, depotOverrideBaseNet, 0.01));
 
 // FX10 — validation throws on bad funding stack / channel split.
 expectThrow('FX10 funding stack not summing to 1 throws', () => computeTrade({ ...bothChannels, partner: { ...bothChannels.partner, equityPct: 0.3 } }), 'sum to 1.0');
@@ -489,7 +564,71 @@ check('HX8 USD trade: FX-ON TIS net == OFF', approx(exFxOn.profit.tisNetProfit, 
 
 // HX9 — reconciliation still holds with both hedges ON.
 const bothOn = computeTrade({ ...bothChannels, hedge: { ...bothChannels.hedge, iceHedged: true }, fxHedge: { ...bothChannels.fxHedge, fxHedged: true } });
-check('HX9 reconciliation holds with ICE+FX both ON', bothOn.profit.reconciliation.ok === true);
+// (reconciliation.ok alone is tautological — see FX7 above; grounded in an independent recompute)
+check('HX9 standalone genuinely = (revenue − cost) + ICE impact + FX impact (independent recompute, not just reconciliation.ok)',
+  approx(bothOn.profit.standaloneProfit, bothOn.revenue.combinedUSD - bothOn.cost.allInCost + bothOn.hedges.iceHedgeNetImpact + bothOn.hedges.fxHedgeNetImpact, 1));
+
+// ============================================================================================
+// HP1 — computeEquityPartner ICE-hedge wiring (bug fix): buildHedge() was already called and its
+// result attached to the output, but iceCostDelta/extraFinancingCost were NEVER subtracted into the
+// profit chain — toggling trade.hedge.iceHedged had ZERO P&L effect (dead code). Assert against an
+// INDEPENDENTLY computed expected value (hedge cost x partner split), not a tautology re-derived from
+// the flow's own output — this is what would have caught the original bug (under the bug, hpOn and
+// hpOff were exactly equal regardless of the toggle).
+// ============================================================================================
+const hpOff = computeEquityPartner({ ...trade, hedge: { ...trade.hedge, iceHedged: false } });
+const hpOn = computeEquityPartner({ ...trade, hedge: { ...trade.hedge, iceHedged: true } });
+// Independently-known hedge economics (buildHedge itself was always correct — only its wiring into
+// the profit chain was missing) and the trade's own profit-share input, NOT hpOn's own tisNetProfit.
+const hpAllInCost = hpOn.hedge.iceCostDelta + hpOn.hedge.extraFinancingCost;
+const hpExpectedTisNetOn = hpOff.profit.tisNetProfit - (1 - hpOff.profit.profitSharePct) * hpAllInCost;
+check('HP1 ICE hedge OFF is a no-op (byte-identical to base run)', approx(hpOff.profit.tisNetProfit, r.profit.tisNetProfit));
+check('HP1 ICE hedge ON reduces TIS net by EXACTLY (1-share) x all-in hedge cost (independently computed)',
+  approx(hpOn.profit.tisNetProfit, hpExpectedTisNetOn, 0.5));
+check('HP1 ICE hedge ON strictly reduces TIS net vs OFF (real cost — proves the toggle is wired, not dead code)',
+  hpOn.profit.tisNetProfit < hpOff.profit.tisNetProfit);
+// (reconciliation.ok alone is tautological — see FX7 above; grounded in an independent recompute)
+check('HP1 standalone genuinely = deliveredQty × perMtMargin − all-in hedge cost (independent recompute, not just reconciliation.ok)',
+  approx(hpOn.profit.standaloneProfit, hpOn.meta.deliveredQty * hpOn.price.perMtMargin - hpAllInCost, 1));
+check('HP1 hedge result still attached to output (unchanged shape)', hpOn.hedge && typeof hpOn.hedge.iceCostDelta === 'number');
+
+// ============================================================================================
+// PS1/PS2 — cost-buildup ctx.sellValue wiring (bug fix): baseFor.pct_of_sell read ctx.sellValue, but
+// NEITHER flow passed it, so any costLineOverride flipping a line to pct_of_sell silently evaluated
+// to $0. sellValue is now sourced from the SAME value each flow already uses for revenue — no second
+// source of truth. Expected values below are computed directly from raw trade inputs (rate x sell
+// value), NOT read back from the engine's own output — a tautological "was it wired" check would
+// pass even if the wrong number were wired in.
+// ============================================================================================
+// PS1 (equity-partner.js): sell price is a FIXED input (sell.exShipPricePerMT.value), so
+// sellValue = price x deliveredQty is knowable before cost build-up runs, no circular dependency.
+const ps1RateOverride = 0.01;
+const ps1SellValueExpected = trade.sell.exShipPricePerMT.value * trade.cargo.deliveredQtyMT;
+const ps1 = computeEquityPartner({ ...trade, costLineOverrides: { 7: { type: 'pct_of_sell', rate: ps1RateOverride } } });
+check('PS1 equity-partner pct_of_sell line = rate x (fixed sell price x deliveredQty), not $0',
+  approx(ps1.cost.byId[7].amountUsd, ps1RateOverride * ps1SellValueExpected, 0.01));
+check('PS1 equity-partner pct_of_sell line is non-zero (was exactly 0 under the original bug)',
+  ps1.cost.byId[7].amountUsd > 0);
+
+// PS2 (trade.js / computeTrade): combinedRevenue (ex-ship + depot USD revenue) is the correct
+// absolute-dollar base for "% of sell" — consistent with pct_of_freight/pct_of_cargo_value/pct_of_LC
+// all being absolute-dollar bases, never per-unit rates. Re-derived here from raw trade inputs
+// (legacy adapter's USD-price round-trip + depot NGN/L->USD at NAFEM), NOT from the engine's own
+// revenue.combinedUSD.
+const ps2RateOverride = 0.01;
+const ps2ExShipTonnes = bothChannels.cargo.deliveredQtyMT * bothChannels.channels.exShipPct;
+const ps2DepotTonnes = bothChannels.cargo.deliveredQtyMT * bothChannels.channels.depotPct;
+// USD price round-trips exactly regardless of currencyMode split (revenue.js legacyLegs backward map).
+const ps2ExShipRevenue = bothChannels.sell.exShipPricePerMT.value * ps2ExShipTonnes;
+const ps2DepotRevenue = (bothChannels.sell.depotPriceNgnPerL.value * bothChannels.pricing.conversion.litresPerMT * ps2DepotTonnes) / bothChannels.fx.nafem.value;
+const ps2SellValueExpected = ps2ExShipRevenue + ps2DepotRevenue;
+const ps2 = computeTrade({ ...bothChannels, costLineOverrides: { 7: { type: 'pct_of_sell', rate: ps2RateOverride } } });
+check('PS2 computeTrade pct_of_sell line = rate x combinedRevenue (independently re-derived), not $0',
+  approx(ps2.cost.byId[7].amountUsd, ps2RateOverride * ps2SellValueExpected, 1));
+check('PS2 computeTrade pct_of_sell line is non-zero (was exactly 0 under the original bug)',
+  ps2.cost.byId[7].amountUsd > 0);
+check('PS2 independently re-derived sellValue matches engine combinedUSD (sanity cross-check)',
+  approx(ps2SellValueExpected, ps2.revenue.combinedUSD, 1));
 
 // ============================================================================================
 // PER-LEG REVENUE MODEL (Stage 1) — native trade.revenueLegs: ex-ship-USD / ex-ship-NGN / depot-NGN mix,
@@ -543,7 +682,9 @@ check('PL3 all-naira partner: benchmark = MAX NGN channel @ NAFEM',
   approx(allNaira.profit.benchmarkPriceUSD, (1850 * LITRES) / allNaira.fx.rates.nafemReference, 0.01));
 check('PL3 all-naira partner: benchmark basis names a NAFEM channel', /NAFEM/.test(allNaira.profit.benchmarkBasis));
 check('PL3 all-naira partner: no USD ex-ship price reported', allNaira.price.exShipPricePerMT === null);
-check('PL3 all-naira reconciliation holds', allNaira.profit.reconciliation.ok === true);
+// (reconciliation.ok alone is tautological — see FX7 above; grounded in an independent recompute)
+check('PL3 all-naira standalone genuinely = revenue − cost (independent recompute, not just reconciliation.ok)',
+  approx(allNaira.profit.standaloneProfit, allNaira.revenue.combinedUSD - allNaira.cost.allInCost, 1));
 
 // PL4 — NGN AGGREGATION across >2 legs (two ex-ship-NGN + one depot-NGN) sums into the FX EXPOSURE-
 // REPORTING block (fx.nairaRevenue / fx.netNairaExposureUsd), generalizing the old two-bucket sum to N
@@ -625,6 +766,23 @@ check('PL6 native depot ladder: tier net == direct engine run at repriced depot 
     return approx(t.tisNetProfit, direct.profit.tisNetProfit, 0.5);
   }));
 
+// LBL — pin the depot ladder's label fields themselves (marginBasis/fxBasis/marginStatus/pnlBasis),
+// not just the numeric values they gate. nativeDepot inherits trade.pricing.conversion.fxMarketForDepot
+// = 'parallel' (1600) while trade.fx.nafem = 1500 — parallel != NAFEM here, so this is a real reconciling
+// case, not a no-op where the two bases coincide. Regression guard: a future change that flips these
+// literals (e.g. hardcodes 'nafem' as the margin basis, or drops the INDICATIVE/nafem status literals)
+// must fail the suite instead of only being catchable by manual inspection (fcb82aa re-review finding).
+check('LBL depot ladder tier.marginBasis == the configured fxMarketForDepot ("parallel", not hardcoded to some other market)',
+  ladDep.tiers.every((t) => t.marginBasis === 'parallel'));
+check('LBL depot ladder tier.marginStatus == "INDICATIVE" (advisory, not reconciled to P&L)',
+  ladDep.tiers.every((t) => t.marginStatus === 'INDICATIVE'));
+check('LBL depot ladder tier.pnlBasis == "nafem" (P&L is unconditionally NAFEM-settled per RULE 1, regardless of the parallel tier-pricing basis)',
+  ladDep.tiers.every((t) => t.pnlBasis === 'nafem'));
+check('LBL depot ladder top-level fxBasis == the configured fxMarketForDepot ("parallel")',
+  ladDep.fxBasis === 'parallel');
+check('LBL depot ladder tier.reconciliation.note names the parallel-vs-NAFEM gap when the bases differ',
+  ladDep.tiers.every((t) => t.reconciliation.tierBasis === 'parallel' && /NAFEM/.test(t.reconciliation.note) && /PARALLEL|parallel/i.test(t.reconciliation.note)));
+
 // PL7 — LADDER per-tier P&L must VARY for a NATIVE ex-ship leg priced in ₦/L (NGN_PER_L). REGRESSION
 // GUARD for the runAtPrice fix: before it, runAtPrice only repriced USD_PER_MT ex-ship legs, so an
 // ex-ship-₦/L leg stayed at its original price and every tier returned the SAME (inert/identical) net.
@@ -653,6 +811,35 @@ const legacyExNgn = { ...trade, channels: { exShipPct: 1, depotPct: 0 },
 const ladLegacyNgn = buildLadder(legacyExNgn, fnCT, computeTrade(legacyExNgn, { skipHedgeCompare: true })).exShip;
 check('PL7 native ₦/L ladder nets == legacy-equivalent NGN ladder nets (spread matches, byte-for-byte)',
   ladExNgn.tiers.every((t, i) => approx(t.tisNetProfit, ladLegacyNgn.tiers[i].tisNetProfit, 0.5)));
+
+// SC-LADDER — LADDER-LEVEL surcharge threading (regression guard for the a1e7cf0 change that threads
+// r.profit.tisNetAfterSurcharge into every ex-ship AND depot ladder tier row). The engine-level field is
+// covered at #3; this locks the LADDER passthrough across BOTH flows (equity-partner + unified trade) and
+// BOTH toggle states. Self-deriving — recomputes at each tier's rounded price, no hardcoded expected value
+// (so it cannot move the ALL-USD guard). One compound check over every tier:
+//   ON  -> tier.tisNetAfterSurcharge == direct engine recompute at the tier price  AND  < tier.tisNetProfit
+//   OFF -> tier.tisNetAfterSurcharge == tier.tisNetProfit  (no-op case proofed too)
+const scOnTax = (tt) => ({ ...tt, tax: { ...tt.tax, surcharge: { ...tt.tax.surcharge, enabled: true, incidence: 'cost' } } });
+// (i) Ex-ship leg via the equity-partner flow + buildExShipLadder.
+const scExOn = scOnTax(trade);
+const scLadExOn = buildExShipLadder(scExOn, (t) => computeEquityPartner(t), computeEquityPartner(scExOn));
+const scLadExOff = buildExShipLadder(trade, (t) => computeEquityPartner(t), computeEquityPartner(trade));
+const scExOnOk = scLadExOn.tiers.every((t) => {
+  const direct = computeEquityPartner({ ...scExOn, sell: { exShipPricePerMT: { value: t.pricePerMT } } });
+  return approx(t.tisNetAfterSurcharge, direct.profit.tisNetAfterSurcharge, 0.5) && t.tisNetAfterSurcharge < t.tisNetProfit;
+});
+const scExOffOk = scLadExOff.tiers.every((t) => approx(t.tisNetAfterSurcharge, t.tisNetProfit, 0.01));
+// (ii) Depot leg via the unified trade flow + buildLadder().depot (native both-legs trade -> depot live).
+const scDepOn = scOnTax(nativeDepot);
+const scLadDepOn = buildLadder(scDepOn, fnCT, computeTrade(scDepOn, { skipHedgeCompare: true })).depot;
+const scLadDepOff = buildLadder(nativeDepot, fnCT, computeTrade(nativeDepot, { skipHedgeCompare: true })).depot;
+const scDepOnOk = scLadDepOn.tiers.every((t) => {
+  const direct = computeTrade({ ...scDepOn, revenueLegs: scDepOn.revenueLegs.map((l) => (l.channel === 'depot' ? { ...l, price: t.priceNgnPerL } : l)) }, { skipHedgeCompare: true });
+  return approx(t.tisNetAfterSurcharge, direct.profit.tisNetAfterSurcharge, 0.5) && t.tisNetAfterSurcharge < t.tisNetProfit;
+});
+const scDepOffOk = scLadDepOff.tiers.every((t) => approx(t.tisNetAfterSurcharge, t.tisNetProfit, 0.01));
+check('SC-LADDER tier.tisNetAfterSurcharge threads engine value (ex-ship+depot): ON == recompute & < net, OFF == net',
+  scExOnOk && scExOffOk && scDepOnOk && scDepOffOk);
 
 // ============================================================================================
 // MX — NEW (2026-06-23): RULE 1 + RULE 2 together on a SPLIT trade (ex-ship USD + depot). Confirms the
@@ -705,7 +892,10 @@ const flip = computeEquityPartner({ ...trade, costLineOverrides: { 7: { type: 'f
 check('CFG2 type flip pct->fixed: line 7 now fixed $500,000', approx(flip.cost.byId[7].amountUsd, 500000, 0.01));
 check('CFG2 type flip: display category now flat', flip.cost.byId[7].category === 'flat');
 check('CFG2 type flip moves allInCost by (fixed - pct)', approx(flip.cost.allInCost - cfgBase.cost.allInCost, 500000 - defLevy, 0.02));
-check('CFG2 reconciliation holds after type flip', computeTrade({ ...trade, costLineOverrides: { 7: { type: 'fixed', amount: 500000 } } }).profit.reconciliation.ok === true);
+// (reconciliation.ok alone is tautological — see FX7 above; grounded in an independent recompute)
+const cfg2Flip = computeTrade({ ...trade, costLineOverrides: { 7: { type: 'fixed', amount: 500000 } } });
+check('CFG2 standalone genuinely = revenue − cost after type flip (independent recompute, not just reconciliation.ok)',
+  approx(cfg2Flip.profit.standaloneProfit, cfg2Flip.revenue.combinedUSD - cfg2Flip.cost.allInCost, 1));
 
 // CFG3 — a BASE change (% of freight -> % of cargo value) recomputes against the new base.
 const baseFlip = computeEquityPartner({ ...trade, costLineOverrides: { 7: { type: 'pct_of_cargo_value' } } });
@@ -794,8 +984,10 @@ check('FI6 blank final: realized impact = -(fee/financing) only (pre-existing ba
   approx(fiBlank.hedges.iceHedgeNetImpact, -fiBlank.hedge.extraFinancingCost, 0.5));
 
 // FI7 — reconciliation identity still holds with a settled ICE + the ICE hedge ON.
-check('FI7 reconciliation holds with final ICE + ICE hedge ON',
-  fiHi.profit.reconciliation.ok === true && fiLo.profit.reconciliation.ok === true);
+// (reconciliation.ok alone is tautological — see FX7 above; grounded in an independent recompute)
+check('FI7 standalone genuinely = (revenue − cost) + ICE hedge impact, both settled-ICE scenarios (independent recompute, not just reconciliation.ok)',
+  approx(fiHi.profit.standaloneProfit, fiHi.revenue.combinedUSD - fiHi.cost.allInCost + fiHi.hedges.iceHedgeNetImpact + fiHi.hedges.fxHedgeNetImpact, 1) &&
+  approx(fiLo.profit.standaloneProfit, fiLo.revenue.combinedUSD - fiLo.cost.allInCost + fiLo.hedges.iceHedgeNetImpact + fiLo.hedges.fxHedgeNetImpact, 1));
 
 // FI8 — invalid final ICE is rejected at the boundary (no NaN/Infinity leak).
 expectThrow('FI8 non-numeric final ICE throws', () => computeTrade({ ...trade, market: { ...trade.market, ice: { ...trade.market.ice, final: 'oops' } } }), 'market.ice.final');

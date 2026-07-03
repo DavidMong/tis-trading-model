@@ -69,8 +69,14 @@ function computeEquityPartner(trade, opts = {}) {
   const financing = buildFinancing(effTrade, cargoValue);
 
   // 3. Cost build-up (recoverable VAT excluded from landed cost). effTrade => cost line 1
-  //    ("ICE LSGO", rateFrom market.ice.value) resolves to the effective ICE.
-  const cost = buildCostBuildup(effTrade, { cargoValue, deliveredQty, financing });
+  //    ("ICE LSGO", rateFrom market.ice.value) resolves to the effective ICE. pct_of_sell cost lines
+  //    (config-driven — trade.costLineOverrides) base off the SAME sell value the flow uses for
+  //    revenue below: the fixed-price input, when set. When the sell price is a placeholder (derived
+  //    FROM landed cost at step 5), no sell value can exist yet without a circular dependency, so
+  //    pct_of_sell lines resolve to $0 in that case — same as before this fix, not a new gap.
+  const sellCfg = trade.sell.exShipPricePerMT;
+  const sellValue = sellCfg.value != null ? sellCfg.value * deliveredQty : undefined;
+  const cost = buildCostBuildup(effTrade, { cargoValue, deliveredQty, financing, sellValue });
   const landedCostPerMT = cost.landedCostPerMT;
 
   // 4. Ex-storage landed cost. Storage lines (=0 unless depot) are already inside allInCost,
@@ -81,7 +87,6 @@ function computeEquityPartner(trade, opts = {}) {
   const exStorageLandedPerMT = landedCostPerMT;
 
   // 5. Ex-ship sell price (placeholder = landed x (1 + margin) until the buyer is priced)
-  const sellCfg = trade.sell.exShipPricePerMT;
   let exShipPricePerMT;
   let exShipStatus;
   let placeholderMarginPct = null;
@@ -108,27 +113,33 @@ function computeEquityPartner(trade, opts = {}) {
   const partnerPaperValue = partnerPaper * exStorageLandedPerMT;
   const cashTrueUp = principalAsProduct - partnerPaperValue; // +ve => owed to partner in cash
 
-  // 7. Profit waterfall
+  // 7. Hedge. effTrade => hedge's liveIce reference resolves to the effective (settlement) ICE, so
+  //    iceCostDelta = hedgedPhysical x (fixedPrice - effectiveIce) is the realized swap outcome on
+  //    the RETAINED tonnes only (never full cargo, never partner tonnes). Computed BEFORE the profit
+  //    waterfall so the toggle (trade.hedge.iceHedged) can flow into standaloneProfit below, mirroring
+  //    computeTrade's ICE-hedge wiring exactly.
+  const hedge = buildHedge(effTrade, { tisRetainedTonnes });
+  const iceHedged = !!(trade.hedge && trade.hedge.iceHedged);
+  const iceHedgeAllInCost = round(hedge.iceCostDelta + hedge.extraFinancingCost, 2);
+  const iceHedgeNetImpact = iceHedged ? round(-iceHedgeAllInCost, 2) : 0;
+
+  // 8. Profit waterfall (realized, post-hedge standalone — ON drives P&L, OFF is a no-op: current
+  //    behavior exactly, per CLAUDE.md's Hedge toggles rule).
   const perMtMargin = exShipPricePerMT - exStorageLandedPerMT;
-  const standaloneProfit = deliveredQty * perMtMargin;
+  const standaloneProfit = round(deliveredQty * perMtMargin + iceHedgeNetImpact, 2);
   const marginForegone = partnerTonnesEcon * perMtMargin; // TIS opportunity cost only
   const adjustedProfit = standaloneProfit - marginForegone;
   const profitSharePct = trade.partner.profitSharePct;
   const partnerCashProfitShare = profitSharePct * adjustedProfit;
   const tisNetProfit = adjustedProfit - partnerCashProfitShare;
 
-  // 8. Tax block + surcharge incidence. TIS bears surcharge on its RETAINED tonnes only (the
+  // 9. Tax block + surcharge incidence. TIS bears surcharge on its RETAINED tonnes only (the
   //    partner's in-kind product share is not TIS's cost) — see tax.js surcharge.tisBorneUsd.
   const taxBlock = buildTaxBlock(trade, { exShipPricePerMT, deliveredQty, tisRetainedTonnes }, cost);
   let tisNetAfterSurcharge = tisNetProfit;
   if (taxBlock.surcharge.enabled && taxBlock.surcharge.incidence === 'cost') {
     tisNetAfterSurcharge = tisNetProfit - taxBlock.surcharge.tisBorneUsd;
   }
-
-  // 9. Hedge. effTrade => hedge's liveIce reference resolves to the effective (settlement) ICE, so
-  //    iceCostDelta = hedgedPhysical x (fixedPrice - effectiveIce) is the realized swap outcome on
-  //    the RETAINED tonnes only (never full cargo, never partner tonnes).
-  const hedge = buildHedge(effTrade, { tisRetainedTonnes });
 
   // 10. TIS-side annualised return (NOT a partner metric). On cargo value, annualised by lockup.
   const tisAnnualisedReturnOnCargo =

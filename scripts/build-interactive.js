@@ -403,6 +403,18 @@ body { font-feature-settings: "kern" 1, "liga" 1; text-rendering: optimizeLegibi
 .state-modified { color: #92400e;      background: #fef3c7; border: 1px solid #fbbf24; }
 
 /* ── Results area ───────────────────────────────────────────────── */
+/* .results-col holds the (always-reserved) sticky-KPI row + the actual
+   scrolling .results box, stacked in a column. It occupies the flex slot
+   .results used to occupy directly in .app-body (row layout desktop /
+   column layout narrow — see .app-body media query below; unaffected
+   either way since .results-col just inherits whichever role .results had). */
+.results-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0; /* flex-child scroll-clipping fix (Safari/Firefox) */
+  overflow: hidden;
+}
 .results {
   flex: 1;
   overflow-y: auto;
@@ -414,17 +426,29 @@ body { font-feature-settings: "kern" 1, "liga" 1; text-rendering: optimizeLegibi
 }
 
 /* ── Sticky condensed KPI (Batch G) ──────────────────────────────────────
-   Sticks to the top of .results (the only element that actually scrolls —
-   the real app header above is a fixed shell element, always visible).
-   Hidden by default; .visible is toggled by a scroll listener on .results
-   once scrollTop passes a threshold. Entrance only — ease-out, 200ms,
-   transform+opacity only (GPU-friendly, motion-spec "tooltip appear" /
-   "state change" bucket), no bounce/scale per the project's existing
-   subtle-motion register. */
+   Deliberately NOT position:sticky over .results' own scroll content.
+   position:sticky only reserves ITS OWN row once, at its natural document
+   position near the top — it does not create a repeating no-go zone for
+   the rest of the scroll range, so once scrolled further, later content
+   passes back UNDER the visually-pinned pill and gets hidden behind it
+   (confirmed: it hid an UNVERIFIED status badge on a cost line). A first
+   attempt at reserving space via padding-top on .results had the same
+   flaw — padding is a one-time constant offset in document space, so it
+   only delayed the overlap by a fixed amount instead of preventing it
+   (re-verified by sweeping 12 scroll positions × 5 sections: overlaps
+   still occurred well past the reserved amount).
+   Fix that actually holds for the ENTIRE scroll range: the pill is a
+   genuine FLEX SIBLING of .results (both inside .results-col above), so
+   .results' own border-box is permanently a fixed amount shorter — and
+   since overflow-y:auto clips .results' content strictly to its own box,
+   that content can NEVER geometrically render outside it, at any
+   scrollTop. The space is reserved unconditionally (not just once the
+   pill is visible), so the opacity/transform reveal causes no layout
+   shift — same "hidden until scrolled past threshold" UX as before,
+   entrance-only, ease-out 200ms, transform+opacity only (GPU-friendly,
+   motion-spec "tooltip appear" / "state change" bucket), no bounce/scale
+   per the project's existing subtle-motion register. */
 .results-sticky-kpi {
-  position: sticky;
-  top: 0;
-  z-index: 5;
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
@@ -433,6 +457,7 @@ body { font-feature-settings: "kern" 1, "liga" 1; text-rendering: optimizeLegibi
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: var(--space-2) var(--space-4);
+  margin: 24px 28px 0;
   box-shadow: 0 2px 8px rgba(36,35,49,.08);
   opacity: 0;
   transform: translateY(-6px);
@@ -850,7 +875,12 @@ body { font-feature-settings: "kern" 1, "liga" 1; text-rendering: optimizeLegibi
    (the .wf-row/.wf-box overrides that used to live here are gone — Batch G
    replaced the card-row markup with an SVG bridge chart; see the new
    .wfsvg-* rules above. The underlying .wf-box/.wf-deduct/etc classes in
-   reportCss are untouched — the PDF's own waterfall still uses them.) */
+   reportCss are untouched — the PDF's own waterfall still uses them. Main's
+   independent "Batch G v2" card color system, which restyled the now-defunct
+   .wf-box card markup for this dashboard, was dropped as dead code during
+   the dashboard-dataviz-batch-g / main merge: the dashboard no longer emits
+   .wf-box divs at all, so those overrides had no matching markup left to
+   target. The PDF report keeps its own defaults from reportCss untouched.) */
 /* reportCss uses display:flex+gap on .wf-reconcile but content is inline;
    override to block so text wraps naturally with consistent line spacing.
    Promoted to section-header weight (ink, semibold, --type-value) — was
@@ -1609,25 +1639,31 @@ ${sharedCss}
   ${sidebarHtml}
 
   <!-- ── Results ──────────────────────────────────────────────────────── -->
-  <main class="results" role="main">
+  <div class="results-col">
     <!-- Sticky condensed KPI mirror (Batch G): the app header above is a fixed
          shell element and is always visible regardless of scroll, so this is
          a visual convenience for a long results scroll, not new information —
          aria-hidden, the header's own labeled chip is the authoritative figure
-         for assistive tech. Hidden until scrolled past the threshold (JS). -->
+         for assistive tech. Hidden until scrolled past the threshold (JS).
+         Lives OUTSIDE <main class="results"> (a genuine flex sibling, not a
+         position:sticky child of its scroll content) so .results' own box is
+         permanently shorter and its clipped content can never reach this row
+         at any scroll position — see the .results-sticky-kpi CSS comment. -->
     <div class="results-sticky-kpi" id="results-sticky-kpi" aria-hidden="true">
       <span class="results-sticky-kpi-label">TIS Net Profit</span>
       <span class="results-sticky-kpi-val" id="sticky-tisnet-val">—</span>
     </div>
-    <div id="rpt-error" class="err-banner" hidden></div>
-    <div id="sec-waterfall"></div>
-    <div id="sec-ladder"></div>
-    <div id="sec-cost"></div>
-    <div id="sec-partner"></div>
-    <div id="sec-hedge"></div>
-    <div id="sec-tax"></div>
-    <div id="sec-sens"></div>
-  </main>
+    <main class="results" role="main">
+      <div id="rpt-error" class="err-banner" hidden></div>
+      <div id="sec-waterfall"></div>
+      <div id="sec-ladder"></div>
+      <div id="sec-cost"></div>
+      <div id="sec-partner"></div>
+      <div id="sec-hedge"></div>
+      <div id="sec-tax"></div>
+      <div id="sec-sens"></div>
+    </main>
+  </div>
 
 </div>
 
@@ -2367,7 +2403,7 @@ function renderKPIs(res, hasSellPrice) {
   }
 
   const p   = res.profit;
-  const tisNet = p.tisNetProfit;
+  const tisNet = p.tisNetAfterSurcharge;
   setNetChip(tisNet < 0 ? 'loss' : 'pos');
   if (kv) { kv.textContent = fmtUsd(tisNet); kv.classList.add('kpi-flash'); setTimeout(() => kv.classList.remove('kpi-flash'), 350); }
   if (ks) ks.textContent = res.equityProvider === 'TIS' ? 'self-funded (no partner)' : 'after partner split';
@@ -2524,7 +2560,7 @@ function renderWaterfall(res) {
     : '';
 
   const reconcile = ep === 'TIS'
-    ? \`Revenue − cost = TIS net: <b>\${fmtUsd(res.revenue.combinedUSD)} − \${fmtUsd(res.cost.allInCost)} = \${fmtUsd(p.tisNetProfit)}</b>\`
+    ? \`Revenue − cost = TIS net: <b>\${fmtUsd(res.revenue.combinedUSD)} − \${fmtUsd(res.cost.allInCost)} = \${fmtUsd(p.tisNetAfterSurcharge)}</b>\`
     : \`Reconciliation: marginForegone + adjusted = standalone <b>\${fmtUsd(p.marginForegone)} + \${fmtUsd(p.adjustedProfit)} = \${fmtUsd(p.standaloneProfit)}</b> \${okMark}\`;
 
   return \`<section class="section" aria-labelledby="wf-h">
@@ -2623,7 +2659,7 @@ function renderLadder(trade, res, ladder) {
         <td class="r">\${fmtPct(tier.marginPctOfSell)}</td>
         <td class="r">\${fmtPct(tier.markupPctOnCost)}</td>
         <td class="r">\${fmtUsd(tier.spreadPerMT)}/MT</td>
-        <td class="r \${tier.tisNetProfit >= 0 ? 'pos' : 'loss'}">\${fmtUsd(tier.tisNetProfit)}</td>
+        <td class="r \${tier.tisNetAfterSurcharge >= 0 ? 'pos' : 'loss'}">\${fmtUsd(tier.tisNetAfterSurcharge)}</td>
       </tr>\`;
     }).join('');
     // Label the ex-ship ladder only when a depot ladder is also shown (preserves the
@@ -2651,9 +2687,9 @@ function renderLadder(trade, res, ladder) {
     );
     const depotRows = ladder.depot.tiers.map(tier => {
       const isCur = curDepot != null && isFinite(curDepot) && Math.abs(tier.priceNgnPerL - curDepot) < 0.005;
-      const net = (tier.tisNetProfit == null)
+      const net = (tier.tisNetAfterSurcharge == null)
         ? '<span class="muted">PENDING</span>'
-        : \`<span class="\${tier.tisNetProfit >= 0 ? 'pos' : 'loss'}">\${fmtUsd(tier.tisNetProfit)}</span>\`;
+        : \`<span class="\${tier.tisNetAfterSurcharge >= 0 ? 'pos' : 'loss'}">\${fmtUsd(tier.tisNetAfterSurcharge)}</span>\`;
       return \`<tr class="\${isCur ? 'ladder-current' : ''}">
         <td><b>\${esc(tier.name)}</b></td>
         <td class="r">\${fmtNum(tier.priceNgnPerL, 2)} ₦/L</td>
@@ -4021,15 +4057,19 @@ refreshHedgeSanity();
 updateHedgedVolPlaceholder();
 updateFinalIcePlaceholder();
 
-// ── Sticky condensed KPI on results scroll (Batch G) ─────────────────────────
+// ── Condensed KPI on results scroll (Batch G) ─────────────────────────────
 // The outer app header (with the full KPI triad) is a fixed app-shell element
 // — html/body and .app-body all have overflow:hidden, so only .results
 // scrolls; the header is always visible regardless of scroll position and
-// never "scrolls off-screen" in this layout. This sticky mirror instead gives
-// a persistent reference to the headline TIS Net Profit figure while
-// reviewing a long results scroll (Cost Build-Up -> Partner Deliverables ->
-// Hedge -> Tax -> Sensitivities) without scrolling back up to the
-// still-visible-but-farther-away real header.
+// never "scrolls off-screen" in this layout. This mirror instead gives a
+// persistent reference to the headline TIS Net Profit figure while reviewing
+// a long results scroll (Cost Build-Up -> Partner Deliverables -> Hedge ->
+// Tax -> Sensitivities) without scrolling back up to the still-visible-but-
+// farther-away real header. It lives as a flex sibling of .results (see the
+// .results-sticky-kpi CSS comment for why — not position:sticky over the
+// scroll content, which can't prevent overlap for the full scroll range),
+// so the space is already permanently reserved; this listener only toggles
+// the opacity/transform reveal, no layout measurement needed.
 (function () {
   var resultsEl = document.querySelector('.results');
   var stickyEl  = document.getElementById('results-sticky-kpi');
