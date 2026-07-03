@@ -38,19 +38,6 @@ const fmt = {
   },
 };
 
-const BADGE_CLASSES = [
-  ['UNVERIFIED',   'bdg-unverified'],
-  ['CONFIRM',      'bdg-confirm'],
-  ['PLACEHOLDER',  'bdg-placeholder'],
-  ['PENDING',      'bdg-pending'],
-  ['RECOVERABLE',  'bdg-recoverable'],
-  ['INDICATIVE',   'bdg-indicative'],
-  ['EXAMPLE',      'bdg-example'],
-  ['DUMMY',        'bdg-example'],
-  ['FIXED',        'bdg-fixed'],
-  ['SUGGESTED',    'bdg-indicative'],
-];
-
 // FIX 1: Human-readable cost category labels
 const CATEGORY_LABELS = {
   per_mt:           'Per MT',
@@ -67,31 +54,19 @@ const CATEGORY_LABELS = {
 };
 function catLabel(cat) { return CATEGORY_LABELS[cat] || cat; }
 
-// FIX 2: Shorten EXAMPLE/DUMMY badges — full text in tooltip, short label rendered
-const SHORT_LABELS = [
-  [/^EXAMPLE.*$/i, 'Example'],
-  [/^DUMMY.*$/i,   'Example'],
-  [/UNVERIFIED/i,  'Unverified'],
-  [/CONFIRM/i,     'Confirm'],
-  [/PLACEHOLDER.*$/i, 'Placeholder'],
-  [/PENDING/i,     'Pending'],
-  [/RECOVERABLE/i, 'Recoverable'],
-  [/INDICATIVE/i,  'Indicative'],
-  [/FIXED/i,       'Fixed'],
-  [/SUGGESTED/i,   'Suggested'],
-];
-
-function badgeLabel(status) {
-  for (const [re, label] of SHORT_LABELS) { if (re.test(status)) return label; }
-  return status.length > 16 ? status.slice(0, 14) + '…' : status;
-}
-
+// Status-flag taxonomy (root CLAUDE.md, "Batch D — final, 3 states"): display-only remap of the
+// engine/config's historical status strings onto 4 rendered states. Mirrors build-interactive.js's
+// own `badge()` exactly — engine/config schemas keep their original strings; only this render layer
+// collapses them. INDICATIVE/PLACEHOLDER/PENDING/EXAMPLE/DUMMY/SUGGESTED/anything else unlisted all
+// fall through to the INDICATIVE catch-all, same as the interactive app.
 function badge(status) {
   if (!status || status === 'OK') return '';
   const upper = String(status).toUpperCase();
-  let cls = 'bdg-default';
-  for (const [kw, c] of BADGE_CLASSES) { if (upper.includes(kw)) { cls = c; break; } }
-  return `<span class="bdg ${cls}" title="${esc(status)}">${esc(badgeLabel(status))}</span>`;
+  if (upper.includes('RECOVERABLE')) return `<span class="bdg bdg-recoverable" title="${esc(status)}">&#10003; OK</span>`;
+  if (upper.includes('FIXED')) return '';
+  if (upper.includes('CONFIRM') || upper.includes('UNVERIFIED'))
+    return `<span class="bdg bdg-unverified" title="${esc(status)}">&#9888;&#xFE0E;&nbsp;UNVERIFIED</span>`;
+  return `<span class="bdg bdg-indicative" title="${esc(status)}">INDICATIVE</span>`;
 }
 
 function signClass(n) {
@@ -111,6 +86,13 @@ function usdSign(x) {
 function routeLabel(route, isFx) {
   if (route === 'third_party') return isFx ? 'Third-party NDF' : 'Third-party (margin)';
   return isFx ? 'Bank forward' : 'Bank book';
+}
+
+// Partner/Hedge info-row grammar (Stage 6, Step 6): label left / mono figure right — mirrors
+// build-interactive.js's own infoRow() helper. `value` is pre-formatted HTML (numbers, badges,
+// spans), not escaped; `cls` is an optional class on the value <b> (e.g. signClass() output).
+function infoRow(label, value, cls) {
+  return `<div class="info-row"><span>${esc(label)}</span><b class="${cls || ''}">${value ?? '—'}</b></div>`;
 }
 
 
@@ -777,6 +759,145 @@ tbody td.muted { color: var(--slate); }
 }
 `;
 
+// ─── Report-only design-system extension (Stage 6) ────────────────────────────
+// Mirrors build-interactive.js's own --fs-*/--g-*/--f-mono tokens and its .data-table /
+// .section-block / .summary-strip / .info-row component classes (scripts/build-interactive.js —
+// "DESIGN TOKENS (Stage 0)" plus the Stage 2/3 result-table and summary-strip blocks) so the
+// report's tables, KPI/param figures, and info-boxes read as the same system as the interactive
+// app. Kept in a SEPARATE constant from `CSS` (the exported `reportCss`) so build-interactive.js —
+// which imports only `reportCss` — never inherits it; generateHtml's <style> tag concatenates
+// CSS + REPORT_CSS instead. Values are duplicated by hand from build-interactive.js's tokens
+// (report-renderer.js is the lower-level module and cannot import from build-interactive.js) —
+// keep both in sync if either changes. Every rule below only targets classes/tokens that
+// build-interactive.js does NOT read from this file (verified: .data-table/.section-block/
+// .summary-strip/.info-row overrides here are new selectors or apply only inside report-only
+// markup), so nothing here can alter the interactive app's rendering.
+const REPORT_CSS = `
+:root {
+  --f-mono:       'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+  --fs-label:     10px;
+  --fs-caption:   12px;
+  --fs-body:      13px;
+  --fs-data:      13px;
+  --fs-value:     15px;
+  --fs-heading:   16px;
+  --fs-kpi:       24px;
+  --g-text-slate: #64707c;
+  --g-hairline:   var(--border);
+  --g-brand-red:  var(--red);
+  --g-chrome-ink: var(--ink);
+  --g-canvas:     var(--bg);
+  --g-loss:       #991b1b;
+}
+
+/* Header + Trade Parameters onto tokens (Step 2): values in --f-mono tabular. */
+.kpi-value {
+  font-family: var(--f-mono);
+  font-size: var(--fs-kpi);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.kpi-label { font-size: var(--fs-label); }
+.kpi-sub   { font-size: var(--fs-caption); }
+.param-value {
+  font-family: var(--f-mono);
+  font-size: var(--fs-value);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.param-label { font-size: var(--fs-label); }
+.param-sub   { font-size: var(--fs-caption); }
+
+/* section-block: eyebrow heading atop a card — mirrors build-interactive.js Stage 0. */
+.section-block { display: flex; flex-direction: column; }
+.section-block-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; margin-bottom: 8px;
+}
+.section-block-eyebrow {
+  font-family: var(--f-display);
+  font-size: var(--fs-label);
+  font-weight: 600;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--g-text-slate);
+  padding-left: 12px;
+  border-left: 3px solid var(--g-brand-red);
+}
+.section-block-status { flex-shrink: 0; }
+
+/* data-table (Step 3): eyebrow header, hairline rows, mono tabular numerics, totals row set
+   apart by weight + top hairline (never a fill) — mirrors build-interactive.js Stage 2. Layers
+   onto reportCss's existing per-cell classes (.r numeric, .muted secondary, .row-total) — no
+   cell class renamed, only class="data-table" added to each <table> tag. */
+.data-table thead th { background: none; color: var(--g-text-slate); font-size: var(--fs-label); }
+.data-table thead th.r { text-align: right; }
+.data-table tbody tr { border-bottom: 1px solid var(--g-hairline); }
+.data-table tbody tr:last-child { border-bottom: none; }
+.data-table tbody tr:hover { background: none; }
+.data-table tbody td.r {
+  font-family: var(--f-mono);
+  font-size: var(--fs-data);
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--g-chrome-ink);
+}
+.data-table tbody td.muted { color: var(--g-text-slate); }
+.data-table tbody tr.row-total td {
+  font-weight: 600;
+  border-top: 1px solid var(--g-hairline);
+  background: none;
+}
+
+/* summary-strip (Steps 3/5/6): hairline-top + neutral tint, never a heavy fill/border box —
+   mirrors build-interactive.js Stage 3. Replaces the old dark-filled "ALL-IN LANDED COST" row
+   and restrains the VAT/surcharge info-boxes to the same rationed-color treatment. Compound
+   selectors win the cascade regardless of position relative to each block's own base rule. */
+.summary-strip {
+  border: none !important;
+  border-top: 1px solid var(--g-hairline) !important;
+  border-radius: 0 !important;
+  background: var(--g-canvas) !important;
+}
+.summary-strip.tbl-footer { color: inherit; }
+.summary-strip .tbl-footer-label { color: var(--g-text-slate); }
+.summary-strip .tbl-footer-value {
+  color: var(--g-chrome-ink);
+  font-family: var(--f-mono);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.summary-strip .ss-sub { font-size: 11px; color: var(--g-text-slate); }
+.summary-strip.vat-block,
+.summary-strip.surcharge-block { padding: 14px 16px; }
+.summary-strip .vat-block-title,
+.summary-strip .surcharge-title { color: var(--g-text-slate); }
+
+/* info-row (Step 6): label left (slate) / figure right (mono tabular) — mirrors
+   build-interactive.js's existing .info-row grammar, applied here to the report's Partner
+   Deliverables / Hedges panels (previously .dl/dt/dd). */
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 4px 0;
+}
+.info-row span {
+  font-family: var(--f-display);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  color: var(--g-text-slate);
+  white-space: nowrap;
+}
+.info-row b {
+  font-family: var(--f-mono);
+  font-size: var(--fs-data);
+  font-weight: 600;
+  color: var(--g-chrome-ink);
+  font-variant-numeric: tabular-nums lining-nums;
+  text-align: right;
+}
+.info-row b.neg { color: var(--g-loss); }
+`;
+
 
 // ─── HTML generators ─────────────────────────────────────────────────────────
 
@@ -883,9 +1004,7 @@ function costAndTax(trade, res) {
   // Cost build-up table
   const costRows = lines.map(l => {
     const isRecov = l.recoverable;
-    const flagBadge = isRecov
-      ? `<span class="bdg bdg-recoverable">Recoverable</span>`
-      : badge(l.status);
+    const flagBadge = isRecov ? badge('RECOVERABLE') : badge(l.status);
     const rowClass = isRecov ? 'row-recoverable' : '';
     return `
       <tr class="${rowClass}">
@@ -904,7 +1023,7 @@ function costAndTax(trade, res) {
     <h2 class="section-heading" id="cost-heading">Cost Build-Up</h2>
     <div class="card">
       <div class="tbl-wrap">
-        <table aria-label="Cost build-up">
+        <table class="data-table" aria-label="Cost build-up">
           <thead>
             <tr>
               <th>#</th><th>Line Item</th><th>Category</th>
@@ -914,14 +1033,14 @@ function costAndTax(trade, res) {
           <tbody>${costRows}</tbody>
         </table>
       </div>
-      <div class="tbl-footer">
+      <div class="tbl-footer summary-strip">
         <div>
           <div class="tbl-footer-label">All-In Landed Cost</div>
-          <div style="font-size:11px;color:rgba(255,255,255,.45);margin-top:2px">excl. recoverable VAT · ${fmt.mt(res.meta.deliveredQty)}</div>
+          <div class="ss-sub" style="margin-top:2px">excl. recoverable VAT · ${fmt.mt(res.meta.deliveredQty)}</div>
         </div>
         <div style="text-align:right">
           <div class="tbl-footer-value">${fmt.usd(cost.allInCost)}</div>
-          <div style="font-size:12px;color:rgba(255,255,255,.55);margin-top:2px">${fmt.usd(exShipLanded)}/MT</div>
+          <div class="ss-sub" style="margin-top:2px">${fmt.usd(exShipLanded)}/MT</div>
         </div>
       </div>
       <div class="card-footer">
@@ -952,7 +1071,7 @@ function costAndTax(trade, res) {
     <h2 class="section-heading" id="tax-heading">Tax Block</h2>
     <div class="card">
       <div class="tbl-wrap">
-        <table aria-label="Tax items">
+        <table class="data-table" aria-label="Tax items">
           <thead>
             <tr><th>#</th><th>Item &amp; Legal Reference</th><th class="r">Amount (USD)</th><th>Status</th></tr>
           </thead>
@@ -961,7 +1080,7 @@ function costAndTax(trade, res) {
       </div>
 
       <div class="card-body">
-        <div class="vat-block" role="note" aria-label="Recoverable VAT block">
+        <div class="vat-block summary-strip" role="note" aria-label="Recoverable VAT block">
           <div class="vat-block-title">&#9679; Recoverable VAT — Cash-Flow Timing Only (NTA 2025 s.155(4))</div>
           <div class="dl">
             ${rv.lines.map(l => `<dt>Line ${l.id} ${esc(l.label)}</dt><dd>${fmt.usd(l.amount)}</dd>`).join('')}
@@ -970,12 +1089,12 @@ function costAndTax(trade, res) {
             <dt><strong>Recoverable (reclaim / WC timing)</strong></dt><dd><strong>${fmt.usd(rv.recoverable)}</strong></dd>
             ${rv.irrecoverable > 0 ? `<dt>Irrecoverable → added to landed cost</dt><dd class="warn">${fmt.usd(rv.irrecoverable)}</dd>` : ''}
           </div>
-          <p style="font-size:11px;color:var(--recov-c);margin-top:8px">
+          <p style="font-size:11px;color:var(--g-text-slate);margin-top:8px">
             Does NOT affect profit. Recoverable VAT is a working-capital timing item only.
           </p>
         </div>
 
-        <div class="surcharge-block" role="note" aria-label="Fossil-fuel surcharge">
+        <div class="surcharge-block summary-strip" role="note" aria-label="Fossil-fuel surcharge">
           <div class="surcharge-title">&#9888; Fossil-Fuel Surcharge (NTA 2025 s.158&ndash;161) ${badge('PENDING')}</div>
           <div class="dl">
             <dt>Status</dt><dd>${sc.enabled ? '<b style="color:var(--unver-c)">ENABLED</b>' : 'OFF (default — commencementGazetted: false)'}</dd>
@@ -1077,11 +1196,9 @@ function partnerAndHedge(trade, res) {
     <div class="card">
       <div class="card-body">
         <p class="muted" style="font-size:12px;margin-bottom:10px">${esc(pd.note || 'TIS self-funded — no partner.')}</p>
-        <div class="dl">
-          <dt>Cargo value</dt><dd>${fmt.usd(res.cargoValue)}</dd>
-          <dt>Partner funding (self)</dt><dd>${fmt.usd(f.partnerFunding)}</dd>
-          <dt>Standalone = Adjusted = TIS net</dt><dd><b>${fmt.usd(res.profit.tisNetProfit)}</b></dd>
-        </div>
+        ${infoRow('Cargo value', fmt.usd(res.cargoValue))}
+        ${infoRow('Partner funding (self)', fmt.usd(f.partnerFunding))}
+        ${infoRow('Standalone = Adjusted = TIS net', fmt.usd(res.profit.tisNetProfit))}
       </div>
     </div>
   </div>` : `
@@ -1092,41 +1209,33 @@ function partnerAndHedge(trade, res) {
         <p class="muted" style="font-size:11px;margin-bottom:12px">${esc(pd.note || '')}</p>
 
         ${subHead('(1) Product Received')}
-        <div class="dl">
-          <dt>Tonnes (economic)</dt><dd>${fmt.mt(pd.productReceived ? pd.productReceived.tonnes : null)}</dd>
-          <dt>Valued at ex-ship landed</dt><dd>${fmt.usd(pd.productReceived ? (pd.productReceived.valuedAtExShipLandedCost ?? pd.productReceived.valuedAtLandedCost) : null)}</dd>
-          <dt>= Principal at par</dt><dd><b>${fmt.usd(f.partnerFunding)}</b></dd>
-        </div>
+        ${infoRow('Tonnes (economic)', fmt.mt(pd.productReceived ? pd.productReceived.tonnes : null))}
+        ${infoRow('Valued at ex-ship landed', fmt.usd(pd.productReceived ? (pd.productReceived.valuedAtExShipLandedCost ?? pd.productReceived.valuedAtLandedCost) : null))}
+        ${infoRow('= Principal at par', fmt.usd(f.partnerFunding))}
 
         <div class="separator"></div>
 
         ${subHead('(2) Cash Received')}
-        <div class="dl">
-          <dt>Profit share (${fmt.pct(res.profit.profitSharePct)})</dt><dd>${fmt.usd(pd.cashReceived ? pd.cashReceived.profitShare : null)}</dd>
-          ${pd.cashReceived && pd.cashReceived.principalCashPortion > 0 ? `<dt>Principal (cash portion)</dt><dd>${fmt.usd(pd.cashReceived.principalCashPortion)}</dd>` : ''}
-          <dt>Settlement true-up</dt><dd>${fmt.usd(pd.cashReceived ? pd.cashReceived.settlementTrueUp : null)}</dd>
-        </div>
+        ${infoRow(`Profit share (${fmt.pct(res.profit.profitSharePct)})`, fmt.usd(pd.cashReceived ? pd.cashReceived.profitShare : null))}
+        ${pd.cashReceived && pd.cashReceived.principalCashPortion > 0 ? infoRow('Principal (cash portion)', fmt.usd(pd.cashReceived.principalCashPortion)) : ''}
+        ${infoRow('Settlement true-up', fmt.usd(pd.cashReceived ? pd.cashReceived.settlementTrueUp : null))}
 
         <div class="separator"></div>
 
         ${subHead('Funding Stack')}
-        <div class="dl">
-          <dt>Partner bond (${fmt.pct(f.pct.bondPct)})</dt><dd>${fmt.usd(f.performanceBond)}</dd>
-          <dt>Partner equity (${fmt.pct(f.pct.equityPct)})</dt><dd>${fmt.usd(f.equity)}</dd>
-          <dt>Bank LC (${fmt.pct(f.pct.lcPct)})</dt><dd>${fmt.usd(f.lc)}</dd>
-        </div>
+        ${infoRow(`Partner bond (${fmt.pct(f.pct.bondPct)})`, fmt.usd(f.performanceBond))}
+        ${infoRow(`Partner equity (${fmt.pct(f.pct.equityPct)})`, fmt.usd(f.equity))}
+        ${infoRow(`Bank LC (${fmt.pct(f.pct.lcPct)})`, fmt.usd(f.lc))}
 
         ${res.quantities.paper ? `
         <div class="separator"></div>
         ${subHead('Paper vs Economic Quantities')}
-        <div class="dl">
-          <dt>Partner (economic)</dt><dd>${fmt.mt(res.quantities.economic.partnerTonnes)}</dd>
-          <dt>Partner (paper, nearest 50)</dt><dd>${fmt.mt(res.quantities.paper.partnerPaper, 0)} <span class="muted" style="font-size:11px">↓ (TIS favour)</span></dd>
-          <dt>TIS retained (economic)</dt><dd>${fmt.mt(res.quantities.economic.tisRetainedTonnes)}</dd>
-          <dt>Settlement cash true-up</dt><dd>${fmt.usd(res.quantities.paper.cashTrueUp)}</dd>
-        </div>` : ''}
+        ${infoRow('Partner (economic)', fmt.mt(res.quantities.economic.partnerTonnes))}
+        ${infoRow('Partner (paper, nearest 50)', `${fmt.mt(res.quantities.paper.partnerPaper, 0)} <span class="muted" style="font-size:11px">↓ (TIS favour)</span>`)}
+        ${infoRow('TIS retained (economic)', fmt.mt(res.quantities.economic.tisRetainedTonnes))}
+        ${infoRow('Settlement cash true-up', fmt.usd(res.quantities.paper.cashTrueUp))}` : ''}
 
-        ${pd.principalTie ? `<div class="partner-tie">
+        ${pd.principalTie ? `<div class="partner-tie summary-strip">
           Principal tie-out: owed <b>${fmt.usd(f.partnerFunding)}</b>
           = product <b>${fmt.usd(pd.principalTie.returnedProductValue)}</b>
           + cash <b>${fmt.usd(pd.principalTie.returnedCash)}</b>
@@ -1159,23 +1268,21 @@ function partnerAndHedge(trade, res) {
           <span class="dot">${iceOn ? '&#10003;' : '&times;'}</span>
           ${iceOn ? 'HEDGED' : 'UNHEDGED'} — Toggle ${iceOn ? 'ON' : 'OFF'}
         </div>
-        <div class="dl">
-          <dt>Route</dt><dd>${esc(iceRouteLbl)}</dd>
-          <dt>Lots</dt><dd>${h.lots || 0} (${fmt.mt(h.hedgedTonnes)})</dd>
-          <dt>Comparison basis</dt><dd>${fmt.mt(h.comparisonBasisTonnes)} TIS retained</dd>
-          <dt>Fixed price</dt><dd>${h.fixedPrice ? fmt.usd(h.fixedPrice) + '/MT' : '—'} ${badge('PLACEHOLDER')}</dd>
-          <dt>${finalSet ? 'Settlement ICE (final)' : 'Live ICE'}</dt><dd>${fmt.usd(effIce)}/MT ${finalSet ? badge('SETTLEMENT') : ''}</dd>
-          <dt>Effective ICE cost</dt><dd>${fmt.usd(h.effectiveIceCost)}</dd>
-          <dt>Unhedged ICE cost</dt><dd>${fmt.usd(h.unhedgedIceCost)}</dd>
-          <dt>ICE cost delta</dt><dd class="${signClass(-h.iceCostDelta)}">${fmt.usd(h.iceCostDelta)}</dd>
-          ${finalSet ? `<dt>Realized hedge P&amp;L</dt><dd>${usdSign(hedges.iceHedgeNetImpact)}${iceOn ? '' : ' (OFF — not applied)'}</dd>` : ''}
-          <dt>Swap fee</dt><dd>${fmt.usd(h.swapFee)} ${badge('PLACEHOLDER')}</dd>
-          <dt>Bank-provided margin</dt><dd>${fmt.usd(h.bankProvidedMargin)}</dd>
-          <dt>Extra financing cost</dt><dd>${fmt.usd(h.extraFinancingCost)}</dd>
-        </div>
+        ${infoRow('Route', esc(iceRouteLbl))}
+        ${infoRow('Lots', `${h.lots || 0} (${fmt.mt(h.hedgedTonnes)})`)}
+        ${infoRow('Comparison basis', `${fmt.mt(h.comparisonBasisTonnes)} TIS retained`)}
+        ${infoRow('Fixed price', `${h.fixedPrice ? fmt.usd(h.fixedPrice) + '/MT' : '—'} ${badge('PLACEHOLDER')}`)}
+        ${infoRow(finalSet ? 'Settlement ICE (final)' : 'Live ICE', `${fmt.usd(effIce)}/MT ${finalSet ? badge('SETTLEMENT') : ''}`)}
+        ${infoRow('Effective ICE cost', fmt.usd(h.effectiveIceCost))}
+        ${infoRow('Unhedged ICE cost', fmt.usd(h.unhedgedIceCost))}
+        ${infoRow('ICE cost delta', fmt.usd(h.iceCostDelta), signClass(-h.iceCostDelta))}
+        ${finalSet ? infoRow('Realized hedge P&amp;L', `${usdSign(hedges.iceHedgeNetImpact)}${iceOn ? '' : ' (OFF — not applied)'}`) : ''}
+        ${infoRow('Swap fee', `${fmt.usd(h.swapFee)} ${badge('PLACEHOLDER')}`)}
+        ${infoRow('Bank-provided margin', fmt.usd(h.bankProvidedMargin))}
+        ${infoRow('Extra financing cost', fmt.usd(h.extraFinancingCost))}
         ${finalSet ? `<p class="legal-ref" style="margin-top:8px">Realized at settlement ICE <b>${fmt.usd(effIce)}/MT</b>: the purchase floats to this price (landed cost recomputed) and the swap settles (final − fixed) × hedged tonnes on TIS's retained tonnes only.</p>` : ''}
         ${hc && hc.ice ? `
-        <div style="margin-top:14px;padding:12px;background:var(--bg);border-radius:8px;font-size:12px;font-family:var(--f-body);">
+        <div class="summary-strip" style="margin-top:14px;padding:12px;font-size:12px;font-family:var(--f-body);">
           <b>Hedged vs Unhedged:</b>
           TIS net hedged ${fmt.usd(hc.ice.hedgedTisNet)} &nbsp;|&nbsp;
           unhedged ${fmt.usd(hc.ice.unhedgedTisNet)} &nbsp;|&nbsp;
@@ -1193,18 +1300,16 @@ function partnerAndHedge(trade, res) {
         ${(() => {
           const fh = res.fxHedge;
           if (!fh) return `<p class="muted" style="font-size:12px">No FX hedge in this trade flow — no naira legs.</p>`;
-          if (fh.noHedgeReason) return `<div class="dl"><dt>Note</dt><dd>${esc(fh.noHedgeReason)}</dd></div>`;
+          if (fh.noHedgeReason) return infoRow('Note', esc(fh.noHedgeReason));
           const fxRouteLbl = routeLabel((trade.fxHedge || {}).route, true);
-          return `<div class="dl">
-            <dt>Benchmark</dt><dd>${esc(fh.benchmark || '—')}</dd>
-            <dt>Route</dt><dd>${esc(fxRouteLbl)}</dd>
-            <dt>Bank-repayment hedge base</dt><dd>${fmt.num(fh.exposureNgn, 0)} ₦${fh.bankRepaymentUsd ? ` (= ${fmt.usd(fh.bankRepaymentUsd)} @ NAFEM)` : ''}</dd>
-            <dt>Hedge ratio</dt><dd>${fmt.pct(fh.hedgeRatio || 0)}</dd>
-            <dt>Forward rate</dt><dd>${fh.forwardRate ? fmt.num(fh.forwardRate, 0) + ' ₦/USD' : badge('PLACEHOLDER')}</dd>
-            <dt>FX realized delta</dt><dd>${usdSign(fh.fxRealizedDeltaUsd || 0)}${fxOn ? '' : ' (OFF)'}</dd>
-            <dt>FX hedge cost</dt><dd>${fmt.usd(fh.extraFinancingCost || 0)}</dd>
-            ${fh.basis ? `<dt>Basis risk (benchmark vs NAFEM)</dt><dd>${fmt.num(fh.basis.gapNgnPerUsd, 2)} ₦/USD residual</dd>` : ''}
-          </div>
+          return `${infoRow('Benchmark', esc(fh.benchmark || '—'))}
+            ${infoRow('Route', esc(fxRouteLbl))}
+            ${infoRow('Bank-repayment hedge base', `${fmt.num(fh.exposureNgn, 0)} ₦${fh.bankRepaymentUsd ? ` (= ${fmt.usd(fh.bankRepaymentUsd)} @ NAFEM)` : ''}`)}
+            ${infoRow('Hedge ratio', fmt.pct(fh.hedgeRatio || 0))}
+            ${infoRow('Forward rate', fh.forwardRate ? fmt.num(fh.forwardRate, 0) + ' ₦/USD' : badge('PLACEHOLDER'))}
+            ${infoRow('FX realized delta', `${usdSign(fh.fxRealizedDeltaUsd || 0)}${fxOn ? '' : ' (OFF)'}`)}
+            ${infoRow('FX hedge cost', fmt.usd(fh.extraFinancingCost || 0))}
+            ${fh.basis ? infoRow('Basis risk (benchmark vs NAFEM)', `${fmt.num(fh.basis.gapNgnPerUsd, 2)} ₦/USD residual`) : ''}
           ${fh.basis ? `<p class="warn" style="font-size:12px;margin-top:8px">⚠ ${esc(fh.basis.note || '')}</p>` : ''}
           <p class="legal-ref" style="margin-top:8px">FX hedge covers the naira needed to repay the bank's USD facility (principal + interest). Naira profit is retained in naira and not hedged.</p>`;
         })()}
@@ -1253,7 +1358,7 @@ function pricingLadder(ladder, res) {
     }).join('');
     exShipBlock = `${bothLadders ? ladderSub('Ex-Ship $/MT Ladder') : ''}
     <div class="tbl-wrap">
-      <table aria-label="Ex-ship pricing ladder">
+      <table class="data-table" aria-label="Ex-ship pricing ladder">
         <thead>
           <tr>
             <th>Tier</th><th class="r">Margin % Sell</th><th class="r">Price $/MT</th>
@@ -1306,7 +1411,7 @@ function pricingLadder(ladder, res) {
       : `Margin % / Markup % Cost ${badge('INDICATIVE')} are priced at ${esc(tierBasisLabel)} &#8358;${fmt.num(tierRate, 2)}/USD (market-quoting basis) &middot; TIS Net settles at NAFEM (RULE 1).`;
     depotBlock = `${ladderSub('Depot ₦/L Ladder')}
     <div class="tbl-wrap">
-      <table aria-label="Depot pricing ladder">
+      <table class="data-table" aria-label="Depot pricing ladder">
         <thead>
           <tr>
             <th>Tier</th><th class="r">Price ₦/L</th><th class="r">Spread ₦/L</th>
@@ -1496,7 +1601,7 @@ function generateHtml(logo, trade, res, ladder, generatedAt) {
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <style>${CSS}</style>
+  <style>${CSS}${REPORT_CSS}</style>
 </head>
 <body>
 ${headerSection(logo, trade, res)}
@@ -1521,5 +1626,5 @@ module.exports = {
   generateHtml,
   reportCss: CSS,
   // shared formatting helpers (reused by the PDF renderer — do not duplicate)
-  esc, fmt, badge, badgeLabel, signClass, usdSign, routeLabel, catLabel,
+  esc, fmt, badge, signClass, usdSign, routeLabel, catLabel,
 };
