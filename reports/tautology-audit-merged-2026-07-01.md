@@ -39,3 +39,14 @@ change — no `engine/core` or `engine/flows` files were touched.
 See `reports/tautology-audit-2026-07-01.md` for the complete methodology, the full section-by-section
 review of every check in `test/invariants.js`, all 10 fixes with diffs, and every synthetic
 counter-example proof.
+
+## Control Room final confirmation — 2026-07-03
+
+Independently re-verified on current `main` (HEAD `f4f33c0`, three commits past `e9be92d`, none
+touching `test/invariants.js`, `engine/core`, or `engine/flows`):
+
+- `node test/invariants.js` → **249 passed, 0 failed**
+- `node scripts/fingerprint.js` → ALL-USD GUARD COMBINED
+  `a90288524a4c1d599a343959e978f9ae5df91d0fbbf6cd27e346feb9d5408162` — unchanged, matches baseline.
+
+Verdict: PASS. This audit is closed, no follow-up required.
