@@ -1368,20 +1368,21 @@ body { font-feature-settings: "kern" 1, "liga" 1; text-rendering: optimizeLegibi
 /* ── D3: Status legend ──────────────────────────────────────────────────────── */
 .status-legend {
   display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
-  font-family: var(--f-body); font-size: 10px; color: #717c89;
-  padding: 8px 12px; border-top: 1px solid var(--border); margin-top: 2px;
+  font-family: var(--f-body); font-size: var(--fs-label); color: var(--g-text-slate);
+  padding: 8px 12px; border-top: 1px solid var(--g-hairline); margin-top: 2px;
 }
 .status-legend .sl-item { display: flex; align-items: center; gap: 5px; }
 .status-legend .sl-check { color: #10b981; font-size: 11px; font-weight: 700; }
-.status-legend .sl-key { font-weight: 600; color: #4b5563; }
+.status-legend .sl-key { font-weight: 600; color: var(--g-chrome-ink); }
+.status-legend .bdg { font-size: var(--fs-label); padding: 1px 5px; border-radius: 3px; }
 
 /* ── Empty state (blank/new trade — insufficient inputs to compute) ─────────── */
 .empty-state-section { min-height: 260px; display:flex; align-items:center; justify-content:center;
   border:none; background:none; box-shadow:none; padding:0; }
 .empty-state { text-align:center; padding:48px 24px; }
-.empty-state-title { font-family:var(--f-display); font-size:14px; font-weight:600;
-  color:#4b5563; margin:0 0 6px; letter-spacing:0; }
-.empty-state-sub { font-family:var(--f-body); font-size:11px; color:#94a3b8; margin:0 auto; max-width: 65ch; }
+.empty-state-title { font-family:var(--f-display); font-size:var(--fs-value); font-weight:600;
+  color:var(--g-chrome-ink); margin:0 0 6px; letter-spacing:0; }
+.empty-state-sub { font-family:var(--f-body); font-size:var(--fs-caption); color:var(--g-text-slate); margin:0 auto; max-width: 65ch; }
 
 /* ── C1: Expected negative figures → slate/neutral, not alarm-red ─────────── */
 /* .neg is used for expected structural negatives (hedge cost, sensitivity deltas).
@@ -1391,7 +1392,7 @@ body { font-feature-settings: "kern" 1, "liga" 1; text-rendering: optimizeLegibi
 .sens-neg        { background: var(--heat-neg); color: #4b5563; font-weight: 600; }
 .sens-neg-strong { background: var(--heat-neg-strong); color: #374151; font-weight: 700; }
 /* Subtle separator between lever groups in the sensitivities table (each lever's +/- pair) */
-.sens-group-start td { border-top: 2px solid var(--border); }
+.sens-group-start td { border-top: 2px solid var(--g-hairline); }
 /* .tn-neg .tn-val / .tn-neg-val (old CSS-bar tornado overrides) removed —
    Batch G replaced the markup with .tnsvg-val-neg, defined alongside the rest
    of the .tnsvg-* tornado rules above, same colors. */
@@ -1688,6 +1689,26 @@ input[type="number"].si { font-family: var(--f-mono); }
    Costs/Hedge tab field notes, Stage 1 territory -- are untouched): onto
    the caption token + AA-fixed slate instead of the raw 10px/#94a3b8 pair. */
 .hedge-cards .defaults-note { font-size: var(--fs-caption); color: var(--g-text-slate); }
+
+/* ── Stage 4: Sensitivities heat table, status legend, empty/pending states ──
+   The Sensitivities table gained class="data-table" this stage (Step 2, same
+   dual-class pattern as Stage 2's Cost/Tax tables) so its chrome (eyebrow
+   header, hairline rows, mono tabular numerics) matches. That pulled in
+   Stage 2's ".data-table tbody td.r { color: var(--g-chrome-ink) }" rule,
+   which -- being higher-specificity than the bare ".sens-pos"/".sens-neg"/
+   "-strong" classes (0,2,2 vs 0,1,0) -- clobbered every heat-cell's text
+   color to flat ink, silently defeating the pos/neg/strong distinction.
+   Caught via getComputedStyle() on a live page (all four classes reporting
+   rgb(36,35,49) instead of their reportCss/Batch-C colors) before any
+   screenshot was taken. Fixed with compound selectors at (0,3,2) that beat
+   the data-table rule while reproducing the EXACT pre-existing color values
+   (reportCss's own .sens-pos/-strong greens, Batch C's .sens-neg/-strong
+   desaturated greys) -- no color value invented or changed, only the
+   cascade-losing bug fixed. */
+.data-table tbody td.r.sens-pos        { color: #15803d; }
+.data-table tbody td.r.sens-pos-strong { color: #14532d; }
+.data-table tbody td.r.sens-neg        { color: #4b5563; }
+.data-table tbody td.r.sens-neg-strong { color: #374151; }
 `;
 }
 
@@ -3234,8 +3255,8 @@ function renderCost(res) {
     </div>
     <div class="status-legend">
       <span class="sl-item"><span class="sl-check">&#10003;</span><span class="sl-key">No badge</span>Verified — confirmed vs statute or contract</span>
-      <span class="sl-item"><span class="bdg bdg-indicative" style="font-size:9px;padding:1px 5px">INDICATIVE</span><span class="sl-key" style="margin-left:2px">Indicative</span>Reasonable estimate; fine to model, not contractual</span>
-      <span class="sl-item"><span class="bdg bdg-unverified" style="font-size:9px;padding:1px 5px">&#9888;&#xFE0E;&nbsp;UNVERIFIED</span><span class="sl-key" style="margin-left:2px">Unverified</span>Needs confirmation before live trading</span>
+      <span class="sl-item"><span class="bdg bdg-indicative">INDICATIVE</span><span class="sl-key" style="margin-left:2px">Indicative</span>Reasonable estimate; fine to model, not contractual</span>
+      <span class="sl-item"><span class="bdg bdg-unverified">&#9888;&#xFE0E;&nbsp;UNVERIFIED</span><span class="sl-key" style="margin-left:2px">Unverified</span>Needs confirmation before live trading</span>
     </div>
   </div>
 </section>\`;
@@ -3579,15 +3600,18 @@ function renderSens(res) {
   const scenarios = [...sens.scenarios].sort((a,b) => Math.abs(b.deltaVsBase) - Math.abs(a.deltaVsBase));
   const maxAbs = Math.max(...scenarios.map(s => Math.abs(s.deltaVsBase)), 1);
 
-  // Proportional heat: every non-zero Δ cell gets a tint; intensity scales linearly with magnitude
-  function heatStyle(delta) {
+  // Discrete heat tiers: every non-zero Δ cell gets a tint from the same fixed
+  // --heat-* tokens (and pct>0.6 "strong" threshold) already used by the static
+  // HTML report's sensitivitiesSection() (scripts/report-renderer.js) — mirrors
+  // that reference implementation instead of the old continuous-alpha inline
+  // rgba blend, so the tint is a discrete cell fill, not a gradient. Values fed
+  // in (s.deltaVsBase, maxAbs) are unchanged; only how the tint is chosen moves
+  // from a computed alpha to a class lookup.
+  function heatCls(delta) {
     if (delta === 0 || delta == null) return '';
-    const pct = Math.min(1, Math.abs(delta) / maxAbs);
-    const alpha = (0.08 + pct * 0.42).toFixed(2);
-    const bg = delta > 0
-      ? \`rgba(16,185,129,\${alpha})\`   // green
-      : \`rgba(239,68,68,\${alpha})\`;   // red
-    return \` style="background:\${bg}"\`;
+    const pct = Math.abs(delta) / maxAbs;
+    if (delta > 0) return pct > 0.6 ? 'sens-pos-strong' : 'sens-pos';
+    return pct > 0.6 ? 'sens-neg-strong' : 'sens-neg';
   }
 
   // Group each lever's +10% / -10% on adjacent rows (shared pairing logic with the tornado),
@@ -3597,14 +3621,14 @@ function renderSens(res) {
   const sensRow = (s, first) => \`<tr\${first ? ' class="sens-group-start"' : ''}>
       <td>\${esc(s.lever)}</td>
       <td class="r">\${fmtUsd(s.tisNet)}</td>
-      <td class="r"\${heatStyle(s.deltaVsBase)}>\${s.deltaVsBase >= 0 ? '+' : ''}\${fmtUsd(s.deltaVsBase)}</td>
+      <td class="r \${heatCls(s.deltaVsBase)}">\${s.deltaVsBase >= 0 ? '+' : ''}\${fmtUsd(s.deltaVsBase)}</td>
     </tr>\`;
   const tableRows = [
-    // Base-case row: neutral bg + "baseline" label (not "—" which looks broken)
-    \`<tr class="sens-base">
+    // Base-case row: set apart by weight + top hairline (.total, Stage 2's convention), never a fill.
+    \`<tr class="sens-base total">
       <td><b>Base case</b></td>
       <td class="r"><b>\${fmtUsd(sens.baseNet)}</b></td>
-      <td class="r" style="background:var(--bg);color:var(--slate);font-style:italic;font-size:11px">baseline</td>
+      <td class="r muted" style="font-style:italic">baseline</td>
     </tr>\`,
     ...groups.flatMap(g => [g.pos, g.neg].filter(Boolean)
       .sort((a, b) => a.lever < b.lever ? -1 : a.lever > b.lever ? 1 : 0)
@@ -3619,8 +3643,8 @@ function renderSens(res) {
   <h2 class="section-heading" id="sens-h">Sensitivities (&plusmn;10%)</h2>
   <div class="card">
     \${renderTornado(sens)}
-    <div class="tbl-wrap" style="margin-top:24px;border-top:1.5px solid var(--border);padding-top:16px">
-      <table class="cost-table">
+    <div class="tbl-wrap" style="margin-top:24px;border-top:1.5px solid var(--g-hairline);padding-top:16px">
+      <table class="cost-table data-table">
         <thead><tr><th>Lever</th><th class="r">TIS Net</th><th class="r">&Delta; vs Base</th></tr></thead>
         <tbody>\${tableRows}</tbody>
       </table>
