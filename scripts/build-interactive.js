@@ -113,7 +113,12 @@ function css() {
   --g-panel:         var(--white);   /* #ffffff */
   --g-chrome-ink:        #242331;    /* == --ink; named for header/rail chrome */
   --g-chrome-ink-inverse:#f0f1f2;    /* text on --g-chrome-ink surfaces */
-  --g-text-slate:    var(--slate);   /* #717c89 */
+  /* Stage 1 AA fix: darkened role token, NOT an alias of base --slate
+     (#717c89 stays untouched everywhere else). #64707c computes to 5.06:1 on
+     #ffffff and 4.72:1 on canvas #f6f7f8 (WCAG relative-luminance formula) —
+     both clear the 4.5:1 AA-normal floor with margin. Every surface reading
+     --g-text-slate (including Stage 0's shell/waterfall) inherits this. */
+  --g-text-slate:    #64707c;
   --g-hairline:      var(--border);  /* rgba(113,124,137,.18) */
   --g-brand-red:     var(--red);     /* #d41d1d — wayfinding/identity ONLY, never P&L */
   --g-positive:      var(--role-positive); /* #15803d */
@@ -1458,7 +1463,7 @@ body { font-feature-settings: "kern" 1, "liga" 1; text-rendering: optimizeLegibi
               transform var(--g-duration-surface) var(--g-easing-standard);
 }
 
-/* ── Left rail (sidebar): raised type floor off 9/11px ────────────────────
+/* ── Left rail (sidebar): Stage 0 raised type floor off 9/11px ─────────────
    .ir/.si/.ss/.sr keep their existing box model (padding/border/radius) —
    only font-size moves onto the Stage 0 scale, so field-row heights shift by
    a px or two at most, no layout rewrite. */
@@ -1466,10 +1471,69 @@ body { font-feature-settings: "kern" 1, "liga" 1; text-rendering: optimizeLegibi
 .sb-sec-title { font-size: var(--fs-label); }
 .tier-div-lbl { font-size: var(--fs-label); }
 .disc-btn { font-size: var(--fs-label); }
-.ir-lbl { font-size: var(--fs-caption); }
+.lib-select { font-size: var(--fs-caption); }
+
+/* ── Left rail: Stage 1 field-row grammar ───────────────────────────────
+   ir()/ni()/ti()/si()/tog() (the ONE set of helper functions that emits
+   every Deal/Costs/Hedge tab field, including the ICE Gasoil swap panel)
+   still emit the exact same .ir/.ir-lbl/.si/.ss/.sr/.pip/.si.ph DOM hooks —
+   JS reads/toggles these class names for pip-state and placeholder logic
+   (build-interactive-field-status.md) and is NOT touched this stage. This
+   block re-skins those existing classes onto the Stage 0 field-row grammar
+   (label eyebrow + input + status pip + unit) via CSS only, so the same
+   pass covers all three tabs and the hedge panel without a markup rewrite. */
+.ir-lbl {
+  font-size: var(--fs-label);
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--g-text-slate);
+}
+/* Primary-tier fields (ICE, FOB) stay visually emphasized — full ink instead
+   of the old --ink-60 (rgba ink @ 60%, ~4.19:1 on white, below AA-normal);
+   swapping to solid --g-chrome-ink both strengthens the intended emphasis
+   and clears AA, without touching the shared --ink-60 token used elsewhere. */
+.ir.pri .ir-lbl { font-size: var(--fs-caption); font-weight: 700; color: var(--g-chrome-ink); }
 .si, .ss, .sr { font-size: var(--fs-input); }
 .si { font-variant-numeric: tabular-nums lining-nums; }
-.lib-select { font-size: var(--fs-caption); }
+/* Mono figures for numeric fields only — ni() always renders type="number",
+   ti() (free-text: trade name/partner/supplier/inspector) always renders
+   type="text"; both share the .si class, so this type-selector is the only
+   way to split mono-numeric from prose without touching ni()/ti() JS. */
+input[type="number"].si { font-family: var(--f-mono); }
+
+/* Focus-visible parity: .si already had a focus ring (box-shadow, pre-
+   existing); .ss (select) and .seg-btn (segmented control) had none before
+   this stage — both get the same ink ring language. */
+.ss:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(36,35,49,.10); }
+.seg-btn:focus-visible { outline: 2px solid var(--g-chrome-ink); outline-offset: -2px; }
+
+/* Segmented controls (.route-seg/.seg-btn): hairline border + ink active
+   fill (already true, no gradient/glow) — moved onto tokens + the shared UI
+   motion duration (was untimed background/color transitions). */
+.route-seg { border-color: var(--g-hairline); }
+.seg-btn {
+  font-size: var(--fs-label);
+  color: var(--g-text-slate);
+  border-color: var(--g-hairline);
+  transition: background var(--g-duration-ui) var(--g-easing-standard),
+              color var(--g-duration-ui) var(--g-easing-standard);
+}
+.seg-btn.seg-active { background: var(--g-chrome-ink); }
+
+/* Toggles (.tgl): ink active fill (already true, no gradient/glow) — moved
+   onto the shared UI motion duration (was .18s = 180ms, over the 160ms
+   ceiling; now 160ms flat, matching --g-duration-ui exactly). */
+.tgl-lbl { font-size: var(--fs-caption); }
+.tgl-track { transition: background var(--g-duration-ui) var(--g-easing-standard); }
+.tgl-knob { transition: transform var(--g-duration-ui) var(--g-easing-standard); }
+.tgl-lbl { transition: color var(--g-duration-ui) var(--g-easing-standard); }
+
+@media (prefers-reduced-motion: reduce) {
+  .seg-btn, .tgl-track, .tgl-knob, .tgl-lbl {
+    transition-duration: .01ms !important;
+  }
+}
 
 /* ── Footer: raised type floor + visible keyboard focus on all footer
    controls (New/Save/Save As/library dropdown/rename/delete/report) — none
