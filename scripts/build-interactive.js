@@ -817,7 +817,9 @@ body { font-feature-settings: "kern" 1, "liga" 1; text-rendering: optimizeLegibi
 .h-detail-inner { padding: 14px 18px; border-bottom: 1px solid var(--border); }
 /* Fix info-row layout in interactive card contexts (hedge detail + partner two-col) */
 .h-detail .info-row,
-.two-col-grid .info-row {
+.two-col-grid .info-row,
+.h-cmp .info-row,
+.info-block .info-row {
   display: flex;
   justify-content: space-between;
   align-items: baseline;

@@ -209,3 +209,67 @@ new needs adding to that list since nothing new animates.
 
 Branch `redesign/stage-3-partner-hedge`, branched from `redesign/stage-2-result-tables` tip
 (`16b7eff`). Not merged to any earlier stage branch or `main`; not pushed, per instructions.
+
+## Fix — hedge info-row justification
+
+**Bug**: `.h-cmp .info-row` (the Hedge comparison block's rows, converted onto the shared
+`.info-row` markup earlier in this stage) was never added to the flex/`justify-content:
+space-between` selector list at `scripts/build-interactive.js:819` — that rule only listed
+`.h-detail .info-row` and `.two-col-grid .info-row`. Result: the hedge comparison rows (Hedged
+TIS Net, Unhedged TIS Net, Hedge value vs unhedged) rendered as unstyled block-level `<div>`s —
+label and value stacked/collided with no gap or right-alignment. Partner's `.two-col-grid` rows
+were unaffected; only the Hedge cards.
+
+**Fix**: extended the existing selector list (no duplicated rule, no new properties) —
+```css
+.h-detail .info-row,
+.two-col-grid .info-row,
+.h-cmp .info-row,
+.info-block .info-row {
+```
+Pure CSS, one selector-list edit. No JS, no figure, no `pos`/`neg`/`neg`-class sign logic touched.
+
+**Step 2 — swept for other ungoverned `.info-row` usage**: grepped every `infoRow()` call site.
+Found one more instance of the identical gap: `renderPartner`'s `ep === 'TIS'` branch (the
+self-funded "Equity Structure" card, `scripts/build-interactive.js:3249-3260`) renders its three
+`infoRow()` calls (Cargo value / Partner funding (self) / Standalone = Adjusted = TIS net) inside
+`<div class="card card-body"><div class="info-block">`, not under `.h-detail`, `.two-col-grid`,
+or `.h-cmp` — same missing-flex symptom. This is squarely partner-family (the other branch of the
+same `renderPartner` function), so per the brief's "fix only if it is a hedge/partner-family row"
+instruction, `.info-block .info-row` was added to the same selector list (see diff above).
+`.info-block` is used exclusively inside `renderPartner` and `renderHedge`'s `h-detail-inner`
+(confirmed by grep — no other section uses it), so this addition is precise: it closes the gap on
+the previously-orphaned TIS branch and is a harmless no-op duplicate everywhere else it already
+matched via `.h-detail`/`.two-col-grid`.
+
+No other `.info-row` call site was found outside these four governed ancestors.
+
+**Not fixed (noted, not in scope for this low-effort pass)**: the TIS-branch's three rows still
+don't pick up the Stage 3 color/mono-font token treatment (`--g-text-slate` label / `--f-mono`
+`--fs-data` figure) that `.h-detail`/`.two-col-grid`/`.h-cmp` rows get from the separate rule at
+line ~1651 — that rule's selector list was intentionally left untouched here since the reported
+defect was specifically the layout/justification gap, not typography. Flagged as a possible
+follow-up, not fixed in this pass.
+
+### Engine safety — baseline vs after (this fix)
+
+| | Suite (`node test/invariants.js`) | All-USD guard (`node scripts/fingerprint.js`) |
+|---|---|---|
+| **Baseline** | `249 passed, 0 failed` | `a90288524a4c1d599a343959e978f9ae5df91d0fbbf6cd27e346feb9d5408162` |
+| **After** | `249 passed, 0 failed` | `a90288524a4c1d599a343959e978f9ae5df91d0fbbf6cd27e346feb9d5408162` |
+
+Byte-identical, as expected for a pure-CSS fix.
+
+### Re-screenshots
+
+`after/desktop-hedge.png` and `after/narrow-hedge.png` were overwritten in place (the `before/`
+pair is untouched — it still reflects Stage 2's pre-Stage-3 look, unaffected by this fix). Hashes
+confirmed to differ from the previous (broken-justification) versions:
+
+| File | Old `after/` sha256 (broken justification) | New `after/` sha256 (fixed) |
+|---|---|---|
+| `desktop-hedge.png` | `6484845bb39c87c486c3772a644bd9d200608bd56bf6e658032a3124d30a77b0` | `e64cd599a34061f8be61b8f1a2f7af6578764bb3e9afc776565605a26fb4f9e9` |
+| `narrow-hedge.png` | `22cdcca962bde660761f80c76bf5fd019d2e1d2599f63681691d8e7558ed470b` | `07a6fdd84ddd65e956f25224c3886cbd5117e10fd7948b7cd915f52c0538b660` |
+
+Both confirmed visually: label left / value right with proper gap, and the negative "Hedge value
+vs unhedged" (`−$10,140.00`) still renders in loss-red (`--g-loss`), unaffected by the layout fix.
