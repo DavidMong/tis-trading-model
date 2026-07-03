@@ -788,6 +788,7 @@ const REPORT_CSS = `
   --g-chrome-ink: var(--ink);
   --g-canvas:     var(--bg);
   --g-loss:       #991b1b;
+  --g-positive:   #15803d;
 }
 
 /* Header + Trade Parameters onto tokens (Step 2): values in --f-mono tabular. */
@@ -896,6 +897,85 @@ const REPORT_CSS = `
   text-align: right;
 }
 .info-row b.neg { color: var(--g-loss); }
+
+/* Profit Waterfall bridge chart (Stage 7, Step 1): reproduces build-interactive.js's hand-rolled
+   SVG bridge chart (buildWaterfallSteps/renderWaterfallChart, "Batch G") report-side —
+   report-renderer.js cannot import from build-interactive.js, so the geometry function is
+   duplicated in JS below and this is its matching CSS. Colored fill is reserved for the terminal
+   TIS Net Profit bar only; every intermediate/subtotal bar stays neutral white/bordered —
+   direction reads from bar position + the leading +/- sign on its value label, never from color
+   alone. New class names (.wfsvg-*) — no collision with reportCss's existing .wf-box/.wf-standalone/
+   etc rules, which stay untouched (report-pdf-renderer.js's waterfall is independent of both). */
+.wfsvg-wrap { padding: 20px 24px 4px; }
+.wfsvg { width: 100%; height: auto; display: block; overflow: visible; }
+.wfsvg-zero  { stroke: var(--g-hairline); stroke-width: 1; }
+.wfsvg-guide { stroke: var(--g-hairline); stroke-width: 1; stroke-dasharray: 3 3; }
+.wfsvg-bar   { stroke-width: 1.5; }
+.wfsvg-bar-neutral  { fill: var(--white); stroke: var(--g-hairline); }
+.wfsvg-bar-terminal { fill: var(--g-positive); stroke: #14532d; }
+.wfsvg-bar-loss     { fill: var(--g-loss); stroke: #7f1d1d; }
+.wfsvg-value {
+  font-family: var(--f-mono);
+  font-weight: 700;
+  font-size: 15px;
+  fill: var(--g-chrome-ink);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.wfsvg-collabels { position: relative; padding: 0 24px 12px; min-height: 46px; }
+.wfsvg-collabel { position: absolute; top: 0; text-align: center; padding: 0 4px; box-sizing: border-box; }
+.wfsvg-collabel-name {
+  font-family: var(--f-display);
+  font-size: var(--fs-label);
+  font-weight: 600;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--g-text-slate);
+}
+.wfsvg-collabel-sub {
+  font-family: var(--f-body);
+  font-size: var(--fs-caption);
+  color: var(--g-text-slate);
+  margin-top: 3px;
+  line-height: 1.3;
+}
+.wf-reconcile { color: var(--g-text-slate); }
+.wf-reconcile b {
+  font-family: var(--f-mono);
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--g-chrome-ink);
+}
+.wf-reconcile .wf-ok { color: var(--g-positive); font-weight: 600; }
+
+/* Sensitivities (Stage 7, Step 2): base-case row already gets the Stage 6 .data-table
+   tr.row-total treatment (weight + top hairline, no fill) once class="data-table" is added to
+   the table tag — no new CSS needed for that. Heat-cell colors below fix the SAME cascade bug
+   build-interactive.js's own Stage 4 already found and fixed: Stage 2's ".data-table tbody td.r"
+   rule (0,2,2 specificity) beats the bare ".sens-pos"/".sens-neg"/"-strong" classes (0,1,0),
+   silently clobbering their text color to flat ink once the table gains class="data-table".
+   Compound selectors at (0,3,2) beat it while reproducing the EXACT pre-existing color values
+   (reportCss's own .sens-pos/-strong greens, build-interactive.js's desaturated .sens-neg/-strong
+   greys) — copied verbatim from build-interactive.js's own fix, not re-derived. */
+.data-table tbody td.r.sens-pos        { color: #15803d; }
+.data-table tbody td.r.sens-pos-strong { color: #14532d; }
+.data-table tbody td.r.sens-neg        { color: #4b5563; }
+.data-table tbody td.r.sens-neg-strong { color: #374151; }
+
+/* Tornado chart figures onto tokens + mono tabular (bars/geometry unchanged — CSS-bar technique,
+   not build-interactive.js's newer SVG tornado, which is a distinct chart technology out of
+   this stage's scope). */
+.tn-axis-labels { font-size: var(--fs-label); color: var(--g-text-slate); }
+.tn-label { font-size: var(--fs-caption); color: var(--g-chrome-ink); }
+.tn-val, .tn-val-out {
+  font-family: var(--f-mono);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.tn-baseline-label { font-size: var(--fs-caption); color: var(--g-text-slate); }
+.tn-baseline-label b {
+  font-family: var(--f-mono);
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--g-chrome-ink);
+}
+.sens-note { color: var(--g-text-slate); font-size: var(--fs-caption); }
 `;
 
 
@@ -1115,39 +1195,105 @@ ${costHtml}
 ${taxHtml}`;
 }
 
+// Report bridge-chart step model (Stage 7, Step 1): reproduces build-interactive.js's own
+// buildWaterfallSteps() exactly — report-renderer.js cannot import from build-interactive.js, so
+// this is a hand-duplicated port. Uses res.profit.tisNetProfit (the SAME field the report's own
+// pre-Stage-7 waterfall already displayed), not tisNetAfterSurcharge (which build-interactive.js's
+// TIS-funded reconcile line uses) — no figure changes this stage, only how it's drawn. Bars float
+// between cumulative running totals read directly from res, never recomputed here.
+function buildWfSteps(res) {
+  const p = res.profit, qty = res.quantities, ep = res.equityProvider;
+  if (ep === 'TIS') {
+    const revenue = res.revenue.combinedUSD, net = p.tisNetProfit;
+    return [
+      { label: 'Revenue', sub: 'Combined channels', kind: 'total', value: revenue, before: 0, after: revenue, prefix: '' },
+      { label: 'All-In Cost', sub: 'Incl. irrecoverable VAT', kind: 'delta', before: revenue, after: net },
+      { label: 'TIS Net Profit', sub: 'Self-funded — no partner', kind: 'total', value: net, before: 0, after: net, prefix: '=', terminal: true },
+    ];
+  }
+  const standalone = p.standaloneProfit, adjusted = p.adjustedProfit, net = p.tisNetProfit;
+  return [
+    { label: 'Standalone Profit', sub: 'TIS as 100% owner', kind: 'total', value: standalone, before: 0, after: standalone, prefix: '' },
+    { label: 'Margin Foregone', sub: `${fmt.mt(qty.economic.partnerTonnes, 2)} partner tonnes`, kind: 'delta', before: standalone, after: adjusted },
+    { label: 'Adjusted Profit', sub: 'TIS retained tonnes share', kind: 'total', value: adjusted, before: 0, after: adjusted, prefix: '=' },
+    { label: 'Partner Cash Share', sub: `${fmt.pct(p.profitSharePct)} of adjusted`, kind: 'delta', before: adjusted, after: net },
+    { label: 'TIS Net Profit', sub: `${fmt.pct(1 - p.profitSharePct)} of adjusted`, kind: 'total', value: net, before: 0, after: net, prefix: '=', terminal: true },
+  ];
+}
+
+// SVG bridge-chart geometry (Stage 7, Step 1): reproduces build-interactive.js's own
+// renderWaterfallChart() exactly (viewBox, padding, bar/guide/label placement math) so the
+// report's chart is visually identical to the interactive app's. viewBox is a fixed logical
+// 1000x220 coordinate system, scaled responsively via width:100%.
+function renderWfChart(steps) {
+  const W = 1000, H = 220, padX = 16, padTop = 36, padBottom = 36;
+  const plotW = W - padX * 2, plotH = H - padTop - padBottom;
+  const n = steps.length;
+  const gap = n > 1 ? (plotW * 0.10) / (n - 1) : 0;
+  const barW = (plotW - gap * (n - 1)) / n;
+
+  const allLevels = steps.flatMap(s => [s.before, s.after]).concat([0]);
+  const domLo = Math.min(...allLevels), domHi = Math.max(...allLevels);
+  const domRange = (domHi - domLo) || 1;
+  function yFor(v) { return padTop + plotH - ((v - domLo) / domRange) * plotH; }
+
+  const bars = steps.map((s, i) => {
+    const x = padX + i * (barW + gap);
+    const yA = yFor(s.before), yB = yFor(s.after);
+    const yTop = Math.min(yA, yB);
+    const h = Math.max(1.5, Math.abs(yA - yB));
+    const isTerminal = !!s.terminal;
+    const cls = isTerminal ? (s.after < 0 ? 'wfsvg-bar-loss' : 'wfsvg-bar-terminal') : 'wfsvg-bar-neutral';
+
+    let valueText;
+    if (s.kind === 'total') {
+      valueText = s.prefix + fmt.usd(s.value);
+    } else {
+      const delta = s.after - s.before;
+      valueText = (delta < 0 ? '−' : '+') + fmt.usd(Math.abs(delta));
+    }
+    const placeAbove = (yTop - padTop) >= 16;
+    const labelY = placeAbove ? yTop - 10 : yTop + h + 16;
+    return { x, yTop, h, cls, valueText, labelY, mid: x + barW / 2, label: s.label, sub: s.sub };
+  });
+
+  const zeroY = yFor(0);
+  const zeroLine = `<line class="wfsvg-zero" x1="${padX}" y1="${zeroY.toFixed(1)}" x2="${W - padX}" y2="${zeroY.toFixed(1)}"></line>`;
+  const guides = [];
+  for (let i = 0; i < n - 1; i++) {
+    const xEnd = padX + i * (barW + gap) + barW;
+    const xStart = padX + (i + 1) * (barW + gap);
+    const y = yFor(steps[i].after);
+    guides.push(`<line class="wfsvg-guide" x1="${xEnd.toFixed(1)}" y1="${y.toFixed(1)}" x2="${xStart.toFixed(1)}" y2="${y.toFixed(1)}"></line>`);
+  }
+
+  const barsHtml = bars.map(b => `<g>
+    <title>${esc(b.label + ': ' + b.valueText)}</title>
+    <rect class="wfsvg-bar ${b.cls}" x="${b.x.toFixed(2)}" y="${b.yTop.toFixed(2)}" width="${barW.toFixed(2)}" height="${b.h.toFixed(2)}" rx="3"></rect>
+    <text class="wfsvg-value" x="${b.mid.toFixed(1)}" y="${b.labelY.toFixed(1)}" text-anchor="middle">${esc(b.valueText)}</text>
+  </g>`).join('');
+
+  const chartSummary = `Profit waterfall, ${steps.length} steps: ${bars.map(b => b.label + ' ' + b.valueText).join(', ')}`;
+  const svg = `<svg class="wfsvg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(chartSummary)}">
+    ${zeroLine}${guides.join('')}${barsHtml}
+  </svg>`;
+
+  const labels = bars.map(b => {
+    const xPct = (b.x / W * 100).toFixed(2), wPct = (barW / W * 100).toFixed(2);
+    return `<div class="wfsvg-collabel" style="left:${xPct}%;width:${wPct}%">
+      <div class="wfsvg-collabel-name">${esc(b.label)}</div>
+      <div class="wfsvg-collabel-sub">${esc(b.sub)}</div>
+    </div>`;
+  }).join('');
+
+  return `<div class="wfsvg-wrap">${svg}</div><div class="wfsvg-collabels">${labels}</div>`;
+}
+
 function profitWaterfall(res) {
   const p  = res.profit;
   const isTisFunded = res.equityProvider === 'TIS';
 
-  // TIS self-funded → simple 3-node Revenue → All-in Cost → TIS Net (no partner waterfall).
-  // Partner-funded → the 5-node standalone / margin-foregone / adjusted / partner-share / net waterfall.
-  const wf = isTisFunded
-    ? [
-        { cls:'wf-standalone', label:'Revenue',     amount: res.revenue.combinedUSD, sub:'Combined channels', prefix:'' },
-        { cls:'wf-deduct',     label:'All-In Cost', amount: res.cost.allInCost,      sub:'Incl. irrecoverable VAT', prefix:'−' },
-        { cls: p.tisNetProfit < 0 ? 'wf-net wf-loss' : 'wf-net', label:'TIS Net Profit', amount: p.tisNetProfit, sub:'Self-funded — no partner', prefix:'=' },
-      ]
-    : [
-        { cls:'wf-standalone', label:'Standalone Profit', amount: p.standaloneProfit, sub:'TIS as 100% owner', prefix:'' },
-        { cls:'wf-deduct',     label:'Margin Foregone',   amount: p.marginForegone,   sub:`${fmt.mt(res.quantities.economic.partnerTonnes, 2)} partner tonnes`, prefix:'−' },
-        { cls:'wf-adjusted',   label:'Adjusted Profit',   amount: p.adjustedProfit,   sub:'TIS retained tonnes share', prefix:'=' },
-        { cls:'wf-share',      label:'Partner Cash Share', amount: p.partnerCashProfitShare, sub:`${fmt.pct(p.profitSharePct)} of adjusted`, prefix:'−' },
-        { cls: p.tisNetProfit < 0 ? 'wf-net wf-loss' : 'wf-net', label:'TIS Net Profit', amount: p.tisNetProfit, sub:`${fmt.pct(1 - p.profitSharePct)} of adjusted`, prefix:'=' },
-      ];
-
-  const nodes = wf.map((n, i) => {
-    // FIX 3: Bold visible arrow using inline SVG chevron
-    const arrowSvg = `<svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M7 4l6 6-6 6" stroke="var(--slate)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-    const arrowHtml = i > 0 ? `<div class="wf-arrow">${arrowSvg}</div>` : '';
-    return `${arrowHtml}
-    <div class="wf-node">
-      <div class="wf-box ${n.cls}">
-        <div class="wf-box-label">${n.label}</div>
-        <div class="wf-box-amount">${n.prefix}${fmt.usd(n.amount)}</div>
-        <div class="wf-box-sub">${n.sub}</div>
-      </div>
-    </div>`;
-  }).join('');
+  const chartHtml = renderWfChart(buildWfSteps(res));
 
   const annRet = res.tisAnnualisedReturnOnCargo ?? res.tisAnnualisedReturn;
   const annBase = res.annualReturnBaseLabel || 'bank LC mobilised';
@@ -1170,9 +1316,7 @@ function profitWaterfall(res) {
 <section class="section" aria-labelledby="waterfall-heading">
   <h2 class="section-heading" id="waterfall-heading">Profit Waterfall</h2>
   <div class="card">
-    <div class="waterfall" role="region" aria-label="Profit waterfall">
-      ${nodes}
-    </div>
+    ${chartHtml}
     <div class="wf-reconcile">
       ${reconcileHtml}
       ${annRet != null ? `<span>Annualised return: <b>${fmt.pct(annRet)}</b> on ${esc(annBase)} &middot; ${res.financing.capitalLockupDays}d lockup</span>` : ''}
@@ -1187,7 +1331,7 @@ function partnerAndHedge(trade, res) {
   const f  = res.financing;
   const isTisFunded = res.equityProvider === 'TIS';
 
-  const subHead = (txt) => `<p style="font-family:var(--f-display);font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--slate);text-transform:uppercase;margin-bottom:8px">${txt}</p>`;
+  const subHead = (txt) => `<p style="font-family:var(--f-display);font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--g-text-slate);text-transform:uppercase;margin-bottom:8px">${txt}</p>`;
 
   // TIS self-funded → Equity Structure (no partner waterfall); partner-funded → Partner Deliverables.
   const partnerHtml = isTisFunded ? `
@@ -1552,7 +1696,7 @@ function sensitivitiesSection(sens) {
   <div class="card">
     ${tornadoChart(sens)}
     <div class="tbl-wrap" style="border-top:1px solid var(--border)">
-      <table aria-label="Sensitivities">
+      <table class="data-table" aria-label="Sensitivities">
         <thead>
           <tr><th>Lever</th><th class="r">TIS Net</th><th class="r">&Delta; vs Base</th></tr>
         </thead>
