@@ -1615,6 +1615,77 @@ input[type="number"].si { font-family: var(--f-mono); }
 .wfsvg-value { font-family: var(--f-mono); }
 .wfsvg-collabel-name { font-size: var(--fs-label); }
 .wfsvg-collabel-sub { font-size: var(--fs-caption); }
+
+/* ── Stage 3: Partner/Equity + Hedge Analysis, unified summary-strip ──────
+   One flat treatment for section bottom-line blocks: hairline-top + a
+   subtle neutral tint, never a heavy border box or semantic-color fill.
+   Applied via an added class (markup only, no rows renamed) to the Partner
+   principal tie-out box, the Hedge comparison block, and retrofitted onto
+   .cost-totals (deferred from Stage 2 as a distinct UI primitive) so all
+   three read identically. Compound selectors so this wins the cascade
+   regardless of position relative to each block's own base rule above. */
+.tie-out-box.summary-strip {
+  border: none;
+  border-top: 1px solid var(--g-hairline);
+  border-radius: 0;
+  background: var(--g-canvas);
+}
+.h-cmp.summary-strip {
+  border: none;
+  border-top: 1px solid var(--g-hairline);
+  background: var(--g-canvas);
+}
+.cost-totals.summary-strip {
+  border: none;
+  border-top: 1px solid var(--g-hairline);
+  background: var(--g-canvas);
+}
+
+/* Partner/Hedge info-row grammar: label left in --g-text-slate (AA-fixed
+   token, Stage 1), figure right in --f-mono with tabular-nums lining-nums.
+   Reuses the EXISTING .info-row markup (the infoRow() helper already used
+   throughout renderPartner/renderHedge) -- only the color/font tokens move,
+   no cell class renamed. Extends coverage to .h-cmp's rows (Stage 3 moves
+   those onto the same .info-row markup, see cmpBlock() below). */
+.h-detail .info-row span,
+.two-col-grid .info-row span,
+.h-cmp .info-row span {
+  color: var(--g-text-slate);
+}
+.h-detail .info-row b,
+.two-col-grid .info-row b,
+.h-cmp .info-row b {
+  font-family: var(--f-mono);
+  font-size: var(--fs-data);
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--g-chrome-ink);
+}
+.h-cmp .info-row { padding: var(--space-1) 0; }
+
+/* Semantic direction, scoped to the hedge-comparison figures only (does
+   NOT touch the page-wide .pos/.neg/.loss classes -- .neg is deliberately
+   slate elsewhere per Batch C, "expected structural negative", a separate
+   concern from this stage's brief). Any hedge-comparison figure that can
+   go negative (TIS net, hedge-value delta) renders loss-red when negative,
+   ink when positive -- the sign glyph (fmtUsd's leading "−", fmtUsdSign's
+   "+"/"−") is always present too, so direction never depends on color
+   alone. Compound selectors beat the unscoped reportCss .pos (green) /
+   this file's own .neg (slate) rules. */
+.h-cmp .info-row b.h-cmp-val.neg,
+.h-cmp .info-row b.h-cmp-delta.neg { color: var(--g-loss); }
+.h-cmp .info-row b.h-cmp-val.pos,
+.h-cmp .info-row b.h-cmp-delta.pos { color: var(--g-chrome-ink); }
+
+/* Hedge card title: onto the same eyebrow-label token pair as the
+   data-table headers (Stage 2) / section-block eyebrow (Stage 0), instead
+   of a raw 11px/--slate pair. */
+.h-card-title { font-size: var(--fs-label); color: var(--g-text-slate); }
+
+/* Route/basis-risk note text inside Hedge Analysis only (scoped to
+   .hedge-cards so the sidebar's other .defaults-note instances -- Deal/
+   Costs/Hedge tab field notes, Stage 1 territory -- are untouched): onto
+   the caption token + AA-fixed slate instead of the raw 10px/#94a3b8 pair. */
+.hedge-cards .defaults-note { font-size: var(--fs-caption); color: var(--g-text-slate); }
 `;
 }
 
@@ -3150,7 +3221,7 @@ function renderCost(res) {
       <thead><tr><th>#</th><th>Line</th><th>Category</th><th class="r">USD</th><th>Flag</th></tr></thead>
       <tbody>\${rows}\${vatBase}\${recRows}</tbody>
     </table></div>
-    <div class="cost-totals">
+    <div class="cost-totals summary-strip">
       <div class="cost-total-row"><span>All-in cost (incl. irrecoverable VAT):</span><b>\${fmtUsd(cost.allInCost)}</b></div>
       <div class="cost-total-row"><span>Recoverable VAT (timing only, s.155(4)):</span><b>\${fmtUsd(rv.recoverable)}</b></div>
       <div class="cost-total-row"><span>Landed cost / MT (ex-ship, excl. storage):</span><b>\${fmtUsd(cost.exShipLandedPerMT)}/MT</b></div>
@@ -3223,7 +3294,7 @@ function renderPartner(trade, res) {
         </div>\` : ''}
       </div>
     </div>
-    <div class="tie-out-box">
+    <div class="tie-out-box summary-strip">
       Principal tie-out: owed <b>\${fmtUsd(res.financing.partnerFunding)}</b> = product <b>\${fmtUsd(pd.principalTie?.returnedProductValue)}</b> + cash <b>\${fmtUsd(pd.principalTie?.returnedCash)}</b>
       \${pd.principalTie?.ok ? ' <span class="bdg bdg-recoverable">&#10003; OK</span>' : ' <span class="bdg bdg-confirm">MISMATCH</span>'}
     </div>
@@ -3258,13 +3329,15 @@ function renderHedge(trade, res) {
   }
 
   function cmpBlock(comp) {
-    if (!comp) return '<div class="h-cmp"><span class="muted" style="font-size:11px">Comparison not available</span></div>';
+    if (!comp) return '<div class="h-cmp summary-strip"><span class="muted" style="font-size:11px">Comparison not available</span></div>';
     const delta = comp.hedgeWorthItVsUnhedged;
     const dcls  = delta > 0 ? 'pos' : delta < 0 ? 'neg' : '';
-    return \`<div class="h-cmp">
-      <div class="h-cmp-row"><span class="h-cmp-lbl">Hedged TIS Net</span><b class="h-cmp-val">\${fmtUsd(comp.hedgedTisNet)}</b></div>
-      <div class="h-cmp-row"><span class="h-cmp-lbl">Unhedged TIS Net</span><b class="h-cmp-val">\${fmtUsd(comp.unhedgedTisNet)}</b></div>
-      <div class="h-cmp-row"><span class="h-cmp-lbl">Hedge value vs unhedged</span><b class="h-cmp-delta \${dcls}">\${fmtUsdSign(delta)}</b></div>
+    const hCls  = comp.hedgedTisNet   < 0 ? 'neg' : comp.hedgedTisNet   > 0 ? 'pos' : '';
+    const uCls  = comp.unhedgedTisNet < 0 ? 'neg' : comp.unhedgedTisNet > 0 ? 'pos' : '';
+    return \`<div class="h-cmp summary-strip">
+      <div class="info-row"><span>Hedged TIS Net</span><b class="h-cmp-val \${hCls}">\${fmtUsd(comp.hedgedTisNet)}</b></div>
+      <div class="info-row"><span>Unhedged TIS Net</span><b class="h-cmp-val \${uCls}">\${fmtUsd(comp.unhedgedTisNet)}</b></div>
+      <div class="info-row"><span>Hedge value vs unhedged</span><b class="h-cmp-delta \${dcls}">\${fmtUsdSign(delta)}</b></div>
       <p class="defaults-note" style="margin-top:6px">Cost or benefit of hedging vs running unhedged, given how the rate actually moved. Negative = the hedge cost its fee/financing because the rate stayed flat or moved in your favour (protection you didn&rsquo;t need to claim). Positive = the hedge paid off because the rate moved against you. The hedge locks your margin both ways — it trades the chance of a windfall for certainty.</p>
     </div>\`;
   }
