@@ -250,6 +250,51 @@ function css() {
   }
 }
 
+/* ── Stage 2: result tables (Pricing Ladder, Cost Build-Up, Tax Block) ──
+   Layers onto reportCss's generic table / thead th / tbody selectors AND
+   the .data-table rules above, using the EXISTING per-cell classes
+   renderLadder / renderCost / renderTax already emit (class="r" numeric
+   cells, class="muted" secondary text, class="ladder-current" the entered
+   tier) -- no cell class renamed, only class="data-table" added to the
+   <table> tag itself at each of the 4 call sites. Scope is exactly these
+   4 tables; other tables in the interactive DOM (e.g. Sensitivities) do
+   not carry this class and are unaffected. */
+.data-table thead th { background: none; }
+.data-table thead th.r { text-align: right; }
+.data-table tbody tr { border-bottom: 1px solid var(--g-hairline); }
+.data-table tbody tr:last-child { border-bottom: none; }
+.data-table tbody tr:hover { background: none; }
+.data-table tbody td.r {
+  font-family: var(--f-mono);
+  font-size: var(--fs-data);
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--g-chrome-ink);
+}
+.data-table tbody td.muted { color: var(--g-text-slate); }
+
+/* Entered/highlighted ladder tier: weight + hairline, never a heavy fill
+   (brief explicit). Removes reportCss's .ladder-current 6-percent-opacity
+   red wash; the existing thin left accent border and the existing bold
+   row weight (both set by reportCss's own .ladder-current / .ladder-current
+   td rules, untouched here) already carry the emphasis. */
+.data-table .ladder-current { background: none; }
+
+/* Status badges inside these tables (Recoverable-VAT, INDICATIVE,
+   UNVERIFIED): shape only, same colors -- the taxonomy and which flag
+   fires on which line is decided entirely in badge() / renderCost /
+   renderTax (untouched); this only tightens the pill corner radius. */
+.data-table .bdg { border-radius: 3px; }
+
+/* Ladder scale bar frame: guide hairlines top/bottom only -- deliberately
+   NOT touching horizontal padding (ladder-tier-pip / ladder-scale-tick
+   position via left:X% relative to .ladder-scale-bar's own box, computed
+   in ladderScale() -- untouched) or the existing vertical padding (tick
+   label headroom). */
+.ladder-scale-wrap.chart-frame {
+  border-top: 1px solid var(--g-hairline);
+  border-bottom: 1px solid var(--g-hairline);
+}
+
 /* ════ INTERACTIVE: full-viewport sidebar layout ══════════════════════════ */
 html, body { height: 100%; overflow: hidden; }
 body { display: flex; flex-direction: column; }
@@ -2926,7 +2971,7 @@ function ladderScale(values, names, cur, fmtLabel) {
     const pos = ((cur - lo) / range * 80 + 10).toFixed(1);
     tick = \`<div class="ladder-scale-tick" style="left:\${pos}%" data-label="\${esc(fmtLabel(cur))}"></div>\`;
   }
-  return \`<div class="ladder-scale-wrap" style="padding-top:28px">
+  return \`<div class="ladder-scale-wrap chart-frame" style="padding-top:28px">
         <div class="ladder-scale-bar">\${pips}\${tick}</div>
       </div>\`;
 }
@@ -2990,7 +3035,7 @@ function renderLadder(trade, res, ladder) {
     // single-ladder look for ex-ship-only / legacy trades — no regression).
     const subHead = bothLadders ? '<h3 class="ladder-sub">Ex-Ship $/MT Ladder</h3>' : '';
     exShipBlock = \`\${subHead}\${scaleHtml}
-    <div class="tbl-wrap"><table>
+    <div class="tbl-wrap"><table class="data-table">
       <thead><tr><th>Tier</th><th class="r">Price/MT</th><th class="r">Margin of Sell</th><th class="r">Markup on Landed</th><th class="r">Spread/MT</th><th class="r">TIS Net</th></tr></thead>
       <tbody>\${tierRows}</tbody>
     </table></div>\`;
@@ -3024,7 +3069,7 @@ function renderLadder(trade, res, ladder) {
       </tr>\`;
     }).join('');
     depotBlock = \`<h3 class="ladder-sub">Depot ₦/L Ladder</h3>\${depotScaleHtml}
-    <div class="tbl-wrap"><table>
+    <div class="tbl-wrap"><table class="data-table">
       <thead><tr><th>Tier</th><th class="r">Price ₦/L</th><th class="r">Spread ₦/L</th><th class="r">Margin %</th><th class="r">Markup on Landed</th><th class="r">TIS Net</th></tr></thead>
       <tbody>\${depotRows}</tbody>
     </table></div>\`;
@@ -3087,21 +3132,21 @@ function renderCost(res) {
 
   const rv = cost.recoverableVat;
   const sb = cost.servicesBucket;
-  const vatBase = \`<tr style="border-top:2px solid var(--border);background:var(--bg)">
+  const vatBase = \`<tr class="total" style="border-top:1px solid var(--g-hairline)">
     <td colspan="2"><b>VAT base (services bucket)</b><div class="legal-ref">\${sb.composition.map(x => esc(x.label)).join(', ')}</div></td>
-    <td class="muted" style="background:var(--bg)">% of services</td>
-    <td class="r" style="background:var(--bg)">\${fmtUsd(sb.sum)}</td>
-    <td style="background:var(--bg)"></td>
+    <td class="muted">% of services</td>
+    <td class="r">\${fmtUsd(sb.sum)}</td>
+    <td></td>
   </tr>\`;
-  const recRows = rv.lines.map(l => \`<tr class="tc-rec-row" style="background:var(--bg)">
-    <td colspan="2" class="muted" style="padding-left:22px;background:var(--bg)">↩ \${esc(l.label)} (recoverable s.155(4))</td>
-    <td style="background:var(--bg)"></td><td class="r muted" style="background:var(--bg)">\${fmtUsd(l.amount)}</td><td style="background:var(--bg)"></td>
+  const recRows = rv.lines.map(l => \`<tr class="tc-rec-row">
+    <td colspan="2" class="muted" style="padding-left:22px">↩ \${esc(l.label)} (recoverable s.155(4))</td>
+    <td></td><td class="r muted">\${fmtUsd(l.amount)}</td><td></td>
   </tr>\`).join('');
 
   return \`<section class="section" aria-labelledby="cost-h">
   <h2 class="section-heading" id="cost-h">Cost Build-Up</h2>
   <div class="card">
-    <div class="tbl-wrap"><table class="cost-table">
+    <div class="tbl-wrap"><table class="cost-table data-table">
       <thead><tr><th>#</th><th>Line</th><th>Category</th><th class="r">USD</th><th>Flag</th></tr></thead>
       <tbody>\${rows}\${vatBase}\${recRows}</tbody>
     </table></div>
@@ -3321,19 +3366,19 @@ function renderTax(res) {
   </tr>\`).join('');
 
   // Recoverable VAT callout (timing note)
-  const recBox = \`<tr style="background:var(--bg);border-top:2px solid var(--border)">
-    <td colspan="2" style="background:var(--bg)">
+  const recBox = \`<tr class="total">
+    <td colspan="2">
       <span class="muted" style="font-size:11px">
         ↩ <b>Recoverable input VAT (s.155(4))</b> — cash-flow timing only, excluded from cost.
         Apportioned at \${(rv.taxableSupplyProportion*100).toFixed(0)}% taxable supply:
         <b>\${fmtUsd(rv.recoverable)}</b> recoverable · <b>\${fmtUsd(rv.irrecoverable)}</b> irrecoverable (IS a cost).
       </span>
     </td>
-    <td class="r muted" style="background:var(--bg)">\${fmtUsd(rv.recoverable)}</td>
+    <td class="r muted">\${fmtUsd(rv.recoverable)}</td>
   </tr>\`;
 
   // Fossil-fuel surcharge row (toggle-gated)
-  const surRow = \`<tr style="border-top:2px solid var(--border)">
+  const surRow = \`<tr style="border-top:1px solid var(--g-hairline)">
     <td><b>Fossil-fuel surcharge (5%)</b>
       <div class="legal-ref">NTA 2025 s.158–161; commences on Gazette date (s.160)</div>
     </td>
@@ -3351,7 +3396,7 @@ function renderTax(res) {
   return \`<section class="section" aria-labelledby="tax-h">
   <h2 class="section-heading" id="tax-h">Tax Block</h2>
   <div class="card">
-    <div class="tbl-wrap"><table class="cost-table">
+    <div class="tbl-wrap"><table class="cost-table data-table">
       <thead><tr><th>Tax Line</th><th class="r">Amount (USD)</th><th>Flag</th></tr></thead>
       <tbody>\${taxRows}\${recBox}\${surRow}</tbody>
     </table></div>
