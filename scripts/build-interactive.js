@@ -90,8 +90,11 @@ function css() {
   /* Font stacks — --f-mono is new (Plex Mono, CDN-loaded + self-hosted via
      report-fonts.js's 'TIS Mono' face for the PDF pipeline, not yet wired
      into report-pdf-renderer.js this stage). --f-display/--f-body are NOT
-     repointed here — reportCss's existing Space Grotesk/IBM Plex Sans values
-     stay exactly as they are; only the report-stage diff moves those. */
+     repointed here — this Stage 0 diff left reportCss's Space Grotesk/IBM
+     Plex Sans values as they were; Stage 5 later repointed --f-display to
+     IBM Plex Sans and dropped Space Grotesk entirely (see reportCss's own
+     :root, scripts/report-renderer.js). Comment kept as historical record
+     of the original Stage 0 scope decision, not current state. */
   --f-mono: 'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
 
   /* Type scale (px), named by role. data/value/kpi/display are set to use
@@ -2051,7 +2054,7 @@ const html = `<!DOCTYPE html>
 <link rel="icon" type="image/svg+xml" href="${faviconDataUri}">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 ${sharedCss}
 </style>
