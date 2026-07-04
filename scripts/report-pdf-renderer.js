@@ -232,6 +232,12 @@ tr.row-current td { background: #fbfbf6; font-weight: 600; }
 .pos  { color: var(--pos); }
 .neg  { color: var(--slate); }   /* structural negatives are slate, never alarm-red */
 .loss { color: var(--loss); }
+/* Stage 10 coherence fix: sensitivities-table negative deltas match the interactive
+   dashboard's / HTML report's .sens-neg heat-text color (#4b5563) exactly, rather than the
+   lighter --slate used for other structural negatives (hedge cost delta etc.) — one consistent
+   grey for "this sensitivity swings TIS net down" across all three surfaces. Sign (+/&minus;)
+   still carries direction on its own regardless of color. */
+.sens-neg { color: #4b5563; }
 .totline { font-weight: 600; }
 
 /* ── Pills (status badges) ── */
@@ -605,7 +611,10 @@ function profitWaterfall(res) {
     const sorted = [...sens.scenarios].sort((a, b) => Math.abs(b.deltaVsBase) - Math.abs(a.deltaVsBase)).slice(0, 6);
     const rows = sorted.map(s => {
       const sign = s.deltaVsBase >= 0 ? '+' : '';
-      const cls  = s.deltaVsBase >= 0 ? 'pos' : 'neg';
+      // Matches the interactive dashboard's / HTML report's .sens-neg heat-text color
+      // (#4b5563) so a sensitivity delta reads the same shade of grey on every surface —
+      // not the plain .neg slate used for other structural negatives (e.g. hedge deltas).
+      const cls  = s.deltaVsBase >= 0 ? 'pos' : 'sens-neg';
       return `<tr><td>${esc(s.lever)}</td><td class="r">${fmt.usd(s.tisNet)}</td><td class="r ${cls}">${sign}${fmt.usd(s.deltaVsBase)}</td></tr>`;
     }).join('');
     sensBlock = `

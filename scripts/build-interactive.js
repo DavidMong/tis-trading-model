@@ -226,28 +226,13 @@ function css() {
 .chart-frame { padding: 0 var(--space-4) var(--space-2); }
 .chart-frame-guide { stroke: var(--g-hairline); stroke-width: 1; }
 
-/* field-row grammar: label eyebrow + input + status pip + unit, on one row.
-   Reference definition only this stage — not yet applied to the Deal/Costs/
-   Hedge tab fields (that's the field-editor's own staged diff); the .ir/.si/
-   .pip classes those tabs use today are untouched. */
-.field-row { display: flex; flex-direction: column; gap: 3px; }
-.field-row-top { display: flex; align-items: center; gap: 6px; }
-.field-row-label {
-  font-family: var(--f-body);
-  font-size: var(--fs-label);
-  color: var(--g-text-slate);
-  text-transform: uppercase;
-  letter-spacing: .04em;
-}
-.field-row-unit { font-family: var(--f-body); font-size: var(--fs-caption); color: var(--g-text-slate); }
-
 /* Motion: transform/opacity only, per Batch G tokens above. Honors
    prefers-reduced-motion by collapsing all durations to near-zero — this is
    additive (does not remove any existing transition property), matching the
    pattern already used for .results-sticky-kpi below. */
 @media (prefers-reduced-motion: reduce) {
-  .section-block, .kpi-atom, .chart-frame, .field-row,
-  .section-block *, .kpi-atom *, .chart-frame *, .field-row * {
+  .section-block, .kpi-atom, .chart-frame,
+  .section-block *, .kpi-atom *, .chart-frame * {
     transition-duration: .01ms !important;
     animation-duration: .01ms !important;
   }
@@ -1101,12 +1086,16 @@ body { font-feature-settings: "kern" 1, "liga" 1; text-rendering: optimizeLegibi
    (the .wf-row/.wf-box overrides that used to live here are gone — Batch G
    replaced the card-row markup with an SVG bridge chart; see the new
    .wfsvg-* rules above. The underlying .wf-box/.wf-deduct/etc classes in
-   reportCss are untouched — the PDF's own waterfall still uses them. Main's
-   independent "Batch G v2" card color system, which restyled the now-defunct
-   .wf-box card markup for this dashboard, was dropped as dead code during
-   the dashboard-dataviz-batch-g / main merge: the dashboard no longer emits
+   reportCss are NOT consumed by the PDF — report-pdf-renderer.js has its own
+   independent waterfall markup (.wf-node/.wf-op/.wf-amt/.wf-sub in its own
+   PDF_CSS, Stage 9), and no other surface emits .wf-box markup either (grep
+   confirms zero HTML call sites across the repo). Main's independent
+   "Batch G v2" card color system, which restyled the now-defunct .wf-box
+   card markup for this dashboard, was dropped as dead code during the
+   dashboard-dataviz-batch-g / main merge: the dashboard no longer emits
    .wf-box divs at all, so those overrides had no matching markup left to
-   target. The PDF report keeps its own defaults from reportCss untouched.) */
+   target. The .wf-box rules in reportCss are themselves dead CSS with no
+   remaining consumer — left in place, out of this stage's scope.) */
 /* reportCss uses display:flex+gap on .wf-reconcile but content is inline;
    override to block so text wraps naturally with consistent line spacing.
    Promoted to section-header weight (ink, semibold, --type-value) — was
