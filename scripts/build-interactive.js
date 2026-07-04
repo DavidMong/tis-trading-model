@@ -1201,8 +1201,10 @@ body { font-feature-settings: "kern" 1, "liga" 1; text-rendering: optimizeLegibi
 /* ── Tornado rows — hand-rolled SVG diverging bars (Batch G) ─────────────────
    Replaces the old .tn-row/.tn-bars/.tn-half/.tn-bar CSS-width-div bars (now
    dead in this file — reportCss's own .tn-* classes are untouched, the PDF's
-   tornado still uses them). Same grid layout (150px label | 1fr bars) and the
-   same BAR/THRESH proportions as before, just drawn as SVG <rect>s. */
+   tornado still uses them). Same grid layout (150px label | 1fr bars), same
+   BAR proportion as before, just drawn as SVG <rect>s. The inside/outside
+   label placement (renderTornadoRow) moved off the old flat THRESH cutoff to
+   a width-aware check in Stage 8 — see that function's own comment. */
 .tnsvg-row {
   display: grid;
   grid-template-columns: 150px 1fr;
@@ -3543,12 +3545,11 @@ function pairLeverScenarios(scenarios) {
 // <text> glyphs along with the bars. Percentage coordinates sidestep that
 // entirely — font-size is a real, undistorted CSS px value.
 function renderTornadoRow(row, maxAbs) {
-  const BAR = 52, THRESH = 13; // unchanged from the prior CSS-bar version
+  const BAR = 52; // unchanged from the prior CSS-bar version
   const negPct = row.neg ? +(Math.abs(row.neg.deltaVsBase) / maxAbs * BAR).toFixed(1) : 0;
   const posPct = row.pos ? +(Math.abs(row.pos.deltaVsBase) / maxAbs * BAR).toFixed(1) : 0;
   const negVal = row.neg ? fmtUsd(row.neg.deltaVsBase) : '';
   const posVal = row.pos ? (row.pos.deltaVsBase >= 0 ? '+' : '') + fmtUsd(row.pos.deltaVsBase) : '';
-  const negIn  = negPct >= THRESH, posIn = posPct >= THRESH;
 
   // negPct/posPct are "% of one half" (0..BAR=52), matching the prior CSS
   // version's width:X% of the 50%-wide .tn-half. Halve again for "% of the
@@ -3557,6 +3558,23 @@ function renderTornadoRow(row, maxAbs) {
   // the old .tn-bar{min-width:4px}.
   const negW = row.neg ? Math.max(negPct / 2, 0.5) : 0;
   const posW = row.pos ? Math.max(posPct / 2, 0.5) : 0;
+
+  // Width-aware inside/outside decision (Stage 8 fix, replaces the old flat THRESH=13 cutoff).
+  // A label placed INSIDE its bar grows FROM the bar's outer edge TOWARD the spine (x=50%) by
+  // design -- that only stays inside the bar if the bar is actually wider than the label text.
+  // THRESH alone never checked that: a bar could clear THRESH while still being narrower than
+  // its own (fixed 12px font) text, so the inward-growing label crossed the spine and collided
+  // with the opposite label. Reproduced with FX NAFEM (-$28,483.97 tiny bar / +$222,316.24 at a
+  // bar that cleared THRESH=13 but not its own text width) against an ICE-sized maxAbs.
+  // CHAR_PCT/MARGIN_PCT conservatively estimate a currency string's rendered width as a percent
+  // of the row's FULL width (same basis as negW/posW), calibrated against this app's own
+  // narrowest supported layout (700px "narrow" screenshots) so the check stays safe at any wider
+  // viewport too -- intentionally not a live DOM measurement, so it's viewport-agnostic and
+  // doesn't need a second render pass.
+  const CHAR_PCT = 1.5, MARGIN_PCT = 2;
+  const fitsInside = (val, w) => w >= val.length * CHAR_PCT + MARGIN_PCT;
+  const negIn = row.neg && fitsInside(negVal, negW);
+  const posIn = row.pos && fitsInside(posVal, posW);
 
   const negRect = row.neg
     ? \`<g><title>\${esc(row.label + ' (-10%): ' + negVal)}</title><rect class="tnsvg-bar tnsvg-bar-neg" x="\${(50 - negW).toFixed(2)}%" y="15%" width="\${negW.toFixed(2)}%" height="70%" rx="3"></rect></g>\`

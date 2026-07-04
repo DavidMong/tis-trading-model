@@ -1634,14 +1634,26 @@ function tornadoChart(sens) {
   rows.sort((a, b) => b.impact - a.impact);
 
   const BAR_PCT = 46;
-  const INSIDE_THRESHOLD = 13; // bar must be >= 13% wide to fit label inside
+  // Width-aware inside/outside decision (Stage 8 fix, replaces the old flat
+  // INSIDE_THRESHOLD=13 cutoff) — mirrors build-interactive.js's renderTornadoRow fix exactly:
+  // a label placed inside its bar grows FROM the bar's outer edge TOWARD the row's center by
+  // design (see the tn-val/tn-val-out markup below), so it only stays inside the bar if the bar
+  // is actually wider than its own (fixed-size font) text. A flat percentage threshold never
+  // checked that, so a bar could clear it while still being narrower than its label, and the
+  // inward-growing text ran past center into the opposite half's label. CHAR_PCT/MARGIN_PCT
+  // estimate a currency string's rendered width as a percent of this row's own basis; this file's
+  // negPct/posPct are already "% of the HALF row" width (BAR_PCT applies directly, no further
+  // halving, unlike the interactive SVG version) — so the same underlying per-character estimate
+  // is doubled here (1.5%/char of the FULL row == 3%/char of the HALF row).
+  const CHAR_PCT = 3, MARGIN_PCT = 4;
+  const fitsInside = (val, pct) => pct >= val.length * CHAR_PCT + MARGIN_PCT;
   const rowHtml = rows.filter(row => row.impact > 1).map(row => {
     const negPct = row.neg ? +(Math.abs(row.neg.deltaVsBase) / maxAbs * BAR_PCT).toFixed(1) : 0;
     const posPct = row.pos ? +(Math.abs(row.pos.deltaVsBase) / maxAbs * BAR_PCT).toFixed(1) : 0;
     const negVal = row.neg ? fmt.usd(row.neg.deltaVsBase) : '';
     const posVal = row.pos ? (row.pos.deltaVsBase >= 0 ? '+' : '') + fmt.usd(row.pos.deltaVsBase) : '';
-    const negInside = negPct >= INSIDE_THRESHOLD;
-    const posInside = posPct >= INSIDE_THRESHOLD;
+    const negInside = row.neg && fitsInside(negVal, negPct);
+    const posInside = row.pos && fitsInside(posVal, posPct);
     const negBar = row.neg ? `<div class="tn-bar tn-neg" style="width:${negPct}%">${negInside ? `<span class="tn-val">${esc(negVal)}</span>` : ''}</div>` : '';
     const posBar = row.pos ? `<div class="tn-bar tn-pos" style="width:${posPct}%">${posInside ? `<span class="tn-val">${esc(posVal)}</span>` : ''}</div>` : '';
     return `
