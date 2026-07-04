@@ -100,18 +100,22 @@ body {
   font-size: 10.5pt;
   line-height: 1.5;
   letter-spacing: 0;   /* explicit zero — Chromium PDF can infer non-zero from embedded data-URI fonts */
-  /* tnum removed from body: Inter's tnum GSUB lookup substitutes a 0.19em-wider tabular hyphen,
-     causing "ex - ship", "TIS - PROFOGAS", "2026 - 06 - 25" gaps on ALL running text.
-     Tabular figures are applied per-element via font-variant-numeric:tabular-nums on .r,
-     .kpi-value, .glance-value, .wf-amt, .dl dd, .reconcile b, .tbl-id, .section-num, .tnum */
+  /* tnum kept OFF body: a global tabular-nums switches the font's tnum GSUB lookup for
+     ALL glyphs including the plain hyphen, which several fonts (Inter, confirmed) render
+     ~0.19em wider under tnum — "ex - ship", "TIS - PROFOGAS", "2026 - 06 - 25" gaps on
+     running text. Kept scoped per-element after the repoint to Plex Sans as the same
+     precaution. Tabular figures are applied per-element via font-variant-numeric:tabular-nums
+     (now also 'TIS Mono') on .r, .kpi-value, .glance-value, .wf-amt, .dl dd, .reconcile b,
+     .tbl-id, .section-num, .tnum */
 }
 
 /* ── Type scale ── */
 h1, h2, h3 { font-weight: 600; letter-spacing: -0.01em; line-height: 1.2; }
-/* Editorial serif for the cover title + numbered section headers (display only). */
-.serif { font-family: 'TIS Serif', Georgia, 'Times New Roman', serif; }
+/* Display treatment for the cover title + numbered section headers — Plex Sans at
+   display weight (700) carries the hierarchy that used to come from a serif face. */
+.serif { font-family: 'TIS Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif; font-weight: 700; }
 .muted  { color: var(--slate); }
-.tnum   { font-variant-numeric: tabular-nums; }
+.tnum   { font-family: 'TIS Mono', 'SF Mono', Menlo, monospace; font-variant-numeric: tabular-nums; }
 
 /* ════════ COVER (page 1) ════════ */
 .cover {
@@ -128,8 +132,8 @@ h1, h2, h3 { font-weight: 600; letter-spacing: -0.01em; line-height: 1.2; }
 }
 .cover-rule { height: 2.5px; width: 64px; background: var(--accent); margin: 16px 0 30px; }
 .cover-title {
-  font-family: 'TIS Serif', Georgia, 'Times New Roman', serif;
-  font-size: 31pt; font-weight: 600; letter-spacing: -0.015em; line-height: 1.06;
+  font-family: 'TIS Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  font-size: 31pt; font-weight: 700; letter-spacing: -0.02em; line-height: 1.06;
 }
 .cover-tradename { font-size: 15pt; font-weight: 400; letter-spacing: 0; color: var(--slate); margin-top: 12px; max-width: 150mm; }
 .cover-id {
@@ -148,8 +152,8 @@ h1, h2, h3 { font-weight: 600; letter-spacing: -0.01em; line-height: 1.2; }
    deliberate. Roman serif with a short brand tick (red = cover accent, allowed). */
 .cover-statement {
   display: flex; align-items: baseline; gap: 13px;
-  font-family: 'TIS Serif', Georgia, 'Times New Roman', serif;
-  font-size: 12.5pt; color: var(--slate); letter-spacing: 0;
+  font-family: 'TIS Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  font-size: 12.5pt; font-weight: 500; color: var(--slate); letter-spacing: 0;
 }
 .cover-statement::before {
   content: ""; flex: 0 0 auto; width: 20px; height: 2px;
@@ -174,12 +178,13 @@ h1, h2, h3 { font-weight: 600; letter-spacing: -0.01em; line-height: 1.2; }
   break-after: avoid;
 }
 .section-num {
+  font-family: 'TIS Mono', 'SF Mono', Menlo, monospace;
   font-size: 11pt; font-weight: 700; color: var(--accent);
   font-variant-numeric: tabular-nums; min-width: 16px;
 }
 .section-title {
-  font-family: 'TIS Serif', Georgia, 'Times New Roman', serif;
-  font-size: 15.5pt; font-weight: 600; letter-spacing: -0.005em;
+  font-family: 'TIS Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  font-size: 15.5pt; font-weight: 700; letter-spacing: -0.01em;
 }
 .section-kicker { margin-left: auto; font-size: 9pt; font-weight: 400; color: var(--slate); letter-spacing: 0; }
 .section-intro { font-size: 10pt; color: var(--slate); margin: -4px 0 14px; max-width: 165mm; }
@@ -194,7 +199,7 @@ h3.block-head:first-child { margin-top: 4px; }
 .kpi { flex: 1; padding: 16px 16px 14px; border-left: 1px solid var(--hair); }
 .kpi:first-child { border-left: none; }
 .kpi-label { font-size: 8pt; font-weight: 600; text-transform: uppercase; color: var(--slate); }
-.kpi-value { font-size: 21pt; font-weight: 600; letter-spacing: -0.02em; margin-top: 7px; font-variant-numeric: tabular-nums; line-height: 1.05; }
+.kpi-value { font-family: 'TIS Mono', 'SF Mono', Menlo, monospace; font-size: 21pt; font-weight: 600; letter-spacing: -0.02em; margin-top: 7px; font-variant-numeric: tabular-nums; line-height: 1.05; }
 .kpi-value.is-loss { color: var(--loss); }
 .kpi-value.is-pos  { color: var(--ink); }
 .kpi-note { font-size: 8.5pt; color: var(--slate); margin-top: 6px; line-height: 1.35; }
@@ -203,7 +208,8 @@ h3.block-head:first-child { margin-top: 4px; }
 .glance { display: flex; flex-wrap: wrap; gap: 0; margin-top: 16px; border-top: 1px solid var(--hair); }
 .glance-item { width: 25%; padding: 11px 4px 11px 0; }
 .glance-label { font-size: 8pt; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--slate); }
-.glance-value { font-size: 11pt; font-weight: 500; margin-top: 3px; font-variant-numeric: tabular-nums; }
+.glance-value { font-family: 'TIS Mono', 'SF Mono', Menlo, monospace; font-size: 11pt; font-weight: 500; margin-top: 3px; font-variant-numeric: tabular-nums; }
+.glance-value.is-text { font-family: 'TIS Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif; font-variant-numeric: normal; }
 .glance-sub   { font-size: 8pt; color: var(--slate); margin-top: 2px; }
 
 /* ── Tables — minimal, hairline rows, decimal-aligned numerics ── */
@@ -217,8 +223,8 @@ th {
 }
 td { padding: 6px 9px; border-bottom: 1px solid var(--hair-2); vertical-align: top; }
 tr { break-inside: avoid; }
-.r { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.tbl-id { color: var(--slate); font-variant-numeric: tabular-nums; width: 28px; }
+.r { font-family: 'TIS Mono', 'SF Mono', Menlo, monospace; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tbl-id { font-family: 'TIS Mono', 'SF Mono', Menlo, monospace; color: var(--slate); font-variant-numeric: tabular-nums; width: 28px; }
 .cat { color: var(--slate); font-size: 8.5pt; }
 tr.row-total td { border-top: 1.5px solid var(--ink); border-bottom: none; font-weight: 600; padding-top: 9px; }
 tr.row-recoverable td { background: #fafbfc; }
@@ -241,7 +247,7 @@ tr.row-current td { background: #fbfbf6; font-weight: 600; }
 /* ── Definition lists (key/value blocks) ── */
 .dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 18px; font-size: 9.5pt; align-items: baseline; }
 .dl dt { color: var(--slate); }
-.dl dd { text-align: right; font-variant-numeric: tabular-nums; }
+.dl dd { font-family: 'TIS Mono', 'SF Mono', Menlo, monospace; text-align: right; font-variant-numeric: tabular-nums; }
 .dl dd b { font-weight: 600; }
 
 /* ── Two-column layout ── */
@@ -269,11 +275,11 @@ tr.row-current td { background: #fbfbf6; font-weight: 600; }
 .wf-node.is-loss { border-color: var(--loss); }
 .wf-op { align-self: center; color: var(--slate); font-size: 13pt; font-weight: 400; flex: 0 0 auto; }
 .wf-label { font-size: 8pt; font-weight: 600; text-transform: uppercase; color: var(--slate); }
-.wf-amt { font-size: 13.5pt; font-weight: 600; margin-top: 5px; font-variant-numeric: tabular-nums; }
+.wf-amt { font-family: 'TIS Mono', 'SF Mono', Menlo, monospace; font-size: 13.5pt; font-weight: 600; margin-top: 5px; font-variant-numeric: tabular-nums; }
 .wf-amt.is-loss { color: var(--loss); }
 .wf-sub { font-size: 8pt; color: var(--slate); margin-top: 4px; line-height: 1.3; }
 .reconcile { font-size: 9pt; color: var(--slate); margin-top: 12px; padding-top: 9px; border-top: 1px solid var(--hair-2); }
-.reconcile b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.reconcile b { font-family: 'TIS Mono', 'SF Mono', Menlo, monospace; color: var(--ink); font-variant-numeric: tabular-nums; }
 .ok-mark { color: var(--pos); font-weight: 600; }
 .warn-mark { color: var(--loss); font-weight: 600; }
 
@@ -398,7 +404,7 @@ function executiveSummary(trade, res) {
   const glanceHtml = glance.map(g => `
     <div class="glance-item">
       <div class="glance-label">${g.label}</div>
-      <div class="glance-value"${g.text ? ' style="font-variant-numeric:normal"' : ''}>${g.value}</div>
+      <div class="glance-value${g.text ? ' is-text' : ''}">${g.value}</div>
       ${g.sub ? `<div class="glance-sub">${g.sub}</div>` : ''}
     </div>`).join('');
 
