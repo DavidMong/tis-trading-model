@@ -8,6 +8,8 @@ const { buildHedge } = require('../core/hedge');
 const { resolveFxRates, exShipCurrencyShares } = require('../core/fx');
 const { buildFxHedge } = require('../core/fx-hedge');
 const { normalizeLegs, computeLegRevenue } = require('../core/revenue');
+const { resolvePurchasePrice, resolveSaleLegPrices } = require('../core/pricing');
+const { computeBasis } = require('../core/basis');
 const { num, positive, nonNegative, proportion, oneOf, sumToOne, computedPositive } = require('../core/validate');
 
 // UNIFIED, fully-configurable trade flow. Sale revenue is a PER-LEG model (engine/core/revenue.js):
@@ -37,11 +39,25 @@ const { num, positive, nonNegative, proportion, oneOf, sumToOne, computedPositiv
 
 function validateTrade(trade, deliveredQty, ch, native) {
   positive(deliveredQty, 'cargo.deliveredQtyMT');
-  num(trade.market.ice.value, 'market.ice.value');
-  num(trade.market.fobPremium.value, 'market.fobPremium.value');
-  num(trade.freight.tcRatePerDay, 'freight.tcRatePerDay');
-  nonNegative(trade.freight.charterDays, 'freight.charterDays');
-  nonNegative(trade.freight.demurrageDays, 'freight.demurrageDays');
+  if (trade.market.purchasePrice) {
+    // INDEXED pricing: the formula self-validates in engine/core/pricing.js (refs, quotes, collars).
+  } else {
+    num(trade.market.ice.value, 'market.ice.value');
+    num(trade.market.fobPremium.value, 'market.fobPremium.value');
+  }
+  const freightMode = (trade.freight && trade.freight.mode) || 'tc';
+  if (freightMode === 'tc') {
+    num(trade.freight.tcRatePerDay, 'freight.tcRatePerDay');
+    nonNegative(trade.freight.charterDays, 'freight.charterDays');
+    nonNegative(trade.freight.demurrageDays, 'freight.demurrageDays');
+  } else {
+    num(trade.freight.demurrageUsd || 0, 'freight.demurrageUsd');
+    if (freightMode === 'voyage_lumpsum') num(trade.freight.lumpsumUsd, 'freight.lumpsumUsd');
+    else if (freightMode === 'worldscale') {
+      num(trade.freight.wsPoints, 'freight.wsPoints');
+      if (trade.freight.flatRateTotalUsd == null) num(trade.freight.flatRateUsdPerMT, 'freight.flatRateUsdPerMT');
+    } else throw new Error(`Invalid input: freight.mode '${freightMode}' (tc | voyage_lumpsum | worldscale)`);
+  }
   num(trade.financing.creditRate, 'financing.creditRate');
   num(trade.financing.lcFeePct, 'financing.lcFeePct');
   positive(trade.financing.financingDays, 'financing.financingDays');
@@ -67,22 +83,47 @@ function computeTrade(trade, opts = {}) {
   const ch = trade.channels || { exShipPct: 1, depotPct: 0 };
   validateTrade(trade, deliveredQty, ch, native);
 
-  // 0. Effective ICE. The physical FOB purchase FLOATS at ICE; `market.ice.final` is the
-  //    SETTLEMENT/at-payment print. When set, it is the single ICE that drives BOTH the landed cost
-  //    AND the swap reference — one shared value, never a second reference on the same tonnes, so the
-  //    swap (hedged tonnes) and the physical (full cargo) offset cleanly, and partner principal/tonnes
-  //    recompute at the new landed cost (self-offset at par). When BLANK it is exactly the live value,
-  //    so `effTrade === trade` by reference and every existing number is byte-for-byte unchanged.
-  const liveIce = trade.market.ice.value;
-  const finalIce = trade.market.ice.final != null ? trade.market.ice.final : null;
-  const effectiveIce = finalIce != null ? finalIce : liveIce;
-  if (finalIce != null) num(finalIce, 'market.ice.final');
-  const effTrade = effectiveIce === liveIce
-    ? trade
-    : { ...trade, market: { ...trade.market, ice: { ...trade.market.ice, value: effectiveIce } } };
+  // TRADE LIFECYCLE (Phase 5): stage tag drives report badges and export filenames.
+  const LIFECYCLE = ['INDICATION', 'RECAP', 'PERFORMED', 'INVOICED', 'SETTLED'];
+  const lifecycle = oneOf(
+    (trade.meta && trade.meta.lifecycle) || 'RECAP',
+    LIFECYCLE, 'meta.lifecycle'
+  );
 
-  // 1. Cargo FOB value & funding stack (equity ratio configurable, validated to 100%)
-  const unitFob = effectiveIce + trade.market.fobPremium.value;
+  // 0. Effective purchase price — TWO SHAPES.
+  // LEGACY  : floats at ICE; `market.ice.final` is the settlement/at-payment print. Unchanged math.
+  // INDEXED : market.purchasePrice (formula object) evaluated by engine/core/pricing.js against
+  //           trade.indexQuotes / averaging observations. effTrade.market.ice.value carries the FULL
+  //           effective purchase price (cost line 1 + financing stay truthful); the FLOATING index
+  //           level travels separately to buildHedge via ctx.liveRef, and the index registry picks
+  //           the symbol/lot size. One shared reference per role, never two.
+  let effTrade = trade;
+  let purchase = null;
+  if (trade.market.purchasePrice) {
+    purchase = resolvePurchasePrice(trade);
+    if (trade.market.settlementQuotes) {
+      purchase = resolvePurchasePrice({ ...trade, indexQuotes: trade.market.settlementQuotes });
+    }
+    effTrade = {
+      ...trade,
+      market: {
+        ...trade.market,
+        ice: { ...(trade.market.ice || {}), value: purchase.usdPerMT },
+        fobPremium: { value: trade.market.fobPremium ? trade.market.fobPremium.value : 0 },
+      },
+    };
+  } else {
+    const liveIce = trade.market.ice.value;
+    const finalIce = trade.market.ice.final != null ? trade.market.ice.final : null;
+    const effectiveIce = finalIce != null ? finalIce : liveIce;
+    if (finalIce != null) num(finalIce, 'market.ice.final');
+    effTrade = effectiveIce === liveIce
+      ? trade
+      : { ...trade, market: { ...trade.market, ice: { ...trade.market.ice, value: effectiveIce } } };
+  }
+
+  // 1. Cargo FOB value & funding stack (equity ratio configurable, validated to 100%).
+  const unitFob = effTrade.market.ice.value + effTrade.market.fobPremium.value;
   const cargoValue = unitFob * deliveredQty;
   const financing = buildFinancing(effTrade, cargoValue);
 
@@ -95,7 +136,17 @@ function computeTrade(trade, opts = {}) {
   const exShares = native ? null : exShipCurrencyShares(trade);
 
   // 3. Per-leg revenue model (native trade.revenueLegs, else legacy channels+currencyMode adapter).
-  const { legs, litresPerMT } = normalizeLegs(trade, {
+  // Formula-priced sale legs resolve to concrete prices BEFORE normalizeLegs validates them
+  // (normalizeLegs demands a positive numeric price — pricing.js guarantees that or throws).
+  let saleLegAudits = [];
+  let legsInput = trade.revenueLegs;
+  if (native) {
+    const r = resolveSaleLegPrices(trade.revenueLegs, {
+      product: require('../core/products').resolveProduct(trade) || trade.product, conversion: trade.pricing && trade.pricing.conversion, quotes: trade.indexQuotes,
+    });
+    legsInput = r.legs; saleLegAudits = r.audits;
+  }
+  const { legs, litresPerMT } = normalizeLegs(native ? { ...trade, revenueLegs: legsInput } : trade, {
     deliveredQty, ch, exShares, nafemRate,
   });
   const exShipTonnes = legs.filter((l) => l.channel === 'ex-ship').reduce((s, l) => s + l.tonnes, 0);
@@ -199,9 +250,9 @@ function computeTrade(trade, opts = {}) {
       : (leg.pricingUnit === 'USD_PER_MT' ? 'ex-ship price' : 'ex-ship price (NAFEM)');
     let bestLeg = null;
     for (const { leg, rev } of legResults) {
-      if (bestLeg === null || rev.priceUsdPerMT >= bestLeg.price) bestLeg = { price: rev.priceUsdPerMT, leg };
+      if (bestLeg === null || rev.priceUsdPerMT >= bestLeg.priceUsdPerMT) bestLeg = { priceUsdPerMT: rev.priceUsdPerMT, leg };
     }
-    if (bestLeg) { benchmarkPriceUSD = bestLeg.price; benchmarkBasis = basisName(bestLeg.leg); }
+    if (bestLeg) { benchmarkPriceUSD = bestLeg.priceUsdPerMT; benchmarkBasis = basisName(bestLeg.leg); }
     else { benchmarkPriceUSD = exShipLandedPerMT; benchmarkBasis = 'ex-ship landed cost (no sell channel)'; }
     profitSharePct = trade.partner.profitSharePct;
   }
@@ -210,7 +261,14 @@ function computeTrade(trade, opts = {}) {
   // 7. Hedges — two INDEPENDENT toggles. buildHedge is unchanged (shared with computeEquityPartner).
   const iceHedged = !!(trade.hedge && trade.hedge.iceHedged);
   const fxHedged = !!(trade.fxHedge && trade.fxHedge.fxHedged);
-  const hedge = buildHedge(effTrade, { tisRetainedTonnes }); // effTrade => liveIce ref = effective (settlement) ICE
+  const hedge = buildHedge(effTrade, {
+    tisRetainedTonnes,
+    liveRef: purchase ? purchase.floatRefUsdPerMT : undefined,   // indexed: swap floats on the REFERENCE index
+    instrumentId: purchase ? purchase.hedgeIndexId : undefined,  // registry resolves symbol/lot size
+  });
+
+  // PROXY-HEDGE BASIS (surfaced like the FX basis block; never silently absorbed into P&L).
+  const basis = computeBasis(trade);
   // FX HEDGE BASE (RULE 3, 2026-06-23) = the bank's USD repayment obligation converted to naira at NAFEM.
   // The hedge protects ONLY the naira TIS is FORCED to convert to USD to repay the bank's USD facility
   // (LC principal + WC drawn + credit/WC interest) — NOT the full net naira position (netNairaNgn). The
@@ -334,7 +392,15 @@ function computeTrade(trade, opts = {}) {
   }
 
   return {
-    meta: { ...trade.meta, parties: trade.parties, deliveredQty },
+    meta: { ...trade.meta, parties: trade.parties, deliveredQty, lifecycle },
+    jurisdiction: require('../core/jurisdiction').load(trade.jurisdiction),
+    pricing: purchase ? {
+      mode: 'indexed',
+      purchaseSummary: purchase.audit ? purchase.audit.summary : null,
+      hedgeIndexId: purchase.hedgeIndexId,
+      instrument: purchase.instrument,
+      saleLegAudits,
+    } : { mode: 'legacy', purchaseSummary: null },
     equityProvider,
     cargoValue,
     unitFob,
@@ -421,6 +487,7 @@ function computeTrade(trade, opts = {}) {
     tax: taxBlock,
     hedge,
     fxHedge,
+    basis,
     hedgeComparison,
     tisAnnualisedReturn,
     annualReturnBase: annualReturnBase != null ? money(annualReturnBase) : null,

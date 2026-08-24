@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "_comment": "PRICING-REFERENCE REGISTRY. Quotes are NEVER stored here — they are trade inputs (trade.indexQuotes / averaging observations). hedgeInstrument = the exchange contract that natively tracks this index. hedgeProxy = correlated instrument used when the index has no futures of its own (the paper-vs-futures basis residual is surfaced by engine/core/basis.js, never silently absorbed).",
+  "indexes": [
+    { "id": "ICE_GASOIL_FUT", "provider": "ICE", "name": "ICE Gasoil Futures (front-month settle)", "unit": "USD_PER_MT",
+      "hedgeInstrument": { "exchange": "ICE", "symbol": "G", "lotSize": 100, "lotUnit": "MT" } },
+
+    { "id": "PLATTS_GASOIL_CARGO_FOB_ARA", "provider": "Platts", "name": "Gasoil 10ppm cargo FOB ARA", "unit": "USD_PER_MT",
+      "hedgeProxy": "ICE_GASOIL_FUT" },
+
+    { "id": "PLATTS_JET_CARGO_NW", "provider": "Platts", "name": "Jet A-1 cargo NWE (barges FOB ARA basis)", "unit": "USD_PER_MT",
+      "hedgeProxy": "ICE_GASOIL_FUT" },
+
+    { "id": "PLATTS_DATED_BRENT", "provider": "Platts", "name": "Dated Brent", "unit": "USD_PER_BBL",
+      "hedgeProxy": "ICE_BRENT_FUT" },
+    { "id": "ICE_BRENT_FUT", "provider": "ICE", "name": "ICE Brent Futures", "unit": "USD_PER_BBL",
+      "hedgeInstrument": { "exchange": "ICE", "symbol": "B", "lotSize": 1000, "lotUnit": "BBL" } },
+
+    { "id": "PLATTS_HSFO_3P5_CARGO_SING", "provider": "Platts", "name": "HSFO 3.5% cargo Singapore", "unit": "USD_PER_MT" },
+
+    { "id": "PLATTS_NAPHA_CARGO_MOPJ", "provider": "Platts", "name": "Naphtha cargo MOPJ (Singapore)", "unit": "USD_PER_MT" },
+
+    { "id": "JKM", "provider": "Platts", "name": "JKM LNG benchmark (NE Asia)", "unit": "USD_PER_MMBTU" },
+
+    { "id": "ARGUS_SAUDI_CP_PROPANE", "provider": "Argus", "name": "Saudi CP propane", "unit": "USD_PER_MT" }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "_comment": "PRODUCT CATALOG. Conversions are PRODUCT properties, never code. CONFIRM every factor against the cargo spec sheet before relying on figures. retailMarkets gates depot-leg currencies per jurisdiction (enforced in revenue.js via jurisdiction config). Inline trade.product entries override catalog fields per-field.",
+  "products": [
+    { "id": "AGO_10PPM", "name": "Automotive Gas Oil 10ppm",
+      "conversions": { "litresPerMT": 1183, "bblPerMT": 7.46, "mmbtuPerMT": 46.0 },
+      "density15": 0.845, "status": "litresPerMT matches reference fixture",
+      "retailMarkets": [{ "country": "NG", "currency": "NGN" }],
+      "typicalIndexes": ["PLATTS_GASOIL_CARGO_FOB_ARA", "ICE_GASOIL_FUT"] },
+
+    { "id": "JET_A1", "name": "Jet A-1 Aviation Turbine Fuel",
+      "conversions": { "litresPerMT": 1250, "bblPerMT": 7.83, "mmbtuPerMT": 46.4 },
+      "density15": 0.804, "status": "CONFIRM conversions per cargo spec",
+      "retailMarkets": [{ "country": "NG", "currency": "NGN" }],
+      "typicalIndexes": ["PLATTS_JET_CARGO_NW", "PLATTS_GASOIL_CARGO_FOB_ARA"] },
+
+    { "id": "PMS_RON95", "name": "Premium Motor Spirit RON95",
+      "conversions": { "litresPerMT": 1351, "bblPerMT": 8.90 },
+      "density15": 0.740, "status": "CONFIRM conversions per cargo spec",
+      "retailMarkets": [{ "country": "NG", "currency": "NGN" }],
+      "typicalIndexes": ["PLATTS_NAPHA_CARGO_MOPJ", "PLATTS_GASOIL_CARGO_FOB_ARA"] },
+
+    { "id": "HSFO_380CTS", "name": "HSFO 3.5% 380 CST",
+      "conversions": { "litresPerMT": 1020, "bblPerMT": 6.42, "mmbtuPerMT": 40.0 },
+      "density15": 0.980, "status": "CONFIRM conversions per cargo spec",
+      "retailMarkets": [],
+      "typicalIndexes": ["PLATTS_HSFO_3P5_CARGO_SING"] },
+
+    { "id": "LPG_PROPANE", "name": "Propane (CP-linked)",
+      "conversions": { "bblPerMT": 12.40, "mmbtuPerMT": 47.7 },
+      "density15": 0.508, "status": "CONFIRM — LPG conversions vary by grading",
+      "retailMarkets": [{ "country": "NG", "currency": "NGN" }],
+      "typicalIndexes": ["ARGUS_SAUDI_CP_PROPANE"] },
+
+    { "id": "BRENT_CRUDE", "name": "Brent Blend Crude",
+      "conversions": { "bblPerMT": 7.33, "mmbtuPerMT": 42.7 },
+      "density15": 0.856, "status": "CONFIRM conversions per cargo spec",
+      "retailMarkets": [],
+      "typicalIndexes": ["PLATTS_DATED_BRENT", "ICE_BRENT_FUT"] }
+  ]
+}

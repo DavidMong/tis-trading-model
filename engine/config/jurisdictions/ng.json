@@ -1,0 +1,8 @@
+{
+  "id": "NG", "name": "Federal Republic of Nigeria", "currency": "NGN",
+  "cit": { "rate": 0.30, "ref": "Nigeria Tax Act 2025 (not in P&L — audit view only)" },
+  "excludeCostLineIds": [],
+  "forceSurchargeOff": false,
+  "allowedDepotCurrencies": ["NGN"],
+  "authorityNote": "Authority: tax-reference.md vs NTA 2025. WHT-on-freight rate UNVERIFIED (CONFIRM). Surcharge pending Gazette."
+}

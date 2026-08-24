@@ -29,6 +29,18 @@ const padL = (s, n) => String(s).padStart(n);
 const hr = (c = '-', n = 92) => c.repeat(n);
 const badge = (s) => (!s || s === 'OK' ? '' : `  [${s}]`);
 
+// Terminal polish: subtle ANSI accents when attached to a TTY; plain text when piped/exported.
+const TTY = process.stdout.isTTY;
+const paint = (s) => {
+  if (!TTY || typeof s !== 'string') return s;
+  return s
+    .replace(/OK(?![A-Za-z])/g, '\x1b[32mOK\x1b[0m')
+    .replace(/MISMATCH/g, '\x1b[31mMISMATCH\x1b[0m')
+    .replace(/\[(CONFIRM|PENDING[^\]]*)\]/g, '\x1b[33m$&\x1b[0m')
+    .replace(/\[(INDICATIVE)\]/g, '\x1b[36m$&\x1b[0m')
+    .replace(/\[(PLACEHOLDER[^\]]*)\]/g, '\x1b[35m$&\x1b[0m');
+};
+
 // ---------------------------------------------------------------- CLI
 function parseCli() {
   const { values, positionals } = parseArgs({
@@ -39,6 +51,7 @@ function parseCli() {
       'compare-hedge': { type: 'boolean', default: false },
       ladder: { type: 'boolean', default: false },
       upside: { type: 'boolean', default: false },
+      json: { type: 'boolean', default: false },
       export: { type: 'string' }, // 'csv'
       help: { type: 'boolean', short: 'h', default: false },
     },
@@ -53,7 +66,7 @@ function loadTrade(file) {
 
 // ---------------------------------------------------------------- report
 function printReport(res, trade, flags) {
-  const L = (s = '') => console.log(s);
+  const L = (s = '') => console.log(paint(s));
 
   L(hr('='));
   L('TIS GLOBAL TRADING — TRADE MODEL REPORT');
@@ -271,6 +284,17 @@ function printTradeReport(res, trade, flags) {
   L(`  Ex-ship revenue ${padL(usd(res.revenue.exShipUSD), 18)}   ex-ship price ${res.price.exShipPricePerMT != null ? usd(res.price.exShipPricePerMT) + '/MT' : 'n/a'}`);
   L(`  Depot revenue   ${padL(usd(res.revenue.depotUSD), 18)}   depot price   ${res.price.depotPriceNgnPerL != null ? ngn(res.price.depotPriceNgnPerL) + '/L = ' + usd(res.price.depotPriceUSDperMT) + '/MT' : 'n/a'}`);
   L(`  COMBINED revenue${padL(usd(res.revenue.combinedUSD), 18)}   avg realized ${usd(res.price.avgRealizedPriceUSDperMT)}/MT`);
+  if (res.pricing && res.pricing.mode === 'indexed') {
+    L(`  Purchase [INDEXED]: ${res.pricing.purchaseSummary}`);
+    if (res.pricing.instrument) {
+      L(`     Hedge instrument: ${res.pricing.instrument.exchange} ${res.pricing.instrument.symbol} (${res.pricing.instrument.viaIndexId}${res.pricing.instrument.proxyFor ? `, proxy for ${res.pricing.instrument.proxyFor}` : ''})`);
+    }
+    for (const a of res.pricing.saleLegAudits) L(`  Sale leg ${a.legIndex + 1} [INDEXED]: ${a.summary}`);
+  }
+  if (res.basis && (res.basis.rows.length || res.basis.notes.length)) {
+    for (const b of res.basis.rows) L(`  BASIS ${b.physicalIndex} vs ${b.instrument}: ${b.basisUsdPerMt} USD/MT (${b.basisPctOfPhysical}%) — residual NOT in P&L`);
+    for (const n of res.basis.notes) L(`  BASIS note: ${n}`);
+  }
   if (res.price.depotPremiumPerMT != null) L(`  Depot premium over ex-ship: ${usd(res.price.depotPremiumPerMT)}/MT`);
 
   // Quantities (partner only)
@@ -319,7 +343,7 @@ function printTradeReport(res, trade, flags) {
   const hc = res.hedgeComparison;
   L('\n9. HEDGES  (toggle ON drives realized P&L; opposite scenario shown for comparison)');
   L(hr());
-  L(`  ICE swap [${res.hedges.iceHedged ? 'ON' : 'OFF'}]  route ${h.route}  lots ${h.lots} (${mt(h.hedgedTonnes)})  basis ${mt(h.comparisonBasisTonnes)} retained`);
+  L(`  Swap [${res.hedges.iceHedged ? 'ON' : 'OFF'}]  ${h.instrument || 'ICE Gasoil'}  route ${h.route}  lots ${h.lots} (${mt(h.hedgedTonnes)})  basis ${mt(h.comparisonBasisTonnes)} retained`);
   L(`     effective ${usd(h.effectiveIceCost)} vs unhedged ${usd(h.unhedgedIceCost)} (delta ${usd(h.iceCostDelta)})   realized P&L impact ${usd(res.hedges.iceHedgeNetImpact)}`);
   if (h.overHedgeTonnes > 0) L(`     over-hedge (speculative, excluded): ${mt(h.overHedgeTonnes)}`);
   if (hc) L(`     TIS net: hedged ${usd(hc.ice.hedgedTisNet)}  vs  unhedged ${usd(hc.ice.unhedgedTisNet)}   (hedging worth ${usd(hc.ice.hedgeWorthItVsUnhedged)})`);
@@ -347,14 +371,18 @@ function printTradeReport(res, trade, flags) {
 }
 
 // ---------------------------------------------------------------- comparisons
-function printFxComparison(trade) {
+function printFxComparison(trade, res) {
   console.log('\nFX COMPARISON (NAFEM vs parallel)');
   console.log(hr());
   const nafem = chooseRate(trade.fx, 'nafem');
   const parallel = chooseRate(trade.fx, 'parallel');
   console.log(`  NAFEM    ${padL(nafem.effective, 10)} NGN/USD  (${nafem.source}, ${nafem.status})`);
   console.log(`  Parallel ${padL(parallel.effective, 10)} NGN/USD  (${parallel.source}, ${parallel.status})`);
-  console.log('  Note: this trade is all-USD ex-ship — no NGN legs, so FX choice does not change P&L.');
+  const hasNgn = !!(res && ((res.fx && res.fx.nairaShare > 0)
+    || (res.cost && Array.isArray(res.cost.lines) && res.cost.lines.some((l) => l.currency === 'NGN'))));
+  console.log(hasNgn
+    ? '  Note: this trade HAS naira exposure — NAFEM drives the naira P&L conversion (parallel = reference only).'
+    : '  Note: no NGN legs detected — FX choice does not change P&L.');
 }
 
 function printHedgeComparison(trade, res) {
@@ -451,6 +479,14 @@ function exportCsv(res, outDir) {
   console.log(`\nCSV exported (Excel-compatible): ${file}`);
 }
 
+function exportHtml(res, outDir) {
+  fs.mkdirSync(outDir, { recursive: true });
+  const { renderDealSheet } = require('./engine/report/html');
+  const file = path.join(outDir, `${res.meta.tradeId}.html`);
+  fs.writeFileSync(file, renderDealSheet(res), 'utf8');
+  console.log(`\nHTML deal sheet: ${file}`);
+}
+
 // ---------------------------------------------------------------- help
 function printHelp() {
   console.log(`TIS trading model
@@ -501,10 +537,11 @@ function main() {
 
   if (isUnified) printTradeReport(res, trade, flags);
   else printReport(res, trade, flags);
-  if (flags['compare-fx']) printFxComparison(trade);
+  if (flags['compare-fx']) printFxComparison(trade, res);
   if (flags['compare-hedge']) printHedgeComparison(trade, res);
   if (flags.ladder) printLadder(buildLadder(trade, (t) => compute(t, opts), res), trade);
   if (flags.export === 'csv') exportCsv(res, path.join(__dirname, 'out'));
+  if (flags.export === 'html') exportHtml(res, path.join(__dirname, 'out'));
 }
 
 main();

@@ -1,6 +1,7 @@
 'use strict';
 
 const { round } = require('./rounding');
+const jurisdiction = require('./jurisdiction');
 
 // Tax block — AUTHORITY: tax-reference.md (verified against Nigeria Tax Act 2025).
 // Do NOT re-derive the VAT / surcharge treatment here.
@@ -44,15 +45,17 @@ function buildTaxBlock(trade, ctx, costBuildup) {
   // tisBorneUsd = the portion TIS actually bears under incidence=cost = surcharge on TIS RETAINED
   //   tonnes only; the partner's in-kind product share is NOT TIS's cost.
   const sc = tax.surcharge;
+  const J = jurisdiction.load(trade.jurisdiction); // INTL forces the NG surcharge OFF (offshore supply)
+  const scEnabled = !!sc.enabled && !J.forceSurchargeOff;
   const retailBase = ctx.exShipPricePerMT != null ? ctx.exShipPricePerMT * ctx.deliveredQty : null;
-  const amount = sc.enabled && retailBase != null ? sc.rate * retailBase : 0;
+  const amount = scEnabled && retailBase != null ? sc.rate * retailBase : 0;
   const tisBorne =
-    sc.enabled && ctx.exShipPricePerMT != null && ctx.tisRetainedTonnes != null
+    scEnabled && ctx.exShipPricePerMT != null && ctx.tisRetainedTonnes != null
       ? sc.rate * ctx.exShipPricePerMT * ctx.tisRetainedTonnes
       : 0;
 
   const surcharge = {
-    enabled: sc.enabled,
+    enabled: scEnabled,
     commencementGazetted: sc.commencementGazetted,
     rate: sc.rate,
     baseDescription: 'retail price of chargeable fossil-fuel products (s.159(2))',
@@ -60,7 +63,9 @@ function buildTaxBlock(trade, ctx, costBuildup) {
     incidence: sc.incidence, // 'cost' | 'pass_through'
     amountUsd: round(amount, 2), // full statutory surcharge on the whole cargo
     tisBorneUsd: round(tisBorne, 2), // what TIS bears under incidence=cost (retained tonnes only)
-    status: sc.commencementGazetted ? 'OK' : 'PENDING (not yet gazetted — s.160)',
+    status: !scEnabled && J.forceSurchargeOff
+      ? `OFF (jurisdiction ${J.id})`
+      : (sc.commencementGazetted ? 'OK' : 'PENDING (not yet gazetted — s.160)'),
     legalRef: 'Nigeria Tax Act 2025 s.158-161; gasoil NOT exempt (s.161)',
     note: 'Default OFF. Enable with --with-surcharge once a Gazette commencement date exists.',
   };

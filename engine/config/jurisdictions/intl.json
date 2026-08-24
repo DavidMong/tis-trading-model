@@ -1,0 +1,9 @@
+{
+  "id": "INTL", "name": "International offshore B2B supply", "currency": "USD",
+  "cit": { "rate": 0.0, "ref": "No Nigerian nexus assumed — CONFIRM PE status / tax residency with counsel" },
+  "_excludeNote": "Excludes NG-specific levy/VAT/WHT/marine lines (ids 7,8,9,11,12,13,14). Export zero-rating analogue: s.186(n). Trader may re-add any line via costLineOverrides amounts.",
+  "excludeCostLineIds": ["7", "8", "9", "11", "12", "13", "14"],
+  "forceSurchargeOff": true,
+  "allowedDepotCurrencies": ["USD"],
+  "authorityNote": "MODELLING ASSUMPTION — not legal advice. Every excluded line must be re-checked against the actual contract and governing law."
+}

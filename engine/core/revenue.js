@@ -1,6 +1,8 @@
 'use strict';
 
 const { positive, oneOf } = require('./validate');
+const jurisdiction = require('./jurisdiction');
+const products = require('./products');
 
 // PER-LEG REVENUE MODEL. A trade's sale is a LIST of revenue legs, each priced in ONE unit:
 //
@@ -31,10 +33,10 @@ const VALID_UNITS = ['USD_PER_MT', 'NGN_PER_L'];
 
 // Resolve litresPerMT once, only when a naira leg actually needs it (USD-only trades never read it).
 function resolveLitresPerMT(trade) {
-  return positive(
-    trade.pricing && trade.pricing.conversion && trade.pricing.conversion.litresPerMT,
-    'pricing.conversion.litresPerMT'
-  );
+  const explicit = trade.pricing && trade.pricing.conversion && trade.pricing.conversion.litresPerMT;
+  if (explicit != null) return positive(explicit, 'pricing.conversion.litresPerMT');
+  const fromCatalog = products.catalogueLitresPerMT(trade);
+  return positive(fromCatalog, 'product.conversions.litresPerMT (catalog)');
 }
 
 // NATIVE per-leg input (trade.revenueLegs). Each leg validated and resolved to absolute tonnage.
@@ -52,7 +54,12 @@ function nativeLegs(trade, { deliveredQty }) {
     oneOf(leg.pricingUnit, VALID_UNITS, `${at}.pricingUnit`);
     // Depot is never USD — cannot retail USD in NG.
     if (leg.channel === 'depot' && leg.pricingUnit !== 'NGN_PER_L') {
-      throw new Error(`Invalid input: '${at}' depot legs must be priced NGN_PER_L (cannot retail USD in NG), got ${JSON.stringify(leg.pricingUnit)}`);
+      const J = jurisdiction.load(trade.jurisdiction);
+      const allowed = J.allowedDepotCurrencies || ['NGN'];
+      if (!allowed.includes(leg.pricingUnit)) {
+        if (J.id === 'NG') throw new Error(`Invalid input: '${at}' depot legs must be priced NGN_PER_L (cannot retail USD in NG), got ${JSON.stringify(leg.pricingUnit)}`);
+        throw new Error(`Invalid input: '${at}' depot leg currency ${JSON.stringify(leg.pricingUnit)} not allowed in jurisdiction ${J.id} (allowed: ${allowed.join(', ')})`);
+      }
     }
     const tonnes = leg.tonnes != null ? leg.tonnes : (leg.share != null ? leg.share * deliveredQty : leg.tonnes);
     positive(tonnes, leg.tonnes != null ? `${at}.tonnes` : `${at}.share`);

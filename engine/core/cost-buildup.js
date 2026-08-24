@@ -2,6 +2,8 @@
 
 const { round } = require('./rounding');
 const SCHEMA = require('../config/cost-line-schema.json');
+const jurisdiction = require('./jurisdiction');
+const products = require('./products');
 
 // Cost-line build-up — fully CONFIG-DRIVEN. The per-line structure (type / base / rate-source /
 // recoverable / status / legalRef) lives in engine/config/cost-line-schema.json, NOT in this code.
@@ -44,8 +46,38 @@ function displayCategory(e) {
   return e.type; // pct_of_freight | pct_of_cargo_value | pct_of_services | pct_of_LC | pct_of_sell
 }
 
-function buildCostBuildup(trade, ctx) {
-  const { cargoValue, deliveredQty, financing } = ctx;
+// FREIGHT MODES (Phase 5): 'tc' (legacy/default) | 'voyage_lumpsum' | 'worldscale'. Pure + exported
+// for invariant tests. TC math is identical to the pre-mode code path (byte-for-byte).
+function normalizeFreight(f, deliveredQty) {
+  const mode = f.mode || 'tc';
+  if (mode === 'tc') {
+    const tcRate = f.tcRatePerDay;
+    const tcHire = tcRate * f.charterDays;
+    const demurrage = tcRate * (f.demurrageDays || 0);
+    return { mode, tcRate, tcHire, demurrage, lumpsumUsd: null, freightBase: tcHire + demurrage };
+  }
+  const demurrage = f.demurrageUsd || 0;
+  if (mode === 'voyage_lumpsum') {
+    if (!(typeof f.lumpsumUsd === 'number' && f.lumpsumUsd > 0)) {
+      throw new Error('normalizeFreight: voyage_lumpsum requires positive freight.lumpsumUsd');
+    }
+    return { mode, tcRate: null, tcHire: 0, demurrage, lumpsumUsd: f.lumpsumUsd, freightBase: f.lumpsumUsd + demurrage };
+  }
+  if (mode === 'worldscale') {
+    if (!(typeof f.wsPoints === 'number' && f.wsPoints > 0)) {
+      throw new Error('normalizeFreight: worldscale requires positive freight.wsPoints');
+    }
+    const flatTotal = f.flatRateTotalUsd != null ? f.flatRateTotalUsd : f.flatRateUsdPerMT * deliveredQty;
+    if (!(typeof flatTotal === 'number' && flatTotal > 0)) {
+      throw new Error('normalizeFreight: worldscale requires flatRateTotalUsd or positive flatRateUsdPerMT');
+    }
+    const lumpsumUsd = (f.wsPoints / 100) * flatTotal;
+    return { mode, tcRate: null, tcHire: 0, demurrage, lumpsumUsd, freightBase: lumpsumUsd + demurrage };
+  }
+  throw new Error(`normalizeFreight: unknown freight.mode '${mode}' (tc | voyage_lumpsum | worldscale)`);
+}
+
+function buildCostBuildup(trade, ctx) {  const { cargoValue, deliveredQty, financing } = ctx;
   const tax = trade.tax;
 
   // Storage is active for DEPOT volume only (channel-driven, legacy depot.enabled fallback). Naira
@@ -69,7 +101,8 @@ function buildCostBuildup(trade, ctx) {
   // line never requires it.
   const litresPerMT = ctx.litresPerMT != null
     ? ctx.litresPerMT
-    : (trade.pricing && trade.pricing.conversion ? trade.pricing.conversion.litresPerMT : null);
+    : (products.catalogueLitresPerMT(trade) != null ? products.catalogueLitresPerMT(trade)
+      : (trade.pricing && trade.pricing.conversion ? trade.pricing.conversion.litresPerMT : null));
   const requireLitresPerMT = () => {
     if (!(typeof litresPerMT === 'number' && Number.isFinite(litresPerMT) && litresPerMT > 0)) {
       throw new Error(`buildCostBuildup: litresPerMT must be > 0 to convert ₦/L storage costs, got ${litresPerMT}`);
@@ -77,14 +110,19 @@ function buildCostBuildup(trade, ctx) {
     return litresPerMT;
   };
 
-  const tcRate = trade.freight.tcRatePerDay;
-  const tcHire = tcRate * trade.freight.charterDays;
-  const demurrage = tcRate * trade.freight.demurrageDays;
-  const freightBase = tcHire + demurrage;
+  // FREIGHT MODES (Phase 5): all modes normalize to a freightBase feeding pct_of_freight lines
+  // identically; TC math is unchanged. tcRate is null in non-TC modes (guards below).
+  const F = normalizeFreight(trade.freight, deliveredQty);
+  const tcRate = F.tcRate;
+  const tcHire = F.tcHire;
+  const demurrage = F.demurrage;
+  const freightBase = F.freightBase;
 
   // Default schema merged with per-trade overrides (policy edits without code change).
   const overrides = trade.costLineOverrides || {};
-  const schema = SCHEMA.lines.map((e) => ({ ...e, ...(overrides[e.id] || overrides[String(e.id)] || {}) }));
+  const J = jurisdiction.load(trade.jurisdiction); // default NG -> identity filter, byte-for-byte
+  const schema = jurisdiction.applyToSchema(SCHEMA.lines, J)
+    .map((e) => ({ ...e, ...(overrides[e.id] || overrides[String(e.id)] || {}) }));
 
   // Base resolver — the ONLY place a type maps to its base. Pure data, no per-line assumption.
   const baseFor = { pct_of_freight: freightBase, pct_of_cargo_value: cargoValue, pct_of_LC: financing.lc, pct_of_sell: ctx.sellValue || 0 };
@@ -135,8 +173,12 @@ function buildCostBuildup(trade, ctx) {
       case 'derived':
         switch (e.derivation) {
           case 'per_mt': { const rate = rateOf(e); out.rate = rate; out.base = deliveredQty; out.amountUsd = round(rate * deliveredQty, 2); break; }
-          case 'tc_hire': out.rate = tcRate; out.base = trade.freight.charterDays; out.amountUsd = round(tcHire, 2); break;
-          case 'demurrage': out.rate = tcRate; out.base = trade.freight.demurrageDays; out.amountUsd = round(demurrage, 2); break;
+          case 'tc_hire':
+            if (tcRate == null) { out.amountUsd = 0; out.status = 'N/A (non-TC freight mode)'; break; }
+            out.rate = tcRate; out.base = trade.freight.charterDays; out.amountUsd = round(tcHire, 2); break;
+          case 'demurrage':
+            if (tcRate == null) { out.amountUsd = round(demurrage, 2); out.status = 'entered USD (non-TC mode)'; break; }
+            out.rate = tcRate; out.base = trade.freight.demurrageDays; out.amountUsd = round(demurrage, 2); break;
           case 'credit_interest': out.rate = financing.creditRate; out.base = financing.lc; out.amountUsd = round(financing.creditInterest, 2); break;
           case 'wc_interest': out.rate = financing.creditRate; out.base = financing.wc; out.amountUsd = round(financing.wcInterest, 2); break;
           case 'ngn_per_mt': { const rate = rateOf(e); const ngn = (rate || 0) * storageQty; out.rate = rate; out.base = storageQty; out.currency = 'NGN'; out.ngnAmount = round(ngn, 2); out.amountUsd = round(ngnStorageToUsd(ngn), 2); break; }
@@ -213,7 +255,12 @@ function buildCostBuildup(trade, ctx) {
   return {
     lines,
     byId,
-    freight: { tcHire: round(tcHire, 2), demurrage: round(demurrage, 2), freightBase: round(freightBase, 2) },
+    freight: {
+      mode: F.mode, tcHire: round(tcHire, 2), demurrage: round(demurrage, 2),
+      lumpsumUsd: F.lumpsumUsd != null ? round(F.lumpsumUsd, 2) : null,
+      freightBase: round(freightBase, 2),
+      perMTUsd: round(freightBase / deliveredQty, 4),
+    },
     servicesBucket: { ids: bucketIds, composition: bucketComposition, sum: round(servicesBucketSum, 2) },
     recoverableVat: {
       lines: recoverableLines.map((l) => ({ id: l.id, label: l.label, amount: l.amountUsd })),
@@ -233,4 +280,4 @@ function buildCostBuildup(trade, ctx) {
   };
 }
 
-module.exports = { buildCostBuildup };
+module.exports = { buildCostBuildup, normalizeFreight };
