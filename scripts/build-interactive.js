@@ -2235,6 +2235,10 @@ ${sharedCss}
       <div id="sec-hedge"></div>
       <div id="sec-tax"></div>
       <div id="sec-sens"></div>
+      <section class="section" aria-labelledby="qb-h">
+        <h2 class="section-heading" id="qb-h">Quote Provenance</h2>
+        <div class="card"><div id="sec-quotes" class="muted">No indexed pricing on this trade.</div></div>
+      </section>
     </main>
   </div>
 
@@ -3780,6 +3784,25 @@ function renderSens(res) {
 </section>\`;
 }
 
+// ── Quote provenance panel (2026-08) ────────────────────────────────────────
+// Shows where every index number on the trade came from — pinned vs book,
+// source person, tier, freshness. Auditability for informally-sourced data.
+function renderQuoteProvenance(res) {
+  const el = document.getElementById('sec-quotes');
+  if (!el) return;
+  const rows = (res && res.quoteProvenance) || [];
+  if (!rows.length) { el.innerHTML = '<span class="muted">No indexed pricing on this trade.</span>'; return; }
+  el.innerHTML = \`<div class="tbl-wrap"><table class="cost-table data-table">
+    <thead><tr><th>Index</th><th class="r">Value</th><th>Origin</th><th>Source</th><th>Note</th></tr></thead>
+    <tbody>\${rows.map((p) => \`<tr>
+      <td>\${esc(p.indexId)}</td>
+      <td class="r mono-num">\${Number(p.value).toLocaleString('en-US', { maximumFractionDigits: 4 })}</td>
+      <td><span class="state-badge">\${esc(p.origin)}</span></td>
+      <td class="muted">\${esc(p.source || '—')}\${p.asOf ? \` · asOf \${esc(p.asOf)}\` : ''}</td>
+      <td class="muted">\${p.freshness === 'STALE' ? '<span style="color:var(--t-caution)">⚠ STALE</span> ' : ''}\${esc(p.warning || p.note || '')}</td>
+    </tr>\`).join('')}</tbody></table></div>\`;
+}
+
 // ── Master render ──────────────────────────────────────────────────────────
 function renderAll(trade, res, ladder, hasSellPrice) {
   renderKPIs(res, hasSellPrice);
@@ -3802,6 +3825,7 @@ function renderAll(trade, res, ladder, hasSellPrice) {
     document.getElementById('sec-tax').innerHTML       = renderTax(res);
     document.getElementById('sec-sens').innerHTML      = renderSens(res);
   }
+  renderQuoteProvenance(res);
   requestAnimationFrame(() => {
     document.querySelectorAll('.section').forEach(el => {
       el.classList.remove('val-flash');
