@@ -5,22 +5,30 @@
 // whose excludeCostLineIds=[] and forceSurchargeOff=false make every existing number byte-for-byte
 // identical. 'INTL' models an offshore B2B supply: NG-specific cost lines are excluded and the
 // fossil-fuel surcharge is forced OFF. Line ids refer to cost-line-schema.json.
+//
+// BUNDLING NOTE: configs are required STATICALLY (one explicit require per jurisdiction), never
+// via a dynamic template-string path — esbuild cannot follow dynamic requires, which broke every
+// trade in the browser bundle ("unknown jurisdiction 'NG'"). Adding a jurisdiction = add its JSON
+// + one require + one map entry.
 
 const DEFAULT_ID = 'NG';
 const CACHE = {};
 
+const REGISTRY = {
+  NG: require('../config/jurisdictions/ng.json'),
+  INTL: require('../config/jurisdictions/intl.json'),
+};
+
 function load(id) {
   const jid = id || DEFAULT_ID;
   if (CACHE[jid]) return CACHE[jid];
-  let cfg;
-  try {
-    cfg = require(`../config/jurisdictions/${jid}.json`);
-  } catch (_) {
-    throw new Error(`jurisdiction: unknown jurisdiction '${jid}' (expected engine/config/jurisdictions/${jid}.json)`);
+  const cfg = REGISTRY[String(jid).toUpperCase()];
+  if (!cfg) {
+    throw new Error(`jurisdiction: unknown jurisdiction '${jid}' (known: ${Object.keys(REGISTRY).join(', ')})`);
   }
-  cfg.excludeCostLineIds = (cfg.excludeCostLineIds || []).map(String);
-  CACHE[jid] = cfg;
-  return cfg;
+  const out = { ...cfg, excludeCostLineIds: (cfg.excludeCostLineIds || []).map(String) };
+  CACHE[jid] = out;
+  return out;
 }
 
 // Schema-level gate: drop jurisdiction-excluded lines BEFORE evaluation (policy as data).

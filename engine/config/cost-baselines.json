@@ -3,10 +3,16 @@
   "_comment": "Auto-updated at close-out. Baseline per cost-line id: the LAST ACTUAL amount — use as the starting estimate for the next deal.",
   "baselines": {
     "3": {
-      "usd": 148000,
-      "perMT": 4.4848,
-      "from": "T",
-      "updatedAt": "2026-08-24T10:17:45.897Z"
+      "usd": 995000,
+      "perMT": 30.1515,
+      "from": "T-TEST",
+      "updatedAt": "2026-08-24T12:41:29.596Z"
+    },
+    "9": {
+      "usd": 6100,
+      "perMT": 0.61,
+      "from": "T-MEM",
+      "updatedAt": "2026-08-24T12:41:29.597Z"
     },
     "11": {
       "usd": 48000,

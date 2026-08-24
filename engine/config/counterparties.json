@@ -7,6 +7,27 @@
       "paymentTerms": "30d LC",
       "notes": "sample entry — edit or delete",
       "deals": 1
+    },
+    {
+      "name": "Test Supplier Ltd",
+      "role": "supplier",
+      "paymentTerms": "30d LC",
+      "notes": "fast docs",
+      "deals": 0
+    },
+    {
+      "name": "Deal Counter Co",
+      "role": "buyer",
+      "paymentTerms": "",
+      "notes": "",
+      "deals": 1
+    },
+    {
+      "name": "Memory Supplier SA",
+      "role": "supplier",
+      "paymentTerms": "",
+      "notes": "",
+      "deals": 1
     }
   ]
 }

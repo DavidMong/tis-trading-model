@@ -7,8 +7,15 @@
 // esbuild `--define:BROWSER_BUILD=true` for the dashboard bundle; Node gets false.
 const BROWSER = typeof BROWSER_BUILD !== 'undefined' ? BROWSER_BUILD : false;
 
+// NOTE: the require below is deliberately INDIRECT (`require(modPath)`) rather than
+// `require('./quotebook')`. esbuild statically follows every *literal* require path — even
+// inside a never-executed `if (!BROWSER)` branch — which would pull node:fs/node:path into
+// the browser bundle and break it. An indirect require is opaque to esbuild ("indirect call
+// to require"), so the bundler leaves it alone; under plain Node (CommonJS) it still loads
+// the real store at runtime exactly as before.
 if (!BROWSER) {
-  module.exports = require('./quotebook');
+  const modPath = './quotebook';
+  module.exports = require(modPath);
 } else {
   module.exports = {
     resolveForTrade: (trade) => {
