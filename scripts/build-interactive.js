@@ -141,6 +141,79 @@ function css() {
   --g-easing-exit:      cubic-bezier(.4,0,1,1);
 }
 
+/* ════ THEME SYSTEM (2026-08 refresh) ═══════════════════════════════
+   Dark/light toggle via [data-theme] on <html>. The LIGHT values below are
+   the existing palette restated as semantic SURFACE tokens — every rule in
+   this sheet that reads --g-* keeps working unchanged. DARK remaps those
+   same roles onto a deep neutral-blue scale (fintech terminal), keeping:
+   - brand red for wayfinding only (brightened for dark-bg contrast)
+   - green/amber/red P&L semantics (dark-mode AA variants)
+   - IBM Plex superfamily + tabular-nums discipline.
+   Additive: nothing above is edited, so light mode is byte-for-byte today. */
+:root {
+  /* Semantic surface tokens (light defaults = current palette) */
+  --t-canvas:      var(--bg);                       /* app background */
+  --t-panel:       var(--white);                    /* cards, rail, tables */
+  --t-panel-alt:   #fbfcfd;                         /* zebra rows, hover wash */
+  --t-sunken:      var(--slate-bg);                 /* wells, code, inputs bg */
+  --t-ink:         var(--ink);                      /* primary text */
+  --t-ink-2:       var(--g-text-slate);             /* secondary text */
+  --t-ink-3:       #8a94a0;                         /* tertiary/captions */
+  --t-hairline:    var(--border);
+  --t-hairline-strong: rgba(113,124,137,.32);
+  --t-brand:       var(--red);
+  --t-brand-ink:   #ffffff;                          /* text on brand fill */
+  --t-positive:    var(--g-positive);
+  --t-caution:     var(--g-caution);
+  --t-loss:        var(--g-loss);
+  --t-shadow:      0 8px 24px rgba(36,35,49,.14);
+}
+html[data-theme='dark'] {
+  --bg:            #0d1117;                          /* repoint legacy aliases too */
+  --white:         #161b22;                          /* 'panel' surfaces go dark */
+  --ink:           #e6edf3;
+  --slate:         #9da7b3;
+  --border:        rgba(139,148,158,.16);
+  --red:           #f0554f;                          /* brand on dark — wayfinding only */
+  --red-dim:       #c73e39;
+
+  --t-canvas:      #0d1117;
+  --t-panel:       #161b22;
+  --t-panel-alt:   #1b2129;
+  --t-sunken:      #10151c;
+  --t-ink:         #e6edf3;
+  --t-ink-2:       #9da7b3;
+  --t-ink-3:       #6e7a86;
+  --t-hairline:    rgba(139,148,158,.16);
+  --t-hairline-strong: rgba(139,148,158,.30);
+  --t-brand:       #f0554f;
+  --t-brand-ink:   #0d1117;
+  --t-positive:    #3fb950;                           /* GitHub-scale greens/reds */
+  --t-caution:     #d29922;
+  --t-loss:        #f85149;
+  --g-text-slate:  #9da7b3;
+  --g-canvas:      #0d1117;
+  --g-chrome-ink:  #161b22;
+  --g-chrome-ink-inverse: #e6edf3;
+  --g-shadow-elevation: 0 8px 24px rgba(0,0,0,.5);
+  color-scheme: dark;
+}
+html[data-theme='light'] { color-scheme: light; }
+
+/* Status chips on dark: same hues, dark-mode-tuned text/bg pairs */
+html[data-theme='dark'] {
+  --confirm-c:#f5c451; --confirm-bg:rgba(245,196,81,.12);
+  --unver-c:#ff7b72;   --unver-bg:rgba(248,81,73,.12);
+  --placeholder-c:#79c0ff; --placeholder-bg:rgba(88,166,255,.12);
+  --pending-c:#d2a8ff; --pending-bg:rgba(163,113,247,.14);
+  --recov-c:#56d364;   --recov-bg:rgba(63,185,80,.12);
+  --indic-c:#c9d1d9;   --indic-bg:rgba(139,148,158,.12);
+  --example-c:#c9d1d9; --example-bg:rgba(139,148,158,.10);
+  --fixed-c:#56d364;   --fixed-bg:rgba(63,185,80,.12);
+  --heat-pos: rgba(63,185,80,.14);  --heat-pos-strong: rgba(63,185,80,.26);
+  --heat-neg: rgba(248,81,73,.14);  --heat-neg-strong: rgba(248,81,73,.26);
+}
+
 /* ── Shared component classes (Stage 0) ───────────────────────────
    Defined now, proved on the app shell + Profit Waterfall this stage; rolled
    out to the remaining result sections in a later staged diff (scope note
@@ -2020,6 +2093,9 @@ const sidebarHtml = `<aside class="sidebar" id="sidebar">
     <div class="sb-export-row">
       <button class="btn-export" onclick="exportTrades()" title="Download all saved trades to a .json backup file">Export Trades</button>
       <button class="btn-export" onclick="importTrades()" title="Restore saved trades from a .json backup file">Import Trades</button>
+    </div>
+    <div class="sb-export-row">
+      <button class="btn-export btn-theme" id="theme-toggle" onclick="toggleTheme()" title="Switch dark / light theme">🌙 Dark</button>
     </div>
     <input type="file" id="imp-file-input" accept=".json" style="display:none" onchange="importTradesFromFile(this)">
   </div>
@@ -4140,6 +4216,25 @@ function updateHeader() {
   }
 }
 
+// ── Theme toggle (2026-08 refresh) ─────────────────────────────────────────
+// Persists via localStorage; defaults to the user's OS preference on first load.
+function applyTheme(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  const btn = document.getElementById('theme-toggle');
+  if (btn) btn.textContent = t === 'dark' ? '☀️ Light' : '🌙 Dark';
+}
+function initTheme() {
+  let t = null;
+  try { t = localStorage.getItem('tis-theme'); } catch (_) {}
+  if (!t) t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  applyTheme(t);
+}
+function toggleTheme() {
+  const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  applyTheme(next);
+  try { localStorage.setItem('tis-theme', next); } catch (_) {}
+}
+
 // ── New Trade ─────────────────────────────────────────────────────────────
 function newTrade() {
   if (_modified && !confirm('You have unsaved changes. Start a new trade and discard them?')) return;
@@ -4518,6 +4613,7 @@ _storageLegacy = detectStorageLegacyFromCostLines(INIT.costLines);   // bundled 
 _legs = legsFromTrade(INIT);   // seed the per-leg editor from the initial trade
 renderLegEditor();
 wireLegEditor();
+initTheme();
 updateLcDisplay();
 updateDepotVisibility();
 syncAllStorageUnits();
