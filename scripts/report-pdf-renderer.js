@@ -80,12 +80,14 @@ ${FONT_FACE_CSS}
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
+  /* 2026-08 design system — same token values as the dashboard theme + HTML deal sheet.
+     Print stays LIGHT (paper), but hues/typography now match the app identity. */
   --ink:    #242331;   /* body */
-  --slate:  #717c89;   /* secondary */
+  --slate:  #64707c;   /* secondary — dashboard --g-text-slate */
   --hair:   #d7dbe0;   /* hairline rule */
   --hair-2: #eceef1;   /* lightest separators / row tint */
   --shade:  #f4f6f8;   /* subtle table-header shade */
-  --accent: #d41d1d;   /* BRAND ACCENT ONLY — never loss */
+  --accent: #d41d1d;   /* BRAND ACCENT ONLY — never loss (wayfinding, as in the app) */
   --pos:    #15803d;   /* positive / active */
   --loss:   #991b1b;   /* genuine P&L loss / error */
   --amber-bg: #fef3c7; --amber-tx: #92400e;   /* INDICATIVE */
@@ -840,6 +842,32 @@ function hedgeAnalysis(trade, res) {
 </section>`;
 }
 
+// ─── Quote provenance (2026-08) — where every index number came from ─────────
+function quoteProvenance(trade, res) {
+  const rows = (res && res.quoteProvenance) || [];
+  if (!rows.length) return ''; // legacy trades: section omitted entirely
+  const body = rows.map((p) => `<tr>
+      <td>${esc(p.indexId)}</td>
+      <td class="r tnum">${Number(p.value).toLocaleString('en-US', { maximumFractionDigits: 4 })}</td>
+      <td>${esc(p.origin)}</td>
+      <td class="muted">${esc((p.source || '') + (p.asOf ? ` · asOf ${p.asOf}` : '')) || '&mdash;'}</td>
+      <td class="muted">${p.freshness === 'STALE' ? '<span style="color:var(--loss)">&#9888; STALE</span> ' : ''}${esc(p.warning || p.note || '')}</td>
+    </tr>`).join('');
+  return `
+<section class="section">
+  <div class="section-head">
+    <span class="section-num">7</span>
+    <span class="section-title">Quote Provenance</span>
+    <span class="section-kicker">source, tier &amp; freshness of every index input</span>
+  </div>
+  <table class="data-table">
+    <thead><tr><th>Index</th><th class="r">Value</th><th>Origin</th><th>Source</th><th>Note</th></tr></thead>
+    <tbody>${body}</tbody>
+  </table>
+  <div class="note">Pinned quotes travel in the trade file; BOOK quotes resolve from the desk quote book (latest active entry per index, tier-based freshness caps). Consensus = median across same-day sources.</div>
+</section>`;
+}
+
 function statusAndAssumptions(trade, res, generatedAt) {
   const legend = [
     { pill: '', label: 'No badge', desc: 'Verified vs statute or contract (OK / FIXED).' },
@@ -869,7 +897,7 @@ function statusAndAssumptions(trade, res, generatedAt) {
   return `
 <section class="section">
   <div class="section-head">
-    <span class="section-num">7</span>
+    <span class="section-num">8</span>
     <span class="section-title">Status &amp; Assumptions</span>
     <span class="section-kicker">four-state flag taxonomy</span>
   </div>
@@ -903,6 +931,7 @@ ${coverPage(trade, res, generatedAt)}
   ${pricingLadder(ladder, res)}
   ${fxAndSettlement(trade, res)}
   ${hedgeAnalysis(trade, res)}
+  ${quoteProvenance(trade, res)}
   ${statusAndAssumptions(trade, res, generatedAt)}
 </main>
 </body>
