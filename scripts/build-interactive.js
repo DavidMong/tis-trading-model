@@ -281,37 +281,9 @@ html[data-theme='dark'] .trade-id, html[data-theme='dark'] #hdr-trade-id { color
 .wfsvg-collabel-name, .wfsvg-collabel-sub { color: var(--g-text-slate); }
 
 /* ════ EXECUTIVE POLISH LAYER (2026-08) ════════════════════════════
-   McKinsey/Deloitte-grade: restrained surfaces, precise hairlines,
-   confident whitespace, mono numerics. No decoration that doesn't inform. */
-
-/* Refined global rhythm + font smoothing */
-* { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-body { letter-spacing: 0.005em; }
-
-/* Cards: quiet elevation via border discipline, not shadows */
-.section-block, .card, .panel {
-  background: var(--t-panel);
-  border: 1px solid var(--t-hairline);
-  border-radius: 8px;
-  box-shadow: 0 1px 2px rgba(16,21,28,.04);
-}
-
-/* Section headings: consulting-deck eyebrow style — small caps, tracked out,
-   hairline rule that stops short of the text */
-h2.section-heading {
-  display: flex; align-items: center; gap: 12px;
-  font-family: var(--f-display);
-  font-size: var(--fs-label); font-weight: 700;
-  letter-spacing: .14em; text-transform: uppercase;
-  color: var(--t-ink-2);
-}
-h2.section-heading::after {
-  content: ''; flex: 1; height: 1px;
-  background: linear-gradient(to right, var(--t-hairline), transparent);
-}
-h2.section-heading::before {
-  content: ''; width: 3px; height: 14px; background: var(--t-brand); border-radius: 1px;
-}
+   Rams: good design is as little design as possible. One accent per
+   heading — the base border-left tick from report-renderer stays; the
+   extra ::before/::after ornamentation below is removed. */
 
 /* Inputs: quieter borders, focus ring in brand color, comfortable hit areas */
 .si, input[type='number'], input[type='text'], select, textarea {
@@ -377,6 +349,15 @@ tr.total td, .row-total td {
   border-radius: 5px; font-weight: 600;
   transition: filter var(--g-duration-fast) var(--g-easing-standard);
 }
+/* Dark-mode AA fix: these primary buttons use background:var(--ink) + white text —
+   in dark, --ink becomes near-white so white-on-white = invisible. Remap the fill
+   to a theme-aware solid and keep white text (AA on both fills). */
+.btn-save, .btn-report {
+  background: var(--t-brand);
+  color: var(--t-brand-ink);
+}
+html[data-theme='dark'] .btn-save,
+html[data-theme='dark'] .btn-report { color: #0d1117; } /* brand red is light in dark */
 .btn-save:hover, .btn-report:hover { filter: brightness(1.12); }
 
 /* Theme toggle: full-width, icon-led */
