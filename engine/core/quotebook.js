@@ -151,10 +151,13 @@ function consensus(indexId, { asOf, maxSpreadPct = 2 } = {}) {
 }
 
 // Resolve quotes FOR A TRADE: explicit trade.indexQuotes win; missing ones fill from the book.
-// Returns { quotes, provenance } where provenance lists where every consumed number came from.
+// CONSENSUS MODE: when trade.pricing.consensus === true, unpinned indexes resolve to the MEDIAN
+// of all ACTIVE quotes for the latest date instead of the single newest quote — protects a large
+// decision against one bad number. Provenance records which mode was used either way.
 function resolveForTrade(trade, refIds) {
   const needed = new Set(refIds || []);
   const explicit = trade.indexQuotes || {};
+  const wantConsensus = !!(trade.pricing && trade.pricing.consensus);
   for (const k of Object.keys(explicit)) needed.add(k);
   // also collect formula refs so the report can show provenance even when the trade pins nothing
   const walkFormula = (node) => {
@@ -170,21 +173,35 @@ function resolveForTrade(trade, refIds) {
   const fromBook = latest([...needed]);
   const quotes = {};
   const provenance = [];
+  const cacheConsensus = {}; // indexId -> consensus result (avoid recompute per ref)
   for (const id of needed) {
     if (typeof explicit[id] === 'number') {
       quotes[id] = explicit[id];
       provenance.push({ indexId: id, value: explicit[id], origin: 'TRADE-PINNED', note: 'pinned in trade file — overrides quote book' });
-    } else if (fromBook[id]) {
-      const e = fromBook[id];
-      quotes[id] = e.value;
-      provenance.push({
-        indexId: id, value: e.value, origin: `BOOK ${e.id}`,
-        source: `${e.source.name}${e.source.org ? ` (${e.source.org})` : ''} · tier ${e.source.tier} · ${e.method}`,
-        asOf: e.asOf, ageHours: e.ageHours, freshness: e.freshness,
-        warning: e.freshness === 'STALE' ? `older than ${e.maxAgeHours}h tier cap — re-verify before pricing` : null,
-      });
+      continue;
     }
-    // absent -> engine/pricing.js throws its named-index error downstream; nothing invented here.
+    if (!fromBook[id]) continue; // absent -> engine/pricing.js throws its named-index error downstream
+    if (wantConsensus) {
+      if (!cacheConsensus[id]) cacheConsensus[id] = consensus(id);
+      const c = cacheConsensus[id];
+      if (c.count > 1) {
+        quotes[id] = c.median;
+        provenance.push({
+          indexId: id, value: c.median, origin: `BOOK-CONSENSUS (${c.count} sources)`,
+          note: `median of ${c.asOf} quotes · range ${c.min}–${c.max} · spread ${c.spreadPct}%${c.wideSpread ? ' ⚠ WIDE — verify' : ''}`,
+          freshness: c.quotes.some((q) => q.freshness === 'STALE') ? 'STALE' : 'FRESH',
+        });
+        continue;
+      }
+    }
+    const e = fromBook[id];
+    quotes[id] = e.value;
+    provenance.push({
+      indexId: id, value: e.value, origin: `BOOK ${e.id}`,
+      source: `${e.source.name}${e.source.org ? ` (${e.source.org})` : ''} · tier ${e.source.tier} · ${e.method}`,
+      asOf: e.asOf, ageHours: e.ageHours, freshness: e.freshness,
+      warning: e.freshness === 'STALE' ? `older than ${e.maxAgeHours}h tier cap — re-verify before pricing` : null,
+    });
   }
   return { quotes, provenance };
 }
