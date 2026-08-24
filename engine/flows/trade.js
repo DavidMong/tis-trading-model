@@ -10,7 +10,7 @@ const { buildFxHedge } = require('../core/fx-hedge');
 const { normalizeLegs, computeLegRevenue } = require('../core/revenue');
 const { resolvePurchasePrice, resolveSaleLegPrices } = require('../core/pricing');
 const { computeBasis } = require('../core/basis');
-const quotebook = require('../core/quotebook');
+const quotebook = require('../core/quotebook.browser');
 const { num, positive, nonNegative, proportion, oneOf, sumToOne, computedPositive } = require('../core/validate');
 
 // UNIFIED, fully-configurable trade flow. Sale revenue is a PER-LEG model (engine/core/revenue.js):

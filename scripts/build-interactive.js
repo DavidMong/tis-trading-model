@@ -10,7 +10,7 @@ fs.mkdirSync(OUT, { recursive: true });
 
 // ── 1. Bundle engine ─────────────────────────────────────────────────────────
 execSync(
-  'npx esbuild scripts/engine-browser-entry.js --bundle --format=iife --global-name=TISEngine --minify --outfile=out/engine.bundle.js',
+  'npx esbuild scripts/engine-browser-entry.js --bundle --format=iife --global-name=TISEngine --minify "--define:BROWSER_BUILD=true" --outfile=out/engine.bundle.js',
   { cwd: ROOT, stdio: 'inherit' }
 );
 const engineBundle = fs.readFileSync(path.join(OUT, 'engine.bundle.js'), 'utf8');
