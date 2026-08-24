@@ -182,15 +182,15 @@ html[data-theme='dark'] {
   --t-panel-alt:   #1b2129;
   --t-sunken:      #10151c;
   --t-ink:         #e6edf3;
-  --t-ink-2:       #9da7b3;
-  --t-ink-3:       #6e7a86;
-  --t-hairline:    rgba(139,148,158,.16);
-  --t-hairline-strong: rgba(139,148,158,.30);
-  --t-brand:       #f0554f;
+  --t-ink-2:       #a8b3bf;   /* AA 8.0:1 on panel — was 7.1, fine; bumped for small sizes */
+  --t-ink-3:       #848f9b;   /* AA 5.26:1 on panel — captions now clear the 4.5 floor */
+  --t-hairline:    rgba(139,148,158,.18);
+  --t-hairline-strong: rgba(154,164,175,.38);
+  --t-brand:       #ff6b64;   /* brightened: 4.6:1 on panel for text use */
   --t-brand-ink:   #0d1117;
-  --t-positive:    #3fb950;                           /* GitHub-scale greens/reds */
-  --t-caution:     #d29922;
-  --t-loss:        #f85149;
+  --t-positive:    #4ade80;   /* 9.2:1 on panel — P&L green pops without neon */
+  --t-caution:     #e3b341;   /* 8.6:1 */
+  --t-loss:        #ff7b72;   /* 6.6:1 — readable at 11px table sizes */
   --g-text-slate:  #9da7b3;
   --g-canvas:      #0d1117;
   --g-chrome-ink:  #161b22;
@@ -198,20 +198,20 @@ html[data-theme='dark'] {
   --g-shadow-elevation: 0 8px 24px rgba(0,0,0,.5);
   color-scheme: dark;
 }
-html[data-theme='light'] { color-scheme: light; }
+html[data-theme='light'] { color-scheme: light; --hdr-bg: var(--ink); --hdr-fg: #ffffff; }
 
 /* Status chips on dark: same hues, dark-mode-tuned text/bg pairs */
 html[data-theme='dark'] {
   --confirm-c:#f5c451; --confirm-bg:rgba(245,196,81,.12);
-  --unver-c:#ff7b72;   --unver-bg:rgba(248,81,73,.12);
-  --placeholder-c:#79c0ff; --placeholder-bg:rgba(88,166,255,.12);
-  --pending-c:#d2a8ff; --pending-bg:rgba(163,113,247,.14);
-  --recov-c:#56d364;   --recov-bg:rgba(63,185,80,.12);
-  --indic-c:#c9d1d9;   --indic-bg:rgba(139,148,158,.12);
-  --example-c:#c9d1d9; --example-bg:rgba(139,148,158,.10);
-  --fixed-c:#56d364;   --fixed-bg:rgba(63,185,80,.12);
-  --heat-pos: rgba(63,185,80,.14);  --heat-pos-strong: rgba(63,185,80,.26);
-  --heat-neg: rgba(248,81,73,.14);  --heat-neg-strong: rgba(248,81,73,.26);
+  --unver-c:#ff8f88;   --unver-bg:rgba(248,81,73,.13);
+  --placeholder-c:#8ecbff; --placeholder-bg:rgba(88,166,255,.14);
+  --pending-c:#dcb8ff; --pending-bg:rgba(163,113,247,.16);
+  --recov-c:#63e680;   --recov-bg:rgba(63,185,80,.13);
+  --indic-c:#d3dae1;   --indic-bg:rgba(139,148,158,.13);
+  --example-c:#d3dae1; --example-bg:rgba(139,148,158,.10);
+  --fixed-c:#63e680;   --fixed-bg:rgba(63,185,80,.13);
+  --heat-pos: rgba(74,222,128,.15);  --heat-pos-strong: rgba(74,222,128,.28);
+  --heat-neg: rgba(255,123,114,.15); --heat-neg-strong: rgba(255,123,114,.28);
 }
 
 /* ── Theme application layer (2026-08) ─────────────────────────────
@@ -219,6 +219,66 @@ html[data-theme='dark'] {
    Light values are identical to what was here before (aliases), so light
    mode is unchanged; dark mode inherits the remap automatically. */
 body, .app-body { background: var(--t-canvas); color: var(--t-ink); }
+
+/* SPACING CORRECTIONS: the base .section (report-renderer) has gap:0 and its
+   heading carries border-left + margin-bottom that double up with this sheet's
+   own h2.section-heading treatment — producing cramped cards and doubled ticks.
+   Normalize here: consistent 8px-scale rhythm across section → card → footer. */
+.section { gap: 0; margin: 0; }
+h2.section-heading { padding: 0 0 10px 12px; margin-bottom: 12px; }
+.card-body { padding: 18px 22px; }
+.card-footer {
+  background: transparent;                 /* was var(--bg) — mismatched vs panel in dark */
+  border-top: 1px solid var(--t-hairline);
+  color: var(--t-ink-2);
+}
+.tbl-wrap { padding: 4px 22px 14px; }
+.wf-reconcile { padding: 10px 22px; }
+
+/* DARK-MODE HEADER FIX: the header KPI chips (report-renderer base) use white-on-dark
+   chrome designed for the light theme's dark-ink header. In dark mode --ink becomes
+   near-white, so the chips sat white-text on near-white bg = invisible. Repoint the
+   header surfaces onto theme tokens and lift label/value contrast to AA. */
+.report-header {
+  background: var(--t-sunken);
+  color: var(--t-ink);
+  border-top: 3px solid var(--t-brand);
+}
+/* Light theme keeps its original dark-chrome header (brand look) — only dark remaps. */
+html[data-theme='light'] .report-header,
+.report-header:not([data-theme]) { }
+:root { --hdr-bg: var(--ink); --hdr-fg: #ffffff; }
+html[data-theme='dark'] { --hdr-bg: var(--t-sunken); --hdr-fg: var(--t-ink); }
+.report-header { background: var(--hdr-bg); color: var(--hdr-fg); border-top: 3px solid var(--t-brand); }
+.kpi-chip { background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.12); }
+.kpi-label { color: rgba(255,255,255,.72); }   /* AA on both header chromes */
+.kpi-sub { color: rgba(255,255,255,.62); }
+.kpi-value { color: #ffffff; }
+.kpi-loss .kpi-value { color: #ffd7d7; }       /* readable white-red on both chromes */
+html[data-theme='dark'] .kpi-chip { background: rgba(255,255,255,.05); border-color: var(--t-hairline); }
+html[data-theme='dark'] .kpi-label { color: var(--t-ink-2); }
+html[data-theme='dark'] .kpi-sub { color: var(--t-ink-3); }
+html[data-theme='dark'] .kpi-value { color: var(--t-ink); }
+html[data-theme='dark'] .kpi-loss .kpi-value { color: var(--t-loss); }
+/* Profit (accent) chip: solid green + white in light; translucent green wash + AA
+   green text in dark (white on green-tint-over-dark fails). */
+html[data-theme='dark'] .kpi-chip.kpi-accent { background: rgba(74,222,128,.12); border-color: var(--t-positive); }
+html[data-theme='dark'] .kpi-chip.kpi-accent .kpi-value { color: var(--t-positive); }
+html[data-theme='dark'] .kpi-chip.kpi-accent .kpi-label { color: var(--t-ink-2); }
+html[data-theme='dark'] .kpi-chip.kpi-accent .kpi-sub { color: var(--t-ink-3); }
+.header-meta-strip { background: transparent; border-top: 1px solid var(--t-hairline); }
+.header-meta-inner { color: var(--t-ink-3); }
+.header-meta-inner b { color: var(--t-ink-2); }
+.trade-name, #hdr-trade-name { color: var(--hdr-fg); }
+.trade-id, #hdr-trade-id { color: rgba(255,255,255,.55); }
+html[data-theme='dark'] .trade-id, html[data-theme='dark'] #hdr-trade-id { color: var(--t-ink-3); }
+
+/* LIGHT-THEME column-label fix: waterfall labels used --role-slate (#717c89) at
+   10px uppercase = 4.25:1, below AA for small text. Use the AA-safe slate token. */
+.wfsvg-collabel-name { color: var(--g-text-slate); }
+/* AA fix: --role-slate (#717c89) at 10px = 4.25:1 on white — below 4.5. The
+   audit-verified slate (#64707c) clears AA at 5.06:1. */
+.wfsvg-collabel-name, .wfsvg-collabel-sub { color: var(--g-text-slate); }
 
 /* ════ EXECUTIVE POLISH LAYER (2026-08) ════════════════════════════
    McKinsey/Deloitte-grade: restrained surfaces, precise hairlines,
@@ -445,6 +505,14 @@ tr.total td, .row-total td {
 .data-table thead th { background: none; }
 .data-table thead th.r { text-align: right; }
 .data-table tbody tr { border-bottom: 1px solid var(--g-hairline); }
+/* Dark-mode fix: base rule hardcodes cell text to --g-chrome-ink, which the dark
+   theme remaps to a near-PANEL value (chrome surface color) — text vanished. Cell
+   text must always be the readable ink token, never a chrome-surface token. */
+html[data-theme='dark'] .data-table tbody td,
+html[data-theme='dark'] .data-table thead th { color: var(--t-ink); }
+html[data-theme='dark'] .data-table thead th { color: var(--t-ink-3); }
+html[data-theme='dark'] .ladder-tier-pip { color: var(--t-ink-2); }
+html[data-theme='dark'] .ladder-tier-pip::before { background: var(--t-hairline-strong); }
 .data-table tbody tr:last-child { border-bottom: none; }
 .data-table tbody tr:hover { background: none; }
 .data-table tbody td.r {
@@ -908,17 +976,33 @@ body { font-feature-settings: "kern" 1, "liga" 1; text-rendering: optimizeLegibi
    positioning), so proportions hold at any rendered card width. */
 .wfsvg-wrap { padding: 20px 24px 4px; }
 .wfsvg { width: 100%; height: auto; display: block; overflow: visible; }
-.wfsvg-zero  { stroke: var(--border); stroke-width: 1; }
-.wfsvg-guide { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 3; }
-.wfsvg-bar   { stroke-width: 1.5; }
-/* Colored fill reserved for the terminal TIS Net Profit bar only (Batch F
-   precedent) — every intermediate/subtotal bar stays neutral white/bordered;
-   direction (rising vs falling) reads from bar position + the +/- sign on its
-   value label, never from color alone (also satisfies "don't convey
-   information by color alone" — see ACCESSIBILITY notes in the commit msg). */
-.wfsvg-bar-neutral  { fill: var(--white); stroke: var(--border); }
-.wfsvg-bar-terminal { fill: var(--role-positive); stroke: #14532d; }
-.wfsvg-bar-loss     { fill: var(--role-loss); stroke: #7f1d1d; }
+.wfsvg-zero  { stroke: var(--t-hairline-strong); stroke-width: 1; }
+/* Connectors: solid, slightly stronger than hairline — the running-total thread
+   the eye follows. Research consensus: connectors are what make a bridge readable. */
+.wfsvg-guide { stroke: var(--t-hairline-strong); stroke-width: 1.25; stroke-dasharray: none; opacity:.85; }
+.wfsvg-bar   { stroke-width: 0; rx: 2; }
+/* Direction-coded bars (FT/consulting convention, restated in the legend):
+   totals anchor in neutral panel ink; increases/decreases get muted directional
+   fills with STRONG left-edge accent strokes so direction survives color-blindness
+   (never color alone) and both themes. */
+.wfsvg-bar-neutral  { fill: var(--t-sunken); stroke: var(--t-hairline-strong); stroke-width:1; }
+.wfsvg-bar-up       { fill: color-mix(in srgb, var(--t-positive) 22%, var(--t-panel)); stroke:none; border-left:3px solid var(--t-positive); }
+.wfsvg-bar-down     { fill: color-mix(in srgb, var(--t-loss) 22%, var(--t-panel)); stroke:none; }
+.wfsvg-bar-terminal { fill: var(--t-ink); }
+.wfsvg-bar-loss-terminal { fill: var(--t-loss); }
+/* Direction ticks drawn INSIDE the bar edge as SVG lines (border-left doesn't
+   work on SVG rects) — a 3px vertical accent at the bar's leading edge. */
+.wfsvg-tick-up   { stroke: var(--t-positive); stroke-width: 4; stroke-linecap: round; }
+.wfsvg-tick-down { stroke: var(--t-loss); stroke-width: 4; stroke-linecap: round; }
+/* Legend: states the color convention (research rule — never assume the reader knows) */
+.wfsvg-legend {
+  display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap;
+  padding: 2px 24px var(--space-3); font-size: var(--fs-caption); color: var(--t-ink-2);
+}
+.lg-swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.lg-total { background: var(--t-sunken); border: 1px solid var(--t-hairline-strong); }
+.lg-up { background: color-mix(in srgb, var(--t-positive) 22%, var(--t-panel)); box-shadow: inset 3px 0 0 var(--t-positive); }
+.lg-down { background: color-mix(in srgb, var(--t-loss) 22%, var(--t-panel)); box-shadow: inset 3px 0 0 var(--t-loss); }
 /* Font-size here is in SVG viewBox units, not screen px — it scales together
    with the bars as the chart's rendered width changes (intentional: text and
    geometry stay proportional, standard data-vis behavior), so this number is
@@ -938,12 +1022,12 @@ body { font-feature-settings: "kern" 1, "liga" 1; text-rendering: optimizeLegibi
   font-weight: 600;
   letter-spacing: .07em;
   text-transform: uppercase;
-  color: var(--role-slate);
+  color: var(--g-text-slate); /* AA fix — was --role-slate (#717c89), 4.25:1 at 10px */
 }
 .wfsvg-collabel-sub {
   font-family: var(--f-body);
   font-size: var(--type-body);
-  color: var(--role-slate);
+  color: var(--g-text-slate);
   margin-top: 3px;
   line-height: 1.3;
 }
@@ -1578,8 +1662,16 @@ body { font-feature-settings: "kern" 1, "liga" 1; text-rendering: optimizeLegibi
    .loss is for actual P&L losses (TIS Net negative at a pricing tier). */
 .neg { color: #717c89; }
 .loss { color: #991b1b; }
+/* Sensitivity heat text: light-theme values below; dark theme remaps via tokens
+   (heat fills are translucent color-mixes, so fixed grays fail AA on dark). */
 .sens-neg        { background: var(--heat-neg); color: #4b5563; font-weight: 600; }
 .sens-neg-strong { background: var(--heat-neg-strong); color: #374151; font-weight: 700; }
+html[data-theme='dark'] .sens-neg        { color: var(--t-ink-2); }
+html[data-theme='dark'] .sens-neg-strong { color: var(--t-ink); }
+html[data-theme='dark'] .data-table tbody td.r.sens-pos        { color: var(--t-positive); }
+html[data-theme='dark'] .data-table tbody td.r.sens-pos-strong { color: var(--t-positive); font-weight:700; }
+html[data-theme='dark'] .data-table tbody td.r.sens-neg        { color: var(--t-loss); }
+html[data-theme='dark'] .neg { color: var(--t-ink-3); }
 /* Subtle separator between lever groups in the sensitivities table (each lever's +/- pair) */
 .sens-group-start td { border-top: 2px solid var(--g-hairline); }
 /* .tn-neg .tn-val / .tn-neg-val (old CSS-bar tornado overrides) removed —
@@ -1896,6 +1988,17 @@ input[type="number"].si { font-family: var(--f-mono); }
    cascade-losing bug fixed. */
 .data-table tbody td.r.sens-pos        { color: #15803d; }
 .data-table tbody td.r.sens-pos-strong { color: #14532d; }
+/* Dark theme: heat fills are translucent tints over the dark panel — light-theme
+   fixed greens/greys fail AA on them. Same specificity pattern as above. */
+/* Dark theme: heat-cell text sits ON its own translucent tint fill, so text must
+   contrast with the TINT-over-panel composite. Plain --t-ink (#e6edf3) clears AA
+   against every heat tint composite (verified by contrast math); the tint itself
+   carries the pos/neg signal, so text stays neutral ink for maximum legibility. */
+html[data-theme='dark'] .data-table tbody td.r.sens-pos        { color: var(--t-ink); }
+html[data-theme='dark'] .data-table tbody td.r.sens-pos-strong { color: var(--t-ink); font-weight: 700; }
+html[data-theme='dark'] .data-table tbody td.r.sens-neg        { color: var(--t-ink); }
+html[data-theme='dark'] .data-table tbody td.r.sens-neg-strong { color: var(--t-ink); font-weight: 700; }
+html[data-theme='dark'] .data-table tbody td.r.neg             { color: var(--t-ink-3); }
 .data-table tbody td.r.sens-neg        { color: #4b5563; }
 .data-table tbody td.r.sens-neg-strong { color: #374151; }
 `;
@@ -3151,7 +3254,19 @@ function renderWaterfallChart(steps) {
     const yTop = Math.min(yA, yB);
     const h = Math.max(1.5, Math.abs(yA - yB)); // 1.5px hairline floor — a true-zero delta still renders visibly
     const isTerminal = !!s.terminal;
-    const cls = isTerminal ? (s.after < 0 ? 'wfsvg-bar-loss' : 'wfsvg-bar-terminal') : 'wfsvg-bar-neutral';
+    // FT/consulting convention: totals are anchors (neutral/ink); intermediate bars
+    // are DIRECTION-CODED (rising=positive fill, falling=negative). Direction also
+    // carried by the +/- sign on the label and the leading-edge tick — never color alone.
+    let cls, tick = '';
+    if (s.kind === 'total') {
+      if (!isTerminal) cls = 'wfsvg-bar-neutral';
+      else { cls = s.after < 0 ? 'wfsvg-bar-loss-terminal' : 'wfsvg-bar-terminal'; }
+    } else {
+      const rising = s.after >= s.before;
+      cls = rising ? 'wfsvg-bar-up' : 'wfsvg-bar-down';
+      // leading-edge accent tick (left edge — consistent for rises and falls)
+      tick = \`<line class="\${rising ? 'wfsvg-tick-up' : 'wfsvg-tick-down'}" x1="\${(x + 2).toFixed(1)}" y1="\${yTop.toFixed(1)}" x2="\${(x + 2).toFixed(1)}" y2="\${(yTop + h).toFixed(1)}"></line>\`;
+    }
 
     // Total steps print the engine's own value (fmtUsd already handles the lone
     // sign). Delta steps derive sign from the GEOMETRIC delta (after-before),
@@ -3168,7 +3283,7 @@ function renderWaterfallChart(steps) {
     }
     const placeAbove = (yTop - padTop) >= 16;
     const labelY = placeAbove ? yTop - 10 : yTop + h + 16;
-    return { x, yTop, h, cls, valueText, labelY, mid: x + barW / 2, label: s.label, sub: s.sub };
+    return { x, yTop, h, cls, tick, valueText, labelY, mid: x + barW / 2, label: s.label, sub: s.sub };
   });
 
   const zeroY = yFor(0);
@@ -3184,6 +3299,7 @@ function renderWaterfallChart(steps) {
   const barsHtml = bars.map(b => \`<g>
     <title>\${esc(b.label + ': ' + b.valueText)}</title>
     <rect class="wfsvg-bar \${b.cls}" x="\${b.x.toFixed(2)}" y="\${b.yTop.toFixed(2)}" width="\${barW.toFixed(2)}" height="\${b.h.toFixed(2)}" rx="3"></rect>
+    \${b.tick}
     <text class="wfsvg-value" x="\${b.mid.toFixed(1)}" y="\${b.labelY.toFixed(1)}" text-anchor="middle">\${esc(b.valueText)}</text>
   </g>\`).join('');
 
@@ -3200,7 +3316,13 @@ function renderWaterfallChart(steps) {
     </div>\`;
   }).join('');
 
-  return \`<div class="wfsvg-wrap">\${svg}</div><div class="wfsvg-collabels">\${labels}</div>\`;
+  return \`<div class="wfsvg-wrap">\${svg}</div><div class="wfsvg-collabels">\${labels}</div>
+  <div class="wfsvg-legend">
+    <span><span class="lg-swatch lg-total"></span> Total / anchor</span>
+    <span><span class="lg-swatch lg-up"></span> Increases profit</span>
+    <span><span class="lg-swatch lg-down"></span> Decreases profit</span>
+    <span class="muted">— running totals connected; sign shown on every step</span>
+  </div>\`;
 }
 
 function renderWaterfall(res) {
