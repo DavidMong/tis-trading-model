@@ -220,38 +220,120 @@ html[data-theme='dark'] {
    mode is unchanged; dark mode inherits the remap automatically. */
 body, .app-body { background: var(--t-canvas); color: var(--t-ink); }
 
-/* Inputs & selects across the rail */
-.si, input[type='number'], input[type='text'], select, textarea {
-  background: var(--t-panel);
-  color: var(--t-ink);
-  border-color: var(--t-hairline);
-}
-.si::placeholder { color: var(--t-ink-3); }
-.si:focus { border-color: var(--t-brand); }
-select.lib-select { background: var(--t-panel); color: var(--t-ink); }
+/* ════ EXECUTIVE POLISH LAYER (2026-08) ════════════════════════════
+   McKinsey/Deloitte-grade: restrained surfaces, precise hairlines,
+   confident whitespace, mono numerics. No decoration that doesn't inform. */
 
-/* Cards / panels / tables */
+/* Refined global rhythm + font smoothing */
+* { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+body { letter-spacing: 0.005em; }
+
+/* Cards: quiet elevation via border discipline, not shadows */
 .section-block, .card, .panel {
   background: var(--t-panel);
-  border-color: var(--t-hairline);
+  border: 1px solid var(--t-hairline);
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(16,21,28,.04);
 }
-.data-table tbody tr:hover td { background: var(--t-panel-alt); }
-.data-table tbody tr { border-bottom-color: var(--t-hairline); }
 
-/* Typography discipline: numerics always mono + tabular */
+/* Section headings: consulting-deck eyebrow style — small caps, tracked out,
+   hairline rule that stops short of the text */
+h2.section-heading {
+  display: flex; align-items: center; gap: 12px;
+  font-family: var(--f-display);
+  font-size: var(--fs-label); font-weight: 700;
+  letter-spacing: .14em; text-transform: uppercase;
+  color: var(--t-ink-2);
+}
+h2.section-heading::after {
+  content: ''; flex: 1; height: 1px;
+  background: linear-gradient(to right, var(--t-hairline), transparent);
+}
+h2.section-heading::before {
+  content: ''; width: 3px; height: 14px; background: var(--t-brand); border-radius: 1px;
+}
+
+/* Inputs: quieter borders, focus ring in brand color, comfortable hit areas */
+.si, input[type='number'], input[type='text'], select, textarea {
+  background: var(--t-panel); color: var(--t-ink);
+  border: 1px solid var(--t-hairline); border-radius: 5px;
+  transition: border-color var(--g-duration-fast) var(--g-easing-standard),
+              box-shadow var(--g-duration-fast) var(--g-easing-standard);
+}
+.si::placeholder { color: var(--t-ink-3); }
+.si:hover { border-color: var(--t-hairline-strong); }
+.si:focus, input:focus, select:focus, textarea:focus {
+  outline: none; border-color: var(--t-brand);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--t-brand) 15%, transparent);
+}
+select.lib-select { background: var(--t-panel); color: var(--t-ink); }
+
+/* Data tables: consulting-report tables — no zebra noise, hairline rows,
+   bold totals with a double-rule finish */
+.data-table thead th {
+  font-size: var(--fs-label); letter-spacing: .06em; text-transform: uppercase;
+  color: var(--t-ink-3); border-bottom: 1px solid var(--t-hairline-strong);
+  padding: 7px 8px;
+}
+.data-table tbody td { padding: 6px 8px; border-bottom: 1px solid var(--t-hairline); }
+.data-table tbody tr:hover td { background: var(--t-panel-alt); }
+.data-table tbody tr:last-child td { border-bottom: none; }
+tr.total td, .row-total td {
+  border-top: 1px solid var(--t-hairline-strong);
+  border-bottom: none; font-weight: 600; color: var(--t-ink);
+}
+
+/* Numerics: always Plex Mono tabular — columns align like a printed exhibit */
 .param-value, .kpi-value, .data-table td.r, .wf-val, .tot-row td.r,
-.tnsvg-val, .ladder-price, .mono-num {
+.tnsvg-val, .ladder-price, .mono-num, .glance-value {
   font-family: var(--f-mono);
   font-variant-numeric: tabular-nums lining-nums;
 }
+
+/* KPI strip: executive summary band — big number, quiet label, generous air */
+.kpi-value { letter-spacing: -0.01em; line-height: 1.1; }
 
 /* P&L semantics via theme tokens (dark-mode AA variants inherit) */
 .pos, .val-pos, .delta-pos { color: var(--t-positive); }
 .neg, .val-neg, .delta-neg { color: var(--t-loss); }
 
-/* Sidebar footer buttons pick up theme surfaces */
+/* Status pills: softer fills, crisp text — never shouty */
+.pill, .state-badge {
+  border-radius: 4px; font-size: 10px; font-weight: 600;
+  letter-spacing: .03em; padding: 1px 7px;
+}
+
+/* Buttons: consistent geometry, subtle transitions */
+.btn-new, .btn-saveas, .btn-lib, .btn-export {
+  border-radius: 5px;
+  transition: background var(--g-duration-fast) var(--g-easing-standard),
+              color var(--g-duration-fast) var(--g-easing-standard),
+              border-color var(--g-duration-fast) var(--g-easing-standard);
+}
 .btn-new:hover, .btn-saveas:hover, .btn-lib:hover, .btn-export:hover {
-  background: var(--t-sunken); color: var(--t-ink);
+  background: var(--t-sunken); color: var(--t-ink); border-color: var(--t-hairline-strong);
+}
+.btn-save, .btn-report {
+  border-radius: 5px; font-weight: 600;
+  transition: filter var(--g-duration-fast) var(--g-easing-standard);
+}
+.btn-save:hover, .btn-report:hover { filter: brightness(1.12); }
+
+/* Theme toggle: full-width, icon-led */
+#theme-toggle { width: 100%; text-align: center; }
+
+/* Scrollbars: thin, themed (WebKit + Firefox) */
+* { scrollbar-width: thin; scrollbar-color: var(--t-hairline-strong) transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: var(--t-hairline-strong); border-radius: 4px; }
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* Focus visibility for keyboard users — brand ring everywhere */
+:focus-visible { outline: 2px solid var(--t-brand); outline-offset: 2px; }
+
+/* Reduced motion respected */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }
 
 /* ── Shared component classes (Stage 0) ───────────────────────────
@@ -4298,6 +4380,10 @@ function toggleTheme() {
   applyTheme(next);
   try { localStorage.setItem('tis-theme', next); } catch (_) {}
 }
+// Expose for inline onclick handlers — the app body runs inside an IIFE, so these
+// functions are invisible at global scope without an explicit export.
+window.toggleTheme = toggleTheme;
+window.applyTheme = applyTheme;
 
 // ── New Trade ─────────────────────────────────────────────────────────────
 function newTrade() {
