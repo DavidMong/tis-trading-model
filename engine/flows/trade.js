@@ -436,6 +436,7 @@ function computeTrade(trade, opts = {}) {
       exShipUSD: money(exShipRevenueUSD),
       depotUSD: money(depotRevenueUSD),
       combinedUSD: money(combinedRevenue),
+      litresPerMT: litresPerMT != null ? round(litresPerMT, 4) : null,
       // Per-leg breakdown (per-leg revenue model). NGN legs carry their fixed naira amount (FX exposure).
       legs: legResults.map(({ leg, rev }) => ({
         channel: leg.channel,

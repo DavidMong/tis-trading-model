@@ -1,6 +1,7 @@
 'use strict';
 
 const { round } = require('./rounding');
+const deskMemory = require('./desk-memory');
 
 // DEAL CLOSE-OUT — actuals vs model variance (calibration loop).
 //
@@ -74,6 +75,23 @@ function closeOut(modelRes, actuals) {
 
   const scorecard = rows.filter(Boolean);
   const unfavorableCount = [...scorecard, ...lineRows].filter((r) => r.verdict === 'UNFAVORABLE').length;
+
+  // DESK MEMORY (best-effort, never blocks the report): actuals feed cost baselines so the
+  // NEXT recap starts from real numbers; counterparties get their completed-deal count bumped.
+  const memoryUpdates = { baselinesUpdated: [], counterpartiesBumped: [] };
+  try {
+    const qty = A.deliveredQtyMT ?? modelRes.meta?.deliveredQty;
+    if (A.costLines) {
+      for (const [id, amt] of Object.entries(A.costLines)) {
+        deskMemory.updateBaseline(id, { usd: amt, deliveredQtyMT: qty, fromTrade: actuals.tradeId });
+        memoryUpdates.baselinesUpdated.push(id);
+      }
+    }
+    for (const p of [modelRes.meta?.parties?.supplier, modelRes.meta?.parties?.partner]) {
+      if (p && deskMemory.recordDealFor(p)) memoryUpdates.counterpartiesBumped.push(p);
+    }
+  } catch (_) { /* memory is advisory */ }
+
   return {
     tradeId: actuals.tradeId || (modelRes.meta.tradeId),
     closedAt: new Date().toISOString(),
@@ -84,6 +102,7 @@ function closeOut(modelRes, actuals) {
       netProfitDelta: (scorecard.find((r) => r.line === 'TIS net profit') || {}).delta ?? null,
       unfavorableLines: unfavorableCount,
     },
+    memoryUpdates,
     note: 'Close-out calibrates future estimates. Persist alongside the trade for next-deal reference.',
   };
 }

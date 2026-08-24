@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "_comment": "Auto-updated at close-out. Baseline per cost-line id: the LAST ACTUAL amount — use as the starting estimate for the next deal.",
+  "baselines": {
+    "3": {
+      "usd": 148000,
+      "perMT": 4.4848,
+      "from": "T",
+      "updatedAt": "2026-08-24T10:17:45.897Z"
+    },
+    "11": {
+      "usd": 48000,
+      "perMT": 1.4453,
+      "from": "TIS-JET-001",
+      "updatedAt": "2026-08-24T10:17:45.818Z"
+    },
+    "14": {
+      "usd": 27100,
+      "perMT": 0.816,
+      "from": "TIS-JET-001",
+      "updatedAt": "2026-08-24T10:17:45.818Z"
+    }
+  }
+}
