@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "quotes": [
+    {
+      "id": "Q-0001",
+      "indexId": "PLATTS_GASOIL_CARGO_FOB_ARA",
+      "value": 695.5,
+      "unit": "USD_PER_MT",
+      "asOf": "2026-08-24",
+      "capturedAt": "2026-08-24T14:30:00+01:00",
+      "source": {
+        "name": "Example broker contact",
+        "org": "",
+        "tier": "B"
+      },
+      "method": "WhatsApp voice",
+      "notes": "10ppm cargo FOB ARA assessment quote",
+      "status": "ACTIVE"
+    },
+    {
+      "id": "Q-0002",
+      "indexId": "PLATTS_JET_CARGO_NW",
+      "value": 702.25,
+      "unit": null,
+      "asOf": "2026-08-24",
+      "capturedAt": "2026-08-24T09:50:02.537Z",
+      "source": {
+        "name": "Kola",
+        "org": "Mercuria desk",
+        "tier": "B"
+      },
+      "method": "WhatsApp voice",
+      "notes": "",
+      "status": "ACTIVE"
+    },
+    {
+      "id": "Q-0003",
+      "indexId": "PLATTS_JET_CARGO_NW",
+      "value": 703.1,
+      "unit": null,
+      "asOf": "2026-08-24",
+      "capturedAt": "2026-08-24T09:50:02.591Z",
+      "source": {
+        "name": "Bola",
+        "org": "",
+        "tier": "C"
+      },
+      "method": "phone",
+      "notes": "",
+      "status": "ACTIVE"
+    }
+  ]
+}

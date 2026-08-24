@@ -291,6 +291,10 @@ function printTradeReport(res, trade, flags) {
     }
     for (const a of res.pricing.saleLegAudits) L(`  Sale leg ${a.legIndex + 1} [INDEXED]: ${a.summary}`);
   }
+  for (const p of res.quoteProvenance || []) {
+    const flag = p.freshness === 'STALE' ? ' [STALE]' : '';
+    L(`  Quote ${p.indexId} = ${p.value}${flag} — ${p.origin}${p.source ? ` · ${p.source}` : ''}${p.asOf ? ` · asOf ${p.asOf}` : ''}${p.warning ? ` ⚠ ${p.warning}` : ''}`);
+  }
   if (res.basis && (res.basis.rows.length || res.basis.notes.length)) {
     for (const b of res.basis.rows) L(`  BASIS ${b.physicalIndex} vs ${b.instrument}: ${b.basisUsdPerMt} USD/MT (${b.basisPctOfPhysical}%) — residual NOT in P&L`);
     for (const n of res.basis.notes) L(`  BASIS note: ${n}`);

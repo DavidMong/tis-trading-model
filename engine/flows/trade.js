@@ -10,6 +10,7 @@ const { buildFxHedge } = require('../core/fx-hedge');
 const { normalizeLegs, computeLegRevenue } = require('../core/revenue');
 const { resolvePurchasePrice, resolveSaleLegPrices } = require('../core/pricing');
 const { computeBasis } = require('../core/basis');
+const quotebook = require('../core/quotebook');
 const { num, positive, nonNegative, proportion, oneOf, sumToOne, computedPositive } = require('../core/validate');
 
 // UNIFIED, fully-configurable trade flow. Sale revenue is a PER-LEG model (engine/core/revenue.js):
@@ -78,6 +79,17 @@ function validateTrade(trade, deliveredQty, ch, native) {
 }
 
 function computeTrade(trade, opts = {}) {
+  // QUOTE-BOOK RESOLUTION (before validation): trades may pin explicit indexQuotes (they win), but
+  // any referenced index WITHOUT a pinned value fills from the quote book — latest ACTIVE entry,
+  // with provenance surfaced in the result. Legacy trades (market.ice) never touch the book.
+  let quoteProvenance = [];
+  if (trade.market && trade.market.purchasePrice) {
+    const r = quotebook.resolveForTrade(trade);
+    if (Object.keys(r.quotes).length) {
+      trade = { ...trade, indexQuotes: r.quotes };
+      quoteProvenance = r.provenance;
+    }
+  }
   const deliveredQty = opts.deliveredQtyOverride ?? trade.cargo.deliveredQtyMT;
   const native = Array.isArray(trade.revenueLegs) && trade.revenueLegs.length > 0;
   const ch = trade.channels || { exShipPct: 1, depotPct: 0 };
@@ -393,6 +405,7 @@ function computeTrade(trade, opts = {}) {
 
   return {
     meta: { ...trade.meta, parties: trade.parties, deliveredQty, lifecycle },
+    quoteProvenance,
     jurisdiction: require('../core/jurisdiction').load(trade.jurisdiction),
     pricing: purchase ? {
       mode: 'indexed',
