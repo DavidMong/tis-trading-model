@@ -214,6 +214,46 @@ html[data-theme='dark'] {
   --heat-neg: rgba(248,81,73,.14);  --heat-neg-strong: rgba(248,81,73,.26);
 }
 
+/* ── Theme application layer (2026-08) ─────────────────────────────
+   Repoints the shell's hardcoded surfaces onto the --t-* semantic tokens.
+   Light values are identical to what was here before (aliases), so light
+   mode is unchanged; dark mode inherits the remap automatically. */
+body, .app-body { background: var(--t-canvas); color: var(--t-ink); }
+
+/* Inputs & selects across the rail */
+.si, input[type='number'], input[type='text'], select, textarea {
+  background: var(--t-panel);
+  color: var(--t-ink);
+  border-color: var(--t-hairline);
+}
+.si::placeholder { color: var(--t-ink-3); }
+.si:focus { border-color: var(--t-brand); }
+select.lib-select { background: var(--t-panel); color: var(--t-ink); }
+
+/* Cards / panels / tables */
+.section-block, .card, .panel {
+  background: var(--t-panel);
+  border-color: var(--t-hairline);
+}
+.data-table tbody tr:hover td { background: var(--t-panel-alt); }
+.data-table tbody tr { border-bottom-color: var(--t-hairline); }
+
+/* Typography discipline: numerics always mono + tabular */
+.param-value, .kpi-value, .data-table td.r, .wf-val, .tot-row td.r,
+.tnsvg-val, .ladder-price, .mono-num {
+  font-family: var(--f-mono);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* P&L semantics via theme tokens (dark-mode AA variants inherit) */
+.pos, .val-pos, .delta-pos { color: var(--t-positive); }
+.neg, .val-neg, .delta-neg { color: var(--t-loss); }
+
+/* Sidebar footer buttons pick up theme surfaces */
+.btn-new:hover, .btn-saveas:hover, .btn-lib:hover, .btn-export:hover {
+  background: var(--t-sunken); color: var(--t-ink);
+}
+
 /* ── Shared component classes (Stage 0) ───────────────────────────
    Defined now, proved on the app shell + Profit Waterfall this stage; rolled
    out to the remaining result sections in a later staged diff (scope note
