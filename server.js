@@ -1,8 +1,7 @@
 'use strict';
 
 // PRODUCTION ENTRY — dashboard + API on one port, built at boot.
-// Render/Railway/Fly set PORT; we bind 0.0.0.0. The PDF endpoint is skipped
-// (headless Chromium is heavy for a free tier); everything else works.
+// Render/Railway/Fly set PORT; we bind 0.0.0.0.
 
 const { execSync } = require('node:child_process');
 const fs = require('node:fs');
@@ -11,13 +10,20 @@ const path = require('node:path');
 const ROOT = __dirname;
 const OUT = path.join(ROOT, 'out');
 
-// Build the interactive dashboard at boot (fast — esbuild ~20ms + template).
+// Build the interactive dashboard at boot (esbuild via npx — downloads on first run).
 console.log('[server] building dashboard…');
-execSync('node scripts/build-interactive.js', { cwd: ROOT, stdio: 'inherit' });
+try {
+  execSync('npx --yes esbuild scripts/engine-browser-entry.js --bundle --format=iife --global-name=TISEngine --minify "--define:BROWSER_BUILD=true" --outfile=out/engine.bundle.js', { cwd: ROOT, stdio: 'inherit' });
+  execSync('node scripts/build-interactive.js', { cwd: ROOT, stdio: 'inherit' });
+} catch (e) {
+  // If a prebuilt bundle was committed, boot can continue without rebuilding.
+  if (!fs.existsSync(path.join(OUT, 'TIS-interactive.html'))) {
+    console.error('[server] dashboard build failed and no prebuilt copy exists');
+    throw e;
+  }
+  console.warn('[server] build failed; serving committed bundle');
+}
 
-// Reuse serve.js's handler stack by requiring its internals? serve.js binds the
-// port at require-time, so instead we replicate the thin routing here and import
-// the same engine stores directly.
 const http = require('node:http');
 const quotebook = require('./engine/core/quotebook');
 const fxbook = require('./engine/core/fxbook');
@@ -108,27 +114,20 @@ const server = http.createServer((req, res) => {
   res.writeHead(405, { 'Content-Type': 'text/plain' }); res.end('Method Not Allowed');
 });
 
-// Optional bearer-token gate: set ACCESS_TOKEN env to require ?t=<token> or
-// Authorization: Bearer <token> on every request (simple remote-access auth).
+// Optional bearer-token gate: set ACCESS_TOKEN to require ?t=<token> on API calls.
 const TOKEN = process.env.ACCESS_TOKEN || null;
 if (TOKEN) {
   console.log('[server] access token protection ENABLED');
-  const orig = server.listeners('request')[0];
-  server.removeAllListeners('request');
   server.on('request', (req, res) => {
+    if (!urlPathStartsWithApi(req.url)) return; // static + shell pass through
     const url = new URL(req.url, 'http://x');
     const provided = url.searchParams.get('t') || (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
-    // allow the HTML page itself through so the app can load, then it passes the
-    // token via query param on subsequent API calls; assets are harmless static.
-    if (provided === TOKEN || urlPathIsPublic(req.url)) return orig(req, res);
-    res.writeHead(401, { 'Content-Type': 'text/plain' });
-    res.end('Unauthorized — append ?t=<your access token>');
+    if (provided === TOKEN) return;
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Unauthorized' }));
   });
 }
-function urlPathIsPublic(u) {
-  // the shell page loads without token so you can bookmark it; API calls carry ?t=
-  return u.startsWith('/TIS-interactive') || u === '/' || u.startsWith('/engine.bundle');
-}
+function urlPathStartsWithApi(u) { return u.startsWith('/api/'); }
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
