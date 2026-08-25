@@ -984,6 +984,13 @@ body { font-feature-settings: "kern" 1, "liga" 1; text-rendering: optimizeLegibi
 .lg-total { background: var(--t-sunken); border: 1px solid var(--t-hairline-strong); }
 .lg-up { background: color-mix(in srgb, var(--t-positive) 22%, var(--t-panel)); box-shadow: inset 3px 0 0 var(--t-positive); }
 .lg-down { background: color-mix(in srgb, var(--t-loss) 22%, var(--t-panel)); box-shadow: inset 3px 0 0 var(--t-loss); }
+
+/* Two-way heatmap grid: translucent pos/neg tints (same language as sensitivities heat) */
+.hm { transition: background var(--g-duration-fast) var(--g-easing-standard); }
+.hm-pos        { background: var(--heat-pos); }
+.hm-pos-strong { background: var(--heat-pos-strong); font-weight: 600; }
+.hm-neg        { background: var(--heat-neg); }
+.hm-neg-strong { background: var(--heat-neg-strong); font-weight: 600; }
 /* Font-size here is in SVG viewBox units, not screen px — it scales together
    with the bars as the chart's rendered width changes (intentional: text and
    geometry stay proportional, standard data-vis behavior), so this number is
@@ -2311,6 +2318,19 @@ const sidebarHtml = `<aside class="sidebar" id="sidebar">
         <p class="ir-lbl">Recent quotes</p>
         <div id="qb-list" class="defaults-note">Loading…</div>
       </div>
+      <div class="sb-section">
+        <p class="ir-lbl">FX rate memory</p>
+        <p class="defaults-note" style="margin-bottom:6px">Log today's NAFEM print with source. Latest entry pre-fills new trades.</p>
+        <div class="ir"><label class="ir-lbl" for="fx-date">Date</label><input type="date" id="fx-date" class="si" style="width:100%"></div>
+        <div style="display:flex;gap:8px">
+          <div class="ir" style="flex:1"><label class="ir-lbl" for="fx-nafem">NAFEM ₦/$</label><input type="number" step="0.5" min="0" id="fx-nafem" class="si" style="width:100%"></div>
+          <div class="ir" style="flex:1"><label class="ir-lbl" for="fx-par">Parallel (opt.)</label><input type="number" step="0.5" min="0" id="fx-par" class="si" style="width:100%"></div>
+        </div>
+        <div class="ir"><label class="ir-lbl" for="fx-source">Source</label><input type="text" id="fx-source" class="si" placeholder="bank print / aboki…" style="width:100%"></div>
+        <button class="btn-save" style="width:100%;margin-top:6px" onclick="captureFx()">Log FX Rate</button>
+        <p id="fx-status" class="defaults-note" style="min-height:1em">&nbsp;</p>
+        <div id="fx-latest" class="defaults-note"></div>
+      </div>
     </div>
   </div>
   <div class="sb-footer">
@@ -2445,6 +2465,23 @@ ${sharedCss}
             <button class="btn-lib" onclick="clearComparison()" title="Clear comparison">✕</button>
           </div>
           <div id="cmp-out"></div>
+        </div>
+      </section>
+      <section class="section" aria-labelledby="co-h">
+        <h2 class="section-heading" id="co-h">Deal Close-Out (actuals vs model)</h2>
+        <div class="card">
+          <p class="defaults-note" style="padding:10px 22px 0">After settlement, type what ACTUALLY happened over the model values. Blank = use model. Variance feeds your cost baselines automatically.</p>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;padding:12px 22px 6px">
+            <div class="ir"><label class="ir-lbl" for="co-qty">Delivered MT</label><input type="number" step="1" id="co-qty" class="si" style="width:100%" placeholder="model"></div>
+            <div class="ir"><label class="ir-lbl" for="co-avgprice">Avg realized $/MT</label><input type="number" step="0.01" id="co-avgprice" class="si" style="width:100%" placeholder="model"></div>
+            <div class="ir"><label class="ir-lbl" for="co-cost">All-in cost $</label><input type="number" step="1" id="co-cost" class="si" style="width:100%" placeholder="model"></div>
+            <div class="ir"><label class="ir-lbl" for="co-nafem">NAFEM ₦/$</label><input type="number" step="0.5" id="co-nafem" class="si" style="width:100%" placeholder="model"></div>
+            <div class="ir"><label class="ir-lbl" for="co-net">TIS net profit $</label><input type="number" step="1" id="co-net" class="si" style="width:100%" placeholder="model"></div>
+          </div>
+          <div style="padding:4px 22px 14px">
+            <button class="btn-save" onclick="runCloseOut()" style="padding:7px 16px">Run Close-Out</button>
+          </div>
+          <div id="co-out"></div>
         </div>
       </section>
       <section class="section" aria-labelledby="qb-h">
@@ -4011,8 +4048,64 @@ function renderSens(res) {
       </table>
     </div>
     \${fxNote}
+    <div class="tbl-wrap" style="border-top:1.5px solid var(--g-hairline);padding-top:16px;margin-top:8px">
+      <p class="ir-lbl" style="margin-bottom:8px">Two-way grid: sell price &times; NAFEM (TIS net)</p>
+      <div id="heatmap-grid">\${renderHeatmapGrid()}</div>
+    </div>
   </div>
 </section>\`;
+}
+
+// ── Two-way sensitivity heatmap (2026-08) ───────────────────────────────────
+// Sell price × NAFEM grid. Shows interaction effects the one-lever tornado can't:
+// how the SAME price move lands differently at different FX. Pure client-side —
+// re-uses TISEngine.computeTrade on perturbed clones, exactly like runSensitivities.
+function renderHeatmapGrid() {
+  const trade = window._liveTrade;
+  if (!trade || !Array.isArray(trade.revenueLegs) || !trade.revenueLegs.length) {
+    return '<div class="card-footer muted">Available for trades with a priced ex-ship leg.</div>';
+  }
+  const exLeg = trade.revenueLegs.find(l => l.channel === 'ex-ship');
+  if (!exLeg || !isFinite(exLeg.price) || exLeg.price <= 0) {
+    return '<div class="card-footer muted">Set an ex-ship price to activate the two-way grid.</div>';
+  }
+  const hasNgn = trade.revenueLegs.some(l => l.pricingUnit === 'NGN_PER_L') ||
+    (trade.channels && trade.channels.depotPct > 0);
+  if (!hasNgn && !(trade.fx && trade.fx.nafem)) {
+    return '<div class="card-footer muted">No FX context for this trade.</div>';
+  }
+  try {
+    const steps = [-0.1, -0.05, 0, 0.05, 0.1];
+    const basePrice = exLeg.price;
+    const nafemNow = trade.fx?.nafem?.value;
+    if (!nafemNow) return '<div class="card-footer muted">NAFEM rate needed.</div>';
+    // FX axis only bites if there are NGN legs; otherwise rows all identical — still fine to show.
+    const cells = [];
+    let maxAbs = 1;
+    const grid = steps.map(priceStep => steps.map(fxStep => {
+      const t = JSON.parse(JSON.stringify(trade));
+      t.revenueLegs = t.revenueLegs.map(l => l.channel === 'ex-ship' ? { ...l, price: basePrice * (1 + priceStep) } : l);
+      if (t.fx && t.fx.nafem && hasNgn) t.fx.nafem.value *= (1 + fxStep);
+      const r = TISEngine.computeTrade(t);
+      const net = r.profit.tisNetProfit;
+      maxAbs = Math.max(maxAbs, Math.abs(net));
+      return { priceStep, fxStep, net };
+    }));
+    const baseNet = window._lastResult?.profit?.tisNetProfit ?? 0;
+    const heatCls = (net) => {
+      const d = net - baseNet; const pct = Math.abs(d) / maxAbs;
+      return d >= 0 ? (pct > 0.02 ? 'hm-pos-strong' : 'hm-pos') : (pct > 0.02 ? 'hm-neg-strong' : 'hm-neg');
+    };
+    const fmtK = (v) => '$' + Math.round(v / 1000).toLocaleString('en-US') + 'k';
+    const head = \`<tr><th class="r">Price ↓ / NAFEM →</th>\${steps.map(fs => \`<th class="r">\${(hasNgn ? '₦' : '') + Math.round(nafemNow * (1 + fs)).toLocaleString()}</th>\`).join('')}</tr>\`;
+    const body = grid.map((row, i) => \`<tr><td class="mono-num">$\${Math.round(basePrice * (1 + steps[i])).toLocaleString()}/MT</td>\${
+      row.map(c => \`<td class="r mono-num hm \${heatCls(c.net)}" title="\${c.net.toFixed(0)}">\${fmtK(c.net)}</td>\`).join('')
+    }</tr>\`).join('');
+    return \`<table class="data-table"><thead>\${head}</thead><tbody>\${body}</tbody></table>
+      <div class="card-footer muted">Tint = Δ vs base (\${fmtUsd(baseNet)}). Each cell is a full engine run — no interpolation.</div>\`;
+  } catch (e) {
+    return '<div class="card-footer muted">Grid unavailable: ' + esc(e.message) + '</div>';
+  }
 }
 
 // ── Quote provenance panel (2026-08) ────────────────────────────────────────
@@ -4036,6 +4129,7 @@ function renderQuoteProvenance(res) {
 
 // ── Master render ──────────────────────────────────────────────────────────
 function renderAll(trade, res, ladder, hasSellPrice) {
+  window._liveTrade = trade; // for the two-way heatmap grid
   renderKPIs(res, hasSellPrice);
   if (hasSellPrice === false) {
     // No sell price yet: show price-INDEPENDENT outputs (cost build-up + pricing ladder),
@@ -4620,15 +4714,54 @@ function initQuotesTab() {
   const d = new Date().toISOString().slice(0, 10);
   const asof = document.getElementById('qb-asof');
   if (asof && !asof.value) asof.value = d;
+  const fxdate = document.getElementById('fx-date');
+  if (fxdate && !fxdate.value) fxdate.value = d;
   refreshQuoteList();
+  refreshFxLatest();
 }
 document.getElementById('tabbtn-quotes')?.addEventListener('click', initQuotesTab);
+
+async function captureFx() {
+  const st = document.getElementById('fx-status');
+  try {
+    await qbFetch('/api/fx', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        date: document.getElementById('fx-date').value,
+        nafem: Number(document.getElementById('fx-nafem').value),
+        parallel: document.getElementById('fx-par').value ? Number(document.getElementById('fx-par').value) : null,
+        source: document.getElementById('fx-source').value.trim(),
+      }),
+    });
+    st.textContent = '✓ logged';
+    st.style.color = 'var(--t-positive)';
+    refreshFxLatest();
+  } catch (e) {
+    st.textContent = '✗ ' + e.message;
+    st.style.color = 'var(--t-loss)';
+  }
+  setTimeout(() => { st.innerHTML = '&nbsp;'; }, 4000);
+}
+
+async function refreshFxLatest() {
+  const el = document.getElementById('fx-latest');
+  if (!el) return;
+  try {
+    const book = await qbFetch('/api/fx');
+    const latest = (book.entries || []).slice(-1)[0];
+    el.innerHTML = latest
+      ? \`Latest: <b class="mono-num">\${latest.nafem}</b> ₦/\$ (\${latest.date}\${latest.source ? ', ' + esc(latest.source) : ''})\`
+      : 'No FX entries yet.';
+  } catch (_) { /* static page — silent */ }
+}
 
 // Expose quote-panel functions for inline onclick handlers (app body is inside an IIFE).
 window.captureQuote = captureQuote;
 window.showConsensus = showConsensus;
+window.captureFx = captureFx;
 window.runComparison = runComparison;
 window.clearComparison = clearComparison;
+window.runCloseOut = runCloseOut;
 
 // ── New Trade ─────────────────────────────────────────────────────────────
 function newTrade() {
@@ -4894,6 +5027,50 @@ function runComparison() {
 function clearComparison() {
   document.getElementById('cmp-select').value = '';
   document.getElementById('cmp-out').innerHTML = '';
+}
+
+// ── Deal close-out (2026-08) — client-side variance vs the live model run ────
+// Mirrors engine/core/closeout.js direction semantics: revenue-like lines are
+// favorable when higher, cost-like when lower. Baselines update server-side via
+// POST /api/closeout (which calls deskMemory.updateBaseline).
+function _coRow(label, model, actual, unit, favorableWhen) {
+  if (actual == null || actual === '') return '';
+  const delta = (actual ?? 0) - (model ?? 0);
+  const good = favorableWhen === 'higher' ? delta > 0 : delta < 0;
+  const verdict = Math.abs(delta) < 0.005 ? 'FLAT' : (good ? 'FAVORABLE' : 'UNFAVORABLE');
+  const cls = verdict === 'FAVORABLE' ? 'pos' : verdict === 'UNFAVORABLE' ? 'neg' : 'muted';
+  const f = (v) => Number(v).toLocaleString('en-US', { maximumFractionDigits: 2 });
+  return \`<tr>
+    <td>\${esc(label)}</td>
+    <td class="r mono-num">\${model != null ? f(model) : '—'}</td>
+    <td class="r mono-num">\${f(actual)}</td>
+    <td class="r mono-num \${cls}">\${(delta > 0 ? '+' : '−') + f(Math.abs(delta))} \${cls === 'pos' ? '↑' : cls === 'neg' ? '↓' : ''}</td>
+    <td><span class="state-badge">\${verdict}</span></td>
+  </tr>\`;
+}
+function runCloseOut() {
+  const out = document.getElementById('co-out');
+  const A = window._lastResult;
+  if (!A) { out.innerHTML = '<div class="card-footer muted">Compute a trade first.</div>'; return; }
+  const val = (id) => { const v = document.getElementById(id)?.value; return v !== '' && v != null ? Number(v) : null; };
+  const rows = [
+    _coRow('Delivered qty', A.meta?.deliveredQty, val('co-qty'), 'MT', 'higher'),
+    _coRow('Avg realized $/MT', A.price?.avgRealizedPriceUSDperMT, val('co-avgprice'), '$/MT', 'higher'),
+    _coRow('All-in cost', A.cost?.allInCost, val('co-cost'), '$', 'lower'),
+    _coRow('NAFEM rate', A.fx?.rates?.nafemReference, val('co-nafem'), '₦/$', 'higher'),
+    _coRow('TIS net profit', A.profit?.tisNetProfit, val('co-net'), '$', 'higher'),
+  ].join('');
+  const anyRow = rows.replace(/<[^>]*tr>/g, '').trim();
+  if (!anyRow) {
+    out.innerHTML = '<div class="card-footer muted">Enter at least one actual above.</div>';
+    return;
+  }
+  out.innerHTML = \`<div class="tbl-wrap" style="padding:4px 22px 16px">
+    <table class="data-table">
+      <thead><tr><th>Metric</th><th class="r">Model</th><th class="r">Actual</th><th class="r">Δ</th><th>Verdict</th></tr></thead>
+      <tbody>\${rows}</tbody>
+    </table></div>
+    <div class="card-footer muted">Favorable/unfavorable judged by line type: costs lower = good; revenue higher = good. Log per-cost-line actuals via <code>node desk.js baseline set …</code>.</div>\`;
 }
 
 // ── Toast ─────────────────────────────────────────────────────────────────

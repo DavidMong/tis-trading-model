@@ -114,6 +114,7 @@ function handleReportPdf(req, res) {
 
 // ─── Quote book API — capture/list/consensus from the dashboard ───────────────
 const quotebook = require('../engine/core/quotebook');
+const fxbook = require('../engine/core/fxbook');
 
 function json(res, code, obj) {
   res.writeHead(code, { 'Content-Type': 'application/json' });
@@ -158,6 +159,28 @@ const server = http.createServer((req, res) => {
   const urlPath = (req.url || '/').split('?')[0];
   if (req.method === 'POST' && urlPath === '/api/report.pdf') return handleReportPdf(req, res);
   if (urlPath.startsWith('/api/quotes')) return handleQuotes(req, res, urlPath);
+  if (urlPath.startsWith('/api/fx')) {
+    if (req.method === 'GET') return json(res, 200, fxbook.load());
+    if (req.method === 'POST') {
+      let body = '';
+      let aborted = false;
+      req.on('data', (c) => { body += c; if (body.length > 1e6) { aborted = true; req.destroy(); } });
+      req.on('end', () => {
+        if (aborted) return;
+        try {
+          const d = JSON.parse(body || '{}');
+          const entry = fxbook.add({
+            date: d.date, nafem: Number(d.nafem),
+            parallel: d.parallel != null ? Number(d.parallel) : null,
+            source: d.source, notes: d.notes,
+          });
+          json(res, 201, entry);
+        } catch (e) { json(res, 400, { error: e.message }); }
+      });
+      return;
+    }
+    return json(res, 405, { error: 'Method Not Allowed' });
+  }
   if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(req, res);
   res.writeHead(405, { 'Content-Type': 'text/plain' });
   res.end('Method Not Allowed');

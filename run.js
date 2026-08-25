@@ -491,6 +491,14 @@ function exportHtml(res, outDir) {
   console.log(`\nHTML deal sheet: ${file}`);
 }
 
+function exportTermSheet(res, outDir) {
+  fs.mkdirSync(outDir, { recursive: true });
+  const { buildTermSheet } = require('./engine/report/termsheet');
+  const file = path.join(outDir, `${res.meta.tradeId}-termsheet.html`);
+  fs.writeFileSync(file, buildTermSheet(res), 'utf8');
+  console.log(`\nTerm sheet: ${file} (open in browser to print/save as PDF)`);
+}
+
 // ---------------------------------------------------------------- help
 function printHelp() {
   console.log(`TIS trading model
@@ -546,6 +554,7 @@ function main() {
   if (flags.ladder) printLadder(buildLadder(trade, (t) => compute(t, opts), res), trade);
   if (flags.export === 'csv') exportCsv(res, path.join(__dirname, 'out'));
   if (flags.export === 'html') exportHtml(res, path.join(__dirname, 'out'));
+  if (flags.export === 'termsheet') exportTermSheet(res, path.join(__dirname, 'out'));
 }
 
 main();
