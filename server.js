@@ -27,6 +27,7 @@ try {
 const http = require('node:http');
 const quotebook = require('./engine/core/quotebook');
 const fxbook = require('./engine/core/fxbook');
+const tradesync = require('./engine/core/tradesync');
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -62,6 +63,26 @@ function handleQuotes(req, res, urlPath) {
           method: d.method, notes: d.notes,
         });
         json(res, 201, entry);
+      } catch (e) { json(res, 400, { error: e.message }); }
+    });
+    return;
+  }
+  json(res, 405, { error: 'Method Not Allowed' });
+}
+
+function handleTrades(req, res, urlPath) {
+  if (req.method === 'GET') return json(res, 200, tradesync.load());
+  if (req.method === 'POST') {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        if (!payload || payload.version !== 1 || typeof payload.trades !== 'object') {
+          return json(res, 400, { error: 'expected version 1 with a trades object' });
+        }
+        const mode = urlPath === '/api/trades/replace' ? 'replace' : 'merge';
+        json(res, 200, tradesync.merge(payload, mode));
       } catch (e) { json(res, 400, { error: e.message }); }
     });
     return;
@@ -109,6 +130,7 @@ function serveStatic(req, res) {
 const server = http.createServer((req, res) => {
   const urlPath = (req.url || '/').split('?')[0];
   if (urlPath.startsWith('/api/quotes')) return handleQuotes(req, res, urlPath);
+  if (urlPath.startsWith('/api/trades')) return handleTrades(req, res, urlPath);
   if (urlPath.startsWith('/api/fx')) return handleFx(req, res);
   if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(req, res);
   res.writeHead(405, { 'Content-Type': 'text/plain' }); res.end('Method Not Allowed');

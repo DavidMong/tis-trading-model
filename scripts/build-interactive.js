@@ -1360,6 +1360,30 @@ body { font-feature-settings: "kern" 1, "liga" 1; text-rendering: optimizeLegibi
   #heatmap-grid { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   #heatmap-grid table { min-width: 520px; }
 
+  /* Waterfall (SVG bridge): viewBox scales text to ~34% on phones — unreadable.
+     Give the chart its own horizontal scroll at a readable floor width instead
+     of shrinking it into a smear. */
+  .wfsvg-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .wfsvg-wrap .wfsvg { min-width: 640px; }
+  .wfsvg-collabels { min-width: 640px; box-sizing: border-box; padding-left: 24px !important; padding-right: 24px !important; }
+
+  /* Ladder tier pills: 8px labels were illegible — floor at 10.5px. The pips
+     position via left:X% on the bar, so give the whole scale a readable
+     min-width with horizontal scroll rather than shrinking labels. */
+  .ladder-scale-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .ladder-scale-bar { min-width: 560px; }
+  .ladder-tier-pip, .ladder-scale span { font-size: 10.5px !important; letter-spacing: .06em; }
+
+  /* Header card: uniform alignment — logo block, meta strip, chips share one
+     left edge and consistent gaps. */
+  .header-inner { display: flex !important; flex-direction: column; align-items: stretch; gap: 12px !important; padding: 16px !important; }
+  .header-logo { border-right: none !important; padding: 0 !important; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .kpi-chip { display: flex; justify-content: space-between; align-items: baseline; width: 100%; padding: 10px 14px !important; }
+  .kpi-chip .kpi-label { flex: 1; }
+  .kpi-chip .kpi-value { text-align: right; white-space: nowrap; }
+  .header-meta-strip { padding-left: 0 !important; padding-right: 0 !important; }
+  .header-meta-inner { line-height: 1.7; }
+
   /* Touch targets: minimum 40px height on interactive controls */
   .si, input[type='number'], input[type='text'], select, textarea { min-height: 40px; font-size: 15px; }
   .tab-btn { padding: 9px 10px; min-height: 40px; }
@@ -2422,6 +2446,9 @@ const sidebarHtml = `<aside class="sidebar" id="sidebar">
     <div class="sb-export-row">
       <button class="btn-export" onclick="exportTrades()" title="Download all saved trades to a .json backup file">Export Trades</button>
       <button class="btn-export" onclick="importTrades()" title="Restore saved trades from a .json backup file">Import Trades</button>
+    </div>
+    <div class="sb-export-row">
+      <button class="btn-export" id="sync-trades-btn" onclick="syncTrades(true)" title="Merge this device's trades to the server, then pull the server list back — keeps phone and laptop in sync">⇅ Sync Cloud</button>
     </div>
     <div class="sb-export-row">
       <button class="btn-export btn-theme" id="theme-toggle" onclick="toggleTheme()" title="Switch dark / light theme">🌙 Dark</button>
@@ -5234,6 +5261,47 @@ function importTrades() {
   if (inp) { inp.value = ''; inp.click(); }
 }
 
+// ── Cloud trade sync (2026-08) — same deal list on phone and laptop ─────────
+// Push local trades to /api/trades (merge), then pull the merged list back and
+// adopt it locally. Silent no-op when served statically (no API).
+async function syncTrades(manual) {
+  const btn = document.getElementById('sync-trades-btn');
+  const hasApi = await (async () => { try { await qbFetch('/api/trades'); return true; } catch { return false; } })();
+  if (!hasApi) {
+    if (manual) showToast('Cloud sync unavailable here — use Export/Import instead');
+    return;
+  }
+  try {
+    if (btn) btn.disabled = true;
+    // push local → server (merge)
+    const localTrades = TISStorage.loadTrades();
+    const localDefaults = TISStorage.loadDefaults();
+    await qbFetch('/api/trades', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ version: 1, trades: localTrades, defaults: localDefaults || undefined }),
+    });
+    // pull merged ← server, adopt locally
+    const cloud = await qbFetch('/api/trades');
+    if (cloud && typeof cloud.trades === 'object') {
+      let adopted = 0;
+      for (const [name, entry] of Object.entries(cloud.trades)) {
+        const cur = TISStorage.loadTrades()[name];
+        if (!cur || (entry.savedAt || 0) > (cur.savedAt || 0)) {
+          TISStorage.saveTrade(name, entry.snap);
+          adopted++;
+        }
+      }
+      if (cloud.defaults && !localDefaults) TISStorage.saveDefaults(cloud.defaults);
+      renderSavedTradesList();
+      if (manual) showToast('Synced — ' + Object.keys(cloud.trades).length + ' trades on cloud' + (adopted ? ', ' + adopted + ' updated here' : ''));
+    }
+  } catch (e) {
+    if (manual) showToast('Sync failed: ' + e.message);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 // True only for a non-null, non-array plain object — guards against typeof null / typeof [] both === 'object'.
 function isPlainObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -5304,6 +5372,7 @@ window.downloadReport       = downloadReport;
 window.exportTrades         = exportTrades;
 window.importTrades         = importTrades;
 window.importTradesFromFile = importTradesFromFile;
+window.syncTrades           = syncTrades;
 
 // ── Boot ───────────────────────────────────────────────────────────────────
 _storageLegacy = detectStorageLegacyFromCostLines(INIT.costLines);   // bundled fixture may be old-format
@@ -5312,6 +5381,7 @@ renderLegEditor();
 wireLegEditor();
 initTheme();
 updateLcDisplay();
+syncTrades(false); // silent cloud pull — same deal list on phone and laptop
 updateDepotVisibility();
 syncAllStorageUnits();
 updateCurrencyVisibility();
