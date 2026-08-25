@@ -117,7 +117,7 @@ body {
   --ink:     #242331;
   --ink-60:  rgba(36,35,49,.60);
   --ink-20:  rgba(36,35,49,.10);
-  --slate:   #717c89;
+  --slate:   #64707c;
   --slate-bg:#eef0f3;
   --bg:      #f6f7f8;
   --white:   #ffffff;

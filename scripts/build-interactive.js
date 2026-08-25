@@ -630,7 +630,7 @@ body { font-feature-settings: "kern" 1, "liga" 1; text-rendering: optimizeLegibi
   font-weight: 700;
   letter-spacing: .10em;
   text-transform: uppercase;
-  color: #94a3b8;
+  color: var(--g-text-slate); /* AA fix — was #94a3b8, 2.39:1 on canvas */
   white-space: nowrap;
 }
 .tier-div-line { flex: 1; height: 1px; background: var(--border); }
@@ -652,7 +652,7 @@ body { font-feature-settings: "kern" 1, "liga" 1; text-rendering: optimizeLegibi
   font-weight: 700;
   letter-spacing: .08em;
   text-transform: uppercase;
-  color: #94a3b8;
+  color: var(--g-text-slate); /* AA fix — was #94a3b8, 2.39:1 on canvas */
   transition: color .12s;
 }
 .disc-btn:hover { color: var(--slate); background: #eef0f3; }
@@ -2436,6 +2436,17 @@ ${sharedCss}
       <div id="sec-hedge"></div>
       <div id="sec-tax"></div>
       <div id="sec-sens"></div>
+      <section class="section" aria-labelledby="cmp-h">
+        <h2 class="section-heading" id="cmp-h">Compare With Saved Trade</h2>
+        <div class="card">
+          <div style="display:flex;gap:10px;align-items:center;padding:14px 22px;flex-wrap:wrap">
+            <select id="cmp-select" class="lib-select" style="flex:1;min-width:200px"><option value="">Pick a saved trade…</option></select>
+            <button class="btn-new" onclick="runComparison()" style="padding:6px 14px">Compare</button>
+            <button class="btn-lib" onclick="clearComparison()" title="Clear comparison">✕</button>
+          </div>
+          <div id="cmp-out"></div>
+        </div>
+      </section>
       <section class="section" aria-labelledby="qb-h">
         <h2 class="section-heading" id="qb-h">Quote Provenance</h2>
         <div class="card"><div id="sec-quotes" class="muted">No indexed pricing on this trade.</div></div>
@@ -4046,6 +4057,7 @@ function renderAll(trade, res, ladder, hasSellPrice) {
     document.getElementById('sec-sens').innerHTML      = renderSens(res);
   }
   renderQuoteProvenance(res);
+  window._lastResult = res; // for trade comparison
   requestAnimationFrame(() => {
     document.querySelectorAll('.section').forEach(el => {
       el.classList.remove('val-flash');
@@ -4615,6 +4627,8 @@ document.getElementById('tabbtn-quotes')?.addEventListener('click', initQuotesTa
 // Expose quote-panel functions for inline onclick handlers (app body is inside an IIFE).
 window.captureQuote = captureQuote;
 window.showConsensus = showConsensus;
+window.runComparison = runComparison;
+window.clearComparison = clearComparison;
 
 // ── New Trade ─────────────────────────────────────────────────────────────
 function newTrade() {
@@ -4695,6 +4709,7 @@ function saveTrade() {
   snap['_tog-surcharge'] = String(isOn('tog-surcharge'));
   snap['_isSample']      = 'false';
   snap['_legs']          = JSON.stringify(_legs);
+  if (window._lastResult) snap['_res'] = window._lastResult; // result snapshot for comparison
   TISStorage.saveTrade(saveName, snap);
   _currentTradeName = saveName;
   renderSavedTradesList(saveName);
@@ -4721,6 +4736,7 @@ function saveAsTrade() {
   snap['_tog-surcharge'] = String(isOn('tog-surcharge'));
   snap['_isSample']      = 'false';
   snap['_legs']          = JSON.stringify(_legs);
+  if (window._lastResult) snap['_res'] = window._lastResult; // result snapshot for comparison
   TISStorage.saveTrade(saveName, snap);
   _currentTradeName = saveName;
   renderSavedTradesList(saveName);
@@ -4819,10 +4835,65 @@ function saveAsDefaults() {
 function renderSavedTradesList(selectName) {
   const trades = TISStorage.loadTrades();
   const sel    = document.getElementById('sel-saved-trades');
-  if (!sel) return;
-  const names = Object.keys(trades).sort();
-  sel.innerHTML = '<option value="">Load a saved trade…</option>' +
-    names.map(n => \`<option value="\${esc(n)}"\${n === selectName ? ' selected' : ''}>\${esc(n)}</option>\`).join('');
+  if (sel) {
+    const names = Object.keys(trades).sort();
+    sel.innerHTML = '<option value="">Load a saved trade…</option>' +
+      names.map(n => \`<option value="\${esc(n)}"\${n === selectName ? ' selected' : ''}>\${esc(n)}</option>\`).join('');
+  }
+  // keep the comparison picker in sync too
+  const cmp = document.getElementById('cmp-select');
+  if (cmp) {
+    const cur = cmp.value;
+    const names2 = Object.keys(trades).sort();
+    cmp.innerHTML = '<option value="">Pick a saved trade…</option>' +
+      names2.map(n => \`<option value="\${esc(n)}">\${esc(n)}</option>\`).join('');
+    if (cur && names2.includes(cur)) cmp.value = cur;
+  }
+}
+
+// ── Trade comparison (2026-08) ─────────────────────────────────────────────
+// Diff the LIVE trade's computed result against any saved trade's stored result.
+// Snapshots store the engine result at save time, so no recompute drift.
+function _cmpRow(label, a, b, fmt) {
+  if (a == null && b == null) return '';
+  const delta = (b ?? 0) - (a ?? 0);
+  const cls = delta > 0.005 ? 'pos' : delta < -0.005 ? 'neg' : 'muted';
+  const f = fmt || ((v) => Number(v).toLocaleString('en-US', { maximumFractionDigits: 2 }));
+  return \`<tr>
+    <td>\${esc(label)}</td>
+    <td class="r mono-num">\${a != null ? f(a) : '—'}</td>
+    <td class="r mono-num">\${b != null ? f(b) : '—'}</td>
+    <td class="r mono-num \${cls}">\${delta ? ((delta > 0 ? '+' : '−') + f(Math.abs(delta))) : '—'}</td>
+  </tr>\`;
+}
+function runComparison() {
+  const out = document.getElementById('cmp-out');
+  const name = document.getElementById('cmp-select').value;
+  if (!name) { out.innerHTML = '<div class="card-footer">Pick a saved trade first.</div>'; return; }
+  const snap = TISStorage.loadTrade(name);
+  if (!snap || !snap._res) { out.innerHTML = '<div class="card-footer muted">That snapshot predates result storage — re-save it to compare.</div>'; return; }
+  const A = window._lastResult, B = snap._res; // A = live, B = saved
+  const rows = [
+    _cmpRow('TIS Net Profit', A?.profit?.tisNetProfit, B?.profit?.tisNetProfit, v => '$' + Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 })),
+    _cmpRow('Standalone Profit', A?.profit?.standaloneProfit, B?.profit?.standaloneProfit, v => '$' + Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 })),
+    _cmpRow('All-in Landed Cost', A?.cost?.allInCost, B?.cost?.allInCost),
+    _cmpRow('Avg Realized $/MT', A?.price?.avgRealizedPriceUSDperMT, B?.price?.avgRealizedPriceUSDperMT),
+    _cmpRow('Ex-ship Landed $/MT', A?.price?.exShipLandedPerMT, B?.price?.exShipLandedPerMT),
+    _cmpRow('Delivered Qty (MT)', A?.meta?.deliveredQty, B?.meta?.deliveredQty),
+    _cmpRow('Annualised Return', A?.tisAnnualisedReturn, B?.tisAnnualisedReturn, v => (v * 100).toFixed(2) + '%'),
+  ].join('');
+  const savedName = B?.meta?.tradeId || name;
+  const liveName = A?.meta?.tradeId || 'live trade';
+  out.innerHTML = \`<div class="tbl-wrap" style="padding:4px 22px 16px">
+    <table class="data-table">
+      <thead><tr><th>Metric</th><th class="r">\${esc(liveName)} (live)</th><th class="r">\${esc(savedName)} (saved)</th><th class="r">Δ saved − live</th></tr></thead>
+      <tbody>\${rows}</tbody>
+    </table></div>
+    <div class="card-footer muted">Saved \${snap.savedAt ? new Date(snap.savedAt).toLocaleString() : ''}. Δ sign: positive = saved trade higher.</div>\`;
+}
+function clearComparison() {
+  document.getElementById('cmp-select').value = '';
+  document.getElementById('cmp-out').innerHTML = '';
 }
 
 // ── Toast ─────────────────────────────────────────────────────────────────
