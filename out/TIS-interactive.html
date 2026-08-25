@@ -1923,12 +1923,61 @@ body { font-feature-settings: "kern" 1, "liga" 1; text-rendering: optimizeLegibi
     border-bottom: 1.5px solid var(--border);
     flex-shrink: 0;
   }
-  .sidebar.open { max-height: 560px; overflow-y: auto; }
+  .sidebar.open { max-height: 70vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
   .drawer-btn { display: flex !important; }
   .results { padding: 16px 14px 48px; }
   .two-col-grid { grid-template-columns: 1fr; }
   .hedge-cards { flex-direction: column; }
   .hedge-cards .h-card { min-width: unset; }
+}
+
+/* ── Mobile refinement at < 640px ─────────────────────────────────
+   Phones: tables scroll horizontally inside their wrap (never break the
+   viewport), KPI chips stack, header condenses, touch targets enlarge. */
+@media (max-width: 640px) {
+  /* Tables: every data-table scrolls inside its wrapper — kills the 173
+     overflowing elements the mobile audit found. */
+  .tbl-wrap, .data-table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+  .data-table { min-width: 620px; }   /* readable columns; wrap scrolls */
+  .tbl-wrap > .data-table { margin-bottom: 8px; }
+
+  /* KPI chips: full-width rows instead of a cramped row of three */
+  .header-kpis { flex-direction: column; gap: 8px; width: 100%; }
+  .kpi-chip { width: 100%; text-align: left; min-width: 0; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 10px 14px; box-sizing: border-box; }
+  .kpi-chip .kpi-value { font-size: var(--fs-kpi); }
+
+  /* Header inner: stack everything vertically */
+  .header-inner { grid-template-columns: 1fr !important; gap: 10px !important; padding: 14px 16px !important; }
+  .header-logo { border-right: none !important; padding-right: 0 !important; }
+  .trade-name { font-size: 18px !important; }
+
+  /* Section/card padding tightened for narrow screens */
+  .results { padding: 12px 12px 48px; }
+  .card-body { padding: 14px 14px !important; }
+  .card-footer { padding-left: 14px !important; padding-right: 14px !important; }
+  section .card { overflow-x: hidden; }
+  .wfsvg-wrap, .wf-reconcile, .wfsvg-legend, .wfsvg-collabels { padding-left: 14px !important; padding-right: 14px !important; }
+
+  /* Close-out + comparison grids collapse to single column */
+  #co-out + * , .card [style*="grid-template-columns:repeat(auto-fit"] { grid-template-columns: 1fr !important; }
+  div[style*="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))"] { grid-template-columns: 1fr !important; }
+  div[style*="display:flex;gap:10px;align-items:center"] { flex-wrap: wrap; }
+
+  /* Heatmap: scroll horizontally in its own box */
+  #heatmap-grid { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  #heatmap-grid table { min-width: 520px; }
+
+  /* Touch targets: minimum 40px height on interactive controls */
+  .si, input[type='number'], input[type='text'], select, textarea { min-height: 40px; font-size: 15px; }
+  .tab-btn { padding: 9px 10px; min-height: 40px; }
+  .btn-new, .btn-save, .btn-saveas, .btn-lib, .btn-export { min-height: 38px; }
+
+  /* Sidebar drawer content spacing */
+  .sb-section { padding: 12px 14px; }
 }
 
 /* ════ SPACING SYSTEM — coherent rhythm across every interactive section ════
