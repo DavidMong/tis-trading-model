@@ -2272,11 +2272,46 @@ const sidebarHtml = `<aside class="sidebar" id="sidebar">
     <button class="tab-btn active" data-tab="deal" role="tab" aria-selected="true" aria-controls="tab-deal" id="tabbtn-deal">Deal</button>
     <button class="tab-btn" data-tab="costs" role="tab" aria-selected="false" aria-controls="tab-costs" id="tabbtn-costs">Costs</button>
     <button class="tab-btn" data-tab="hedge" role="tab" aria-selected="false" aria-controls="tab-hedge" id="tabbtn-hedge">Hedge</button>
+    <button class="tab-btn" data-tab="quotes" role="tab" aria-selected="false" aria-controls="tab-quotes" id="tabbtn-quotes">Quotes</button>
   </div>
   <div class="sb-scroll">
     <div class="tab-panel active" id="tab-deal" role="tabpanel" aria-labelledby="tabbtn-deal">${tabDeal}</div>
     <div class="tab-panel" id="tab-costs" role="tabpanel" aria-labelledby="tabbtn-costs">${tabCosts}</div>
     <div class="tab-panel" id="tab-hedge" role="tabpanel" aria-labelledby="tabbtn-hedge">${tabHedge}</div>
+    <div class="tab-panel" id="tab-quotes" role="tabpanel" aria-labelledby="tabbtn-quotes">
+      <div class="sb-section">
+        <p class="defaults-note">Capture index quotes with provenance (source, tier, method). Trades resolve unpinned indexes from this book — latest active entry per index.</p>
+        <div class="ir"><label class="ir-lbl" for="qb-index">Index</label>
+          <select id="qb-index" class="lib-select" style="width:100%"></select></div>
+        <div class="ir"><label class="ir-lbl" for="qb-value">Value</label>
+          <input type="number" step="0.01" min="0" id="qb-value" class="si" style="width:100%"></div>
+        <div class="ir"><label class="ir-lbl" for="qb-asof">As of date</label>
+          <input type="date" id="qb-asof" class="si" style="width:100%"></div>
+        <div class="ir"><label class="ir-lbl" for="qb-source">Source</label>
+          <input type="text" id="qb-source" class="si" placeholder="Who gave you this number?" style="width:100%"></div>
+        <div style="display:flex;gap:8px">
+          <div class="ir" style="flex:1"><label class="ir-lbl" for="qb-tier">Tier</label>
+            <select id="qb-tier" class="lib-select" style="width:100%">
+              <option value="A">A — primary/published</option>
+              <option value="B" selected>B — broker</option>
+              <option value="C">C — unverified</option>
+            </select></div>
+          <div class="ir" style="flex:1"><label class="ir-lbl" for="qb-method">Method</label>
+            <input type="text" id="qb-method" class="si" placeholder="WhatsApp…" style="width:100%"></div>
+        </div>
+        <button class="btn-save" style="width:100%;margin-top:6px" onclick="captureQuote()">Capture Quote</button>
+        <p id="qb-status" class="defaults-note" style="min-height:1em">&nbsp;</p>
+      </div>
+      <div class="sb-section">
+        <p class="ir-lbl">Consensus check</p>
+        <select id="qb-consensus-index" class="lib-select" style="width:100%" onchange="showConsensus()"></select>
+        <div id="qb-consensus-out" class="defaults-note" style="margin-top:8px">Pick an index to see median / spread across sources.</div>
+      </div>
+      <div class="sb-section">
+        <p class="ir-lbl">Recent quotes</p>
+        <div id="qb-list" class="defaults-note">Loading…</div>
+      </div>
+    </div>
   </div>
   <div class="sb-footer">
     <div class="sb-footer-row1">
@@ -4487,6 +4522,99 @@ function toggleTheme() {
 // functions are invisible at global scope without an explicit export.
 window.toggleTheme = toggleTheme;
 window.applyTheme = applyTheme;
+
+// ── Quote book panel (2026-08) ─────────────────────────────────────────────
+// Talks to scripts/serve.js /api/quotes (GET list+consensus, POST capture).
+// Graceful when served statically (no server): shows a hint instead of failing.
+const QB_INDEXES = ${JSON.stringify((() => {
+  try { return require('../engine/config/indexes.json').indexes.map(x => ({ id: x.id, name: x.name })); }
+  catch (_) { return []; }
+})())};
+
+function qbFillIndexSelects() {
+  const opts = QB_INDEXES.map(i => \`<option value="\${esc(i.id)}">\${esc(i.id)}</option>\`).join('');
+  ['qb-index', 'qb-consensus-index'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el && !el.options.length) el.innerHTML = opts;
+  });
+}
+
+async function qbFetch(path, opts) {
+  const res = await fetch(path, opts);
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || ('HTTP ' + res.status));
+  return res.json();
+}
+
+async function refreshQuoteList() {
+  const el = document.getElementById('qb-list');
+  if (!el) return;
+  try {
+    const book = await qbFetch('/api/quotes');
+    const rows = (book.quotes || []).filter(q => q.status === 'ACTIVE')
+      .sort((a, b) => (b.asOf + (b.capturedAt || '')).localeCompare(a.asOf + (a.capturedAt || '')))
+      .slice(0, 12);
+    if (!rows.length) { el.innerHTML = 'No quotes yet.'; return; }
+    el.innerHTML = rows.map(q => \`<div style="margin-bottom:6px">
+      <span class="mono-num">\${q.value}</span> <span class="muted">\${esc(q.indexId)}</span><br>
+      <span class="muted" style="font-size:10px">\${esc(q.source?.name || '?')} · tier \${esc(q.source?.tier || '?')} · asOf \${esc(q.asOf)}</span>
+    </div>\`).join('');
+  } catch (e) {
+    el.innerHTML = 'Quote book needs <code>node scripts/serve.js</code> — not available on a static page.';
+  }
+}
+
+async function captureQuote() {
+  const st = document.getElementById('qb-status');
+  try {
+    await qbFetch('/api/quotes', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        indexId: document.getElementById('qb-index').value,
+        value: Number(document.getElementById('qb-value').value),
+        asOf: document.getElementById('qb-asof').value,
+        source: document.getElementById('qb-source').value.trim(),
+        tier: document.getElementById('qb-tier').value,
+        method: document.getElementById('qb-method').value.trim(),
+      }),
+    });
+    st.textContent = '✓ captured';
+    st.style.color = 'var(--t-positive)';
+    document.getElementById('qb-value').value = '';
+    refreshQuoteList();
+  } catch (e) {
+    st.textContent = '✗ ' + e.message;
+    st.style.color = 'var(--t-loss)';
+  }
+  setTimeout(() => { st.innerHTML = '&nbsp;'; }, 4000);
+}
+
+async function showConsensus() {
+  const idx = document.getElementById('qb-consensus-index').value;
+  const out = document.getElementById('qb-consensus-out');
+  if (!idx) return;
+  try {
+    const c = await qbFetch('/api/quotes/consensus/' + encodeURIComponent(idx));
+    if (!c.count) { out.textContent = 'No active quotes for ' + idx + '.'; return; }
+    out.innerHTML = \`median <b class="mono-num">\${c.median}</b> · n=\${c.count} · range \${c.min}–\${c.max} · spread \${c.spreadPct}%\${c.wideSpread ? ' <span style="color:var(--t-caution)">⚠ WIDE</span>' : ''}\`;
+  } catch (e) { out.textContent = '✗ ' + e.message; }
+}
+
+// Init quote panel when its tab is first opened (avoid fetching on every load)
+let _quotesInit = false;
+function initQuotesTab() {
+  if (_quotesInit) return;
+  _quotesInit = true;
+  qbFillIndexSelects();
+  const d = new Date().toISOString().slice(0, 10);
+  const asof = document.getElementById('qb-asof');
+  if (asof && !asof.value) asof.value = d;
+  refreshQuoteList();
+}
+document.getElementById('tabbtn-quotes')?.addEventListener('click', initQuotesTab);
+
+// Expose quote-panel functions for inline onclick handlers (app body is inside an IIFE).
+window.captureQuote = captureQuote;
+window.showConsensus = showConsensus;
 
 // ── New Trade ─────────────────────────────────────────────────────────────
 function newTrade() {

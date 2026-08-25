@@ -112,10 +112,52 @@ function handleReportPdf(req, res) {
   });
 }
 
+// ─── Quote book API — capture/list/consensus from the dashboard ───────────────
+const quotebook = require('../engine/core/quotebook');
+
+function json(res, code, obj) {
+  res.writeHead(code, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(obj));
+}
+
+function handleQuotes(req, res, urlPath) {
+  if (req.method === 'GET') {
+    // /api/quotes            -> all active quotes
+    // /api/quotes/consensus/<indexId> -> consensus view for one index
+    const m = /^\/api\/quotes\/consensus\/(.+)$/.exec(urlPath);
+    if (m) {
+      try { return json(res, 200, quotebook.consensus(decodeURIComponent(m[1]))); }
+      catch (e) { return json(res, 400, { error: e.message }); }
+    }
+    return json(res, 200, quotebook.load());
+  }
+  if (req.method === 'POST') {
+    let body = '';
+    let aborted = false;
+    req.on('data', (c) => { body += c; if (body.length > 1e6) { aborted = true; req.destroy(); } });
+    req.on('end', () => {
+      if (aborted) return;
+      try {
+        const d = JSON.parse(body || '{}');
+        const entry = quotebook.add({
+          indexId: d.indexId, value: Number(d.value), asOf: d.asOf,
+          capturedAt: d.capturedAt,
+          source: { name: d.source || 'unknown', org: d.org || '', tier: d.tier || 'B' },
+          method: d.method, notes: d.notes,
+        });
+        json(res, 201, entry);
+      } catch (e) { json(res, 400, { error: e.message }); }
+    });
+    return;
+  }
+  json(res, 405, { error: 'Method Not Allowed' });
+}
+
 // ─── Router ───────────────────────────────────────────────────────────────────
 const server = http.createServer((req, res) => {
   const urlPath = (req.url || '/').split('?')[0];
   if (req.method === 'POST' && urlPath === '/api/report.pdf') return handleReportPdf(req, res);
+  if (urlPath.startsWith('/api/quotes')) return handleQuotes(req, res, urlPath);
   if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(req, res);
   res.writeHead(405, { 'Content-Type': 'text/plain' });
   res.end('Method Not Allowed');
@@ -124,6 +166,7 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, () => {
   console.log(`Serving at http://localhost:${PORT}/TIS-interactive`);
   console.log(`Report endpoint: POST http://localhost:${PORT}/api/report.pdf`);
+  console.log(`Quote book API:  GET|POST http://localhost:${PORT}/api/quotes`);
 });
 
 // Await any in-flight launch before closing, so a shutdown signal arriving mid-launch doesn't
