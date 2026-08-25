@@ -1,30 +1,25 @@
-# Real trade data — never commit (contains margins, partner terms, prices)
-trades/*.json
-# Sanitized examples (dummy data) ARE tracked — needed by the verify harness
-!trades/sample-*.json
 
+!trades/sample-*.json
+# Claude Code internal (worktrees, local config)
+# Node
+# OS files
+# Real trade data — never commit (contains margins, partner terms, prices)
+# Sanitized examples (dummy data) ARE tracked — needed by the verify harness
 # Secrets & local config
+# Tax law source documents (large / licensed)
+# UI audit screenshots (local review only — not tracked)
+*.local
+*.pdf
+.DS_Store
+.claude/.DS_Store
+.claude/launch.json
+.claude/settings.local.json
+.claude/worktrees/
 .env
 .env.local
-*.local
-
-# Tax law source documents (large / licensed)
-*.pdf
-
-# Node
-node_modules/
-
-# OS files
-.DS_Store
-out/
-out/
-
-# UI audit screenshots (local review only — not tracked)
-ui-audit-shots/
-
-# Claude Code internal (worktrees, local config)
-.claude/launch.json
-.claude/worktrees/
-.claude/settings.local.json
-.claude/.DS_Store
 .worktrees/
+engine/config/cloud-trades.json
+node_modules/
+out/
+trades/*.json
+ui-audit-shots/
