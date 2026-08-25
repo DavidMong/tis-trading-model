@@ -1157,9 +1157,13 @@ html[data-theme='dark'] .ladder-tier-pip::before { background: var(--t-hairline-
   border-bottom: 1px solid var(--g-hairline);
 }
 
-/* ════ INTERACTIVE: full-viewport sidebar layout ══════════════════════════ */
+/* ── INTERACTIVE: full-viewport sidebar layout ══════════════════════════ */
 html, body { height: 100%; overflow: hidden; }
 body { display: flex; flex-direction: column; }
+/* Global border-box: the report-renderer reset covers its own markup, but
+   dashboard-specific elements (.leg-row, .kpi-chip, .card paddings) were
+   content-box by default — padding pushed them past their parents on mobile. */
+.app-body, .app-body *, .app-header, .app-header * { box-sizing: border-box; }
 /* Typography (Batch G): kerning explicitly on — "no exceptions" per the
    typography skill, even though most browsers default it on for the fonts
    already in use here. Ligatures on too (fi/fl pairs in running prose like
@@ -1915,7 +1919,16 @@ body { font-feature-settings: "kern" 1, "liga" 1; text-rendering: optimizeLegibi
 
 /* ── Responsive: drawer at < 1000px ────────────────────────────── */
 @media (max-width: 1000px) {
-  .app-body { flex-direction: column; }
+  /* Mobile UX fix (2026-08): the desktop shell locks html/body overflow:hidden
+     and gives .app-body a fixed flex height — correct for a side-by-side
+     layout, but catastrophic stacked: the open drawer ran past the viewport
+     bottom with NO way to scroll (results sat permanently below the fold).
+     On narrow screens the page becomes a normal scrolling document; the app
+     header sticks to the top so context stays visible while you scroll. */
+  html, body { height: auto; overflow: visible; }
+  .app-body { display: block; overflow: visible; }
+  .results-col { display: block; min-height: 0; overflow: visible; }
+
   .sidebar {
     width: 100%;
     max-height: 0;
@@ -1923,11 +1936,15 @@ body { font-feature-settings: "kern" 1, "liga" 1; text-rendering: optimizeLegibi
     transition: max-height .35s ease;
     border-right: none;
     border-bottom: 1.5px solid var(--border);
-    flex-shrink: 0;
+    position: static; /* in normal flow — the DOCUMENT scrolls, not inner boxes */
   }
-  .sidebar.open { max-height: 70vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-  .drawer-btn { display: flex !important; }
-  .results { padding: 16px 14px 48px; }
+  .sidebar.open { max-height: none; overflow: visible; -webkit-overflow-scrolling: touch; }
+  .drawer-btn {
+    display: flex !important;
+    position: sticky; top: 0; z-index: 30; /* stays reachable while scrolled */
+    box-shadow: 0 2px 8px rgba(0,0,0,.08);
+  }
+  .results { padding: 16px 14px 48px; overflow-y: visible; }
   .two-col-grid { grid-template-columns: 1fr; }
   .hedge-cards { flex-direction: column; }
   .hedge-cards .h-card { min-width: unset; }
