@@ -1,0 +1,16 @@
+services:
+  # TIS trading dashboard — free tier (512MB, spins down after 15min idle)
+  - type: web
+    name: tis-dashboard
+    runtime: node
+    plan: free
+    region: frankfurt   # closest free region to Nigeria/EU
+    buildCommand: npm install --omit=dev
+    startCommand: node server.js
+    healthCheckPath: /api/quotes
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Set this in the Render dashboard after first deploy to lock the site:
+      # ACCESS_TOKEN = a long random string. Then bookmark:
+      #   https://<service>.onrender.com/TIS-interactive?t=<that string>

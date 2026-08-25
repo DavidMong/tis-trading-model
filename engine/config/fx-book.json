@@ -3,9 +3,9 @@
   "entries": [
     {
       "date": "2026-08-25",
-      "nafem": 1512.5,
+      "nafem": 1510,
       "parallel": null,
-      "source": "UI audit",
+      "source": "prod test",
       "notes": ""
     }
   ]

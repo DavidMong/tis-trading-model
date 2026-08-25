@@ -9,12 +9,13 @@
   },
   "scripts": {
     "start": "node run.js",
+    "serve": "node scripts/serve.js",
+    "prod": "node server.js",
     "first-trade": "node run.js trades/reference-trade-001.json",
     "build:report": "node scripts/build-report.js",
     "build:interactive": "node scripts/build-interactive.js"
   },
   "dependencies": {
-    "pdf-lib": "^1.17.1",
-    "playwright": "^1.61.1"
+    "pdf-lib": "^1.17.1"
   }
 }
