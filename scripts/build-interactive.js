@@ -1360,12 +1360,22 @@ body { font-feature-settings: "kern" 1, "liga" 1; text-rendering: optimizeLegibi
   #heatmap-grid { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   #heatmap-grid table { min-width: 520px; }
 
-  /* Waterfall (SVG bridge): viewBox scales text to ~34% on phones — unreadable.
-     Give the chart its own horizontal scroll at a readable floor width instead
-     of shrinking it into a smear. */
-  .wfsvg-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .wfsvg-wrap .wfsvg { min-width: 640px; }
-  .wfsvg-collabels { min-width: 640px; box-sizing: border-box; padding-left: 24px !important; padding-right: 24px !important; }
+  /* Waterfall (SVG bridge) — PROPER mobile adaptation: chart + column labels
+     live in ONE scroll unit (.wfsvg-unit) so bars, values, and names stay
+     perfectly aligned while swiping. */
+  #wf-h + .card { position: relative; }
+  .wfsvg-unit { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
+  .wfsvg-unit::after {
+    content: 'swipe →'; display: block; text-align: right;
+    font-size: 9.5px; letter-spacing: .08em; color: var(--t-ink-3);
+    padding-right: var(--m-gutter);
+  }
+  .wfsvg-wrap { min-width: 620px; box-sizing: border-box; padding: 16px 16px 4px !important; }
+  .wfsvg-wrap .wfsvg { width: 100%; }
+  .wfsvg-collabels {
+    min-width: 620px; box-sizing: border-box;
+    padding-left: 16px !important; padding-right: 16px !important;
+  }
 
   /* Ladder tier pills: 8px labels were illegible — floor at 10.5px. The pips
      position via left:X% on the bar, so give the whole scale a readable
@@ -1384,10 +1394,39 @@ body { font-feature-settings: "kern" 1, "liga" 1; text-rendering: optimizeLegibi
   .header-meta-strip { padding-left: 0 !important; padding-right: 0 !important; }
   .header-meta-inner { line-height: 1.7; }
 
+  /* ── MOBILE HEADER REWRITE (2026-08 audit): one shared gutter everywhere.
+     The desktop spacing system pins header/meta to 28px and results to 12px —
+     three different left edges stacked on a phone. Mobile uses ONE gutter (16px)
+     for header, meta strip, results, and every card, per proximity/alignment. */
+  :root { --m-gutter: 16px; }
+  .report-header > .header-inner { padding: var(--m-gutter) var(--m-gutter) 12px !important; gap: 10px !important; }
+  /* Logo row: compact brand + trade id inline */
+  .header-logo svg, .header-logo svg * { max-height: 26px; width: auto; }
+  .header-trade { display: flex; align-items: baseline; gap: 10px; min-width: 0; flex-wrap: wrap; }
+  .trade-name { font-size: 17px !important; margin-bottom: 0 !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  #hdr-fixture-badge { margin-left: 0 !important; }
+  /* KPI chips: label left / value right on one baseline; sub drops below value */
+  .header-kpis { gap: 8px !important; }
+  .kpi-chip { display: grid !important; grid-template-columns: 1fr auto; grid-template-areas: 'label value' 'sub value'; column-gap: 12px; row-gap: 2px; padding: 10px 14px !important; border-radius: 8px !important; }
+  .kpi-chip .kpi-label  { grid-area: label; font-size: 9.5px !important; margin-bottom: 0 !important; align-self: end; }
+  .kpi-chip .kpi-sub    { grid-area: sub; font-size: 9.5px !important; text-align: left; }
+  .kpi-chip .kpi-value  { grid-area: value; font-size: 18px !important; align-self: center; }
+  /* Meta strip shares the SAME gutter as the header above it */
+  .header-meta-strip { padding-left: 0 !important; padding-right: 0 !important; }
+  .header-meta-inner { padding: 6px var(--m-gutter) !important; line-height: 1.65; font-size: 11px; }
+  /* Results band matches the same gutter */
+  .results { padding: 14px var(--m-gutter) 48px !important; }
+
   /* Touch targets: minimum 40px height on interactive controls */
   .si, input[type='number'], input[type='text'], select, textarea { min-height: 40px; font-size: 15px; }
   .tab-btn { padding: 9px 10px; min-height: 40px; }
   .btn-new, .btn-save, .btn-saveas, .btn-lib, .btn-export { min-height: 38px; }
+
+  /* ── MOBILE READABILITY FLOOR (2026-08 audit): nothing below 10.5px.
+     9px info-subs and 8px micro-labels are print conventions that fail on
+     a 6-inch screen held in one hand. */
+  .info-sub { font-size: 10.5px !important; line-height: 1.5 !important; }
+  .card-footer { font-size: 11px !important; }
 
   /* Sidebar drawer content spacing */
   .sb-section { padding: 12px 14px; }
@@ -3475,7 +3514,7 @@ function renderWaterfallChart(steps) {
     </div>\`;
   }).join('');
 
-  return \`<div class="wfsvg-wrap">\${svg}</div><div class="wfsvg-collabels">\${labels}</div>
+  return \`<div class="wfsvg-unit"><div class="wfsvg-wrap">\${svg}</div><div class="wfsvg-collabels">\${labels}</div></div>
   <div class="wfsvg-legend">
     <span><span class="lg-swatch lg-total"></span> Total / anchor</span>
     <span><span class="lg-swatch lg-up"></span> Increases profit</span>
