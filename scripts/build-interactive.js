@@ -1263,6 +1263,20 @@ body { font-feature-settings: "kern" 1, "liga" 1; text-rendering: optimizeLegibi
 }
 .val-flash { animation: val-flash .5s ease-out; }
 
+/* ── Number pop-in (transitions.dev pattern, adapted): KPI values re-enter
+   with a soft blur-slide on each recompute. prefers-reduced-motion honored. */
+@keyframes num-pop-in {
+  0%   { opacity: 0; transform: translateY(6px); filter: blur(2px); }
+  60%  { filter: blur(0); }
+  100% { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+.num-pop {
+  animation: num-pop-in .45s cubic-bezier(0.34, 1.45, 0.64, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .num-pop { animation: none; }
+}
+
 /* KPI chip flash */
 @keyframes kpi-flash {
   0%   { opacity: .5; }
@@ -1377,9 +1391,22 @@ body { font-feature-settings: "kern" 1, "liga" 1; text-rendering: optimizeLegibi
     padding-left: 16px !important; padding-right: 16px !important;
   }
 
-  /* Ladder tier pills: 8px labels were illegible — floor at 10.5px. The pips
-     position via left:X% on the bar, so give the whole scale a readable
-     min-width with horizontal scroll rather than shrinking labels. */
+  /* ── SENSITIVITIES mobile adaptation (2026-08 audit) ───────────────
+     Tornado: the fixed 150px label column ate 51% of a phone's width.
+     Proportional label (40%) restores bar dominance; axis labels stack. */
+  .tnsvg-row { grid-template-columns: minmax(96px, 38%) 1fr; gap: 10px; }
+  .tnsvg-label { white-space: normal; line-height: 1.3; font-size: 11.5px; }
+  .tn-axis-labels { flex-direction: column; gap: 2px; align-items: center; }
+  .tn-axis-right { text-align: center; }
+
+  /* Sens table: 3 columns fit at 358px — kill the blanket 620px force-scroll
+     for narrow tables; only wide tables (cost build-up, tax) keep scrolling.
+     shadcn rule: numbers right-aligned, labels left, no mixed alignment. */
+  #sec-sens .data-table { min-width: 0; }
+  #sec-sens .data-table td { padding: 8px 10px; }
+  #sec-sens .data-table td.r { font-size: 12px; }
+
+  /* Ladder tier pills: floor at 10.5px; scale bar keeps a scroll floor */
   .ladder-scale-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .ladder-scale-bar { min-width: 560px; }
   .ladder-tier-pip, .ladder-scale span { font-size: 10.5px !important; letter-spacing: .06em; }
@@ -1598,6 +1625,13 @@ body { font-feature-settings: "kern" 1, "liga" 1; text-rendering: optimizeLegibi
   gap: var(--space-3);
   align-items: center;
   margin-bottom: var(--space-2);
+}
+/* Mobile (<=640px): proportional label column — the fixed 150px ate 51% of a
+   phone. Media query earlier in the sheet loses the cascade tie, so restate. */
+@media (max-width: 640px) {
+  .tnsvg-row { grid-template-columns: minmax(96px, 38%) 1fr; gap: 10px; }
+  .tnsvg-label { white-space: normal; line-height: 1.3; font-size: 11.5px; }
+  .tn-axis-labels { flex-direction: column; gap: 2px; align-items: center; }
 }
 .tnsvg-label {
   font-family: var(--f-body);
@@ -3365,12 +3399,15 @@ function renderKPIs(res, hasSellPrice) {
   const p   = res.profit;
   const tisNet = p.tisNetAfterSurcharge;
   setNetChip(tisNet < 0 ? 'loss' : 'pos');
-  if (kv) { kv.textContent = fmtUsd(tisNet); kv.classList.add('kpi-flash'); setTimeout(() => kv.classList.remove('kpi-flash'), 350); }
+  if (kv) {
+    kv.textContent = fmtUsd(tisNet);
+    kv.classList.remove('num-pop'); void kv.offsetWidth; kv.classList.add('num-pop');
+  }
   if (ks) ks.textContent = res.equityProvider === 'TIS' ? 'self-funded (no partner)' : 'after partner split';
   if (stickyVal) stickyVal.textContent = fmtUsd(tisNet);
 
   const ann = res.tisAnnualisedReturn;
-  if (av) av.textContent = ann != null ? fmtPct(ann) : '—';
+  if (av) { av.textContent = ann != null ? fmtPct(ann) : '—'; av.classList.remove('num-pop'); void av.offsetWidth; av.classList.add('num-pop'); }
   if (as_) as_.textContent = \`on \${res.annualReturnBaseLabel||'bank LC mobilised'} · \${res.financing.capitalLockupDays}d lockup\`;
 
   const landed = res.price.exShipLandedPerMT;
@@ -3379,7 +3416,7 @@ function renderKPIs(res, hasSellPrice) {
   if (exMargin != null) {
     // Ex-ship leg priced — show ex-ship margin (unchanged behaviour for ex-ship/split trades).
     if (ml) ml.textContent = 'Ex-Ship Margin';
-    if (mv) mv.textContent = fmtPct(exMargin);
+    if (mv) { mv.textContent = fmtPct(exMargin); mv.classList.remove('num-pop'); void mv.offsetWidth; mv.classList.add('num-pop'); }
     if (ms) ms.textContent = fmtUsd(price) + '/MT sell';
   } else if (depotActiveKpi
       && isFinite(res.price.depotPriceUSDperMT) && res.price.depotPriceUSDperMT > 0
