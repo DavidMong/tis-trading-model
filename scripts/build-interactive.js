@@ -2323,13 +2323,27 @@ ${sec('Partner & Equity', [
   ir('inp-bond',    'Bond % of cargo',  ni('inp-bond',    pct2(p.bondPct),  0.5, 0), null),
   ir('inp-equity',  'Equity % of cargo',ni('inp-equity',  pct2(p.equityPct),0.5, 0), null),
   `<div class="ir">
-    <label class="ir-lbl" for="lc-display">${pip('')}LC % (auto-derived)</label>
-    <div id="lc-display" class="sr">${lcPctInit.toFixed(2)}%</div>
+    <label class="ir-lbl" for="lc-display">${pip('')}LC % (auto-derived)</label>    <div id="lc-display" class="sr">${lcPctInit.toFixed(2)}%</div>
   </div>`,
   `<div class="ir">
     <label class="ir-lbl" for="inp-product-alloc">${pip('')}<span title="Fraction of the partner&rsquo;s principal (their equity stake) returned in-kind as product rather than cash. 100% = full product; 0% = full cash. Does not change the partner&rsquo;s share of the cargo.">Partner principal as product %&nbsp;ⓘ</span></label>
     ${ni('inp-product-alloc', pct2(p.productAllocationPct ?? 1), 5, 0)}
   </div>`,
+].join(''))}
+${sec('Export (Nigeria → abroad)', [
+  `<div class="ir">
+    <label class="ir-lbl" for="tog-export">Export trade</label>
+    <div id="tog-export" class="tgl-wrap" data-on="${t.export && t.export.enabled ? 'true' : 'false'}" tabindex="0" role="switch" aria-checked="${t.export && t.export.enabled}" aria-label="Export trade" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+      <div class="tgl-track${t.export && t.export.enabled ? ' on' : ''}"><div class="tgl-knob"></div></div>
+      <span class="tgl-lbl">${t.export && t.export.enabled ? 'EXPORT — permit/levy lines active' : 'Domestic — export lines off'}</span>
+    </div>
+  </div>`,
+  ir('sel-jurisdiction', 'Jurisdiction', si('sel-jurisdiction', [['NG','Nigeria (domestic)'],['NG-EXPORT','Nigeria → Export'],['INTL','International offshore']], t.jurisdiction || 'NG'), null),
+  ir('inp-export-permit-fee', 'NMDPRA export permit fee $', ni('inp-export-permit-fee', (cl.nmdpraExportPermitFee) || 0, 100, 0), 'CONFIRM'),
+  ir('inp-ness-pct', 'NESS levy % of FOB', ni('inp-ness-pct', ((cl.nessOilPct) || 0.0012) * 100, 0.01, 0), 'CONFIRM'),
+  ir('inp-wholesale-licence-ngnl', 'Wholesale licence charge ₦/L', ni('inp-wholesale-licence-ngnl', (cl.wholesaleLicenceChargeNgnPerL) || 1, 0.25, 0), 'CONFIRM'),
+  ir('inp-drc-occ-pct', 'Destination inspection % FOB', ni('inp-drc-occ-pct', ((cl.drcOccPct) || 0) * 100, 0.25, 0), 'CONFIRM'),
+  `<div class="defaults-note" id="export-note">${t.export && t.export.enabled ? 'Requires WPLSL + quarterly NMDPRA export permit (IMPEX), NXP at bank, CC1 pre-shipment inspection; proceeds repatriated within 90 days of B/L.' : 'Toggle on for export cost lines: NMDPRA permit fee, NESS 0.12%, wholesale licence ₦1/L, destination inspection.'}</div>`,
 ].join(''))}
 ${sec('Surcharge', [
   `<div id="sur-inc-row"${!surEnabled ? ' hidden' : ''}>
@@ -2724,7 +2738,13 @@ function badge(s) {
 function gf(id) { const el = document.getElementById(id); return el ? parseFloat(el.value) : NaN; }
 function gi(id) { const el = document.getElementById(id); return el ? parseInt(el.value, 10) : NaN; }
 function gs(id) { const el = document.getElementById(id); return el ? el.value : ''; }
-function isOn(id) { const el = document.getElementById(id); return el ? el.dataset.on === 'true' : false; }
+function isOn(id) {
+  const el = document.getElementById(id);
+  if (!el) return false;
+  // Plain checkboxes (e.g. tog-export) use .checked; custom toggles use dataset.on.
+  if (el.type === 'checkbox') return el.checked;
+  return el.dataset.on === 'true';
+}
 function show(id, vis) { const el = document.getElementById(id); if (el) el.hidden = !vis; }
 
 // ── Collect trade from inputs ──────────────────────────────────────────────
@@ -3101,6 +3121,11 @@ function collectTrade() {
           ? gf('inp-litres-per-mt') : (INIT.pricing.conversion.litresPerMT || 1183),
       },
     },
+    jurisdiction: gs('sel-jurisdiction') || t.jurisdiction || 'NG',
+    export: {
+      ...INIT.export,
+      enabled: isOn('tog-export'),
+    },
     depot: { enabled: depotOn },
     costLines: {
       npaCargoDuesPerMT:    gf('inp-npa-per-mt'),
@@ -3127,9 +3152,28 @@ function collectTrade() {
       }),
       evaporationPct:       gf('inp-evaporation')    / 100,
       tankInsurancePct:     gf('inp-tank-insurance') / 100,
+      // Export group (active only when tog-export is on — engine gates the lines)
+      nmdpraExportPermitFee: gf('inp-export-permit-fee'),
+      nessOilPct:            gf('inp-ness-pct') / 100,
+      wholesaleLicenceChargeNgnPerL: gf('inp-wholesale-licence-ngnl'),
+      drcOccPct:             gf('inp-drc-occ-pct') / 100,
     },
   };
 }
+
+// ── Export toggle ─────────────────────────────────────────────────────────
+// tog-export is a standard .tgl-wrap (click handled by the shared delegate at
+// the bottom of the IIFE, which calls recompute). This hook only syncs the label.
+window.onExportToggle = function onExportToggle() {
+  const el = document.getElementById('tog-export');
+  const on = el && el.dataset.on === 'true';
+  const lbl = el ? el.querySelector('.tgl-lbl') : null;
+  if (lbl) lbl.textContent = on ? 'EXPORT — permit/levy lines active' : 'Domestic — export lines off';
+  const note = document.getElementById('export-note');
+  if (note) note.textContent = on
+    ? 'Requires WPLSL + quarterly NMDPRA export permit (IMPEX), NXP at bank, CC1 pre-shipment inspection; proceeds repatriated within 90 days of B/L.'
+    : 'Toggle on for export cost lines: NMDPRA permit fee, NESS 0.12%, wholesale licence ₦1/L, destination inspection.';
+};
 
 // ── Visibility updates ────────────────────────────────────────────────────
 function updateLcDisplay() {
@@ -5011,6 +5055,7 @@ function saveTrade() {
   snap['_tog-ice-hedge'] = String(isOn('tog-ice-hedge'));
   snap['_tog-fx-hedge']  = String(isOn('tog-fx-hedge'));
   snap['_tog-surcharge'] = String(isOn('tog-surcharge'));
+  snap['tog-export']     = String(isOn('tog-export'));
   snap['_isSample']      = 'false';
   snap['_legs']          = JSON.stringify(_legs);
   if (window._lastResult) snap['_res'] = window._lastResult; // result snapshot for comparison
@@ -5038,6 +5083,7 @@ function saveAsTrade() {
   snap['_tog-ice-hedge'] = String(isOn('tog-ice-hedge'));
   snap['_tog-fx-hedge']  = String(isOn('tog-fx-hedge'));
   snap['_tog-surcharge'] = String(isOn('tog-surcharge'));
+  snap['tog-export']     = String(isOn('tog-export'));
   snap['_isSample']      = 'false';
   snap['_legs']          = JSON.stringify(_legs);
   if (window._lastResult) snap['_res'] = window._lastResult; // result snapshot for comparison
@@ -5100,6 +5146,14 @@ function loadSelectedTrade(explicit) {
   if (snap['_tog-ice-hedge'] != null) activateToggle(document.getElementById('tog-ice-hedge'), snap['_tog-ice-hedge'] === 'true');
   if (snap['_tog-fx-hedge']  != null) activateToggle(document.getElementById('tog-fx-hedge'),  snap['_tog-fx-hedge']  === 'true');
   if (snap['_tog-surcharge'] != null) activateToggle(document.getElementById('tog-surcharge'), snap['_tog-surcharge'] === 'true');
+  // Export toggle: standard .tgl-wrap — restore via activateToggle, then sync the label text.
+  if (snap['tog-export'] != null) {
+    activateToggle(document.getElementById('tog-export'), snap['tog-export'] === 'true');
+    const exLbl = document.querySelector('#tog-export .tgl-lbl');
+    if (exLbl) exLbl.textContent = snap['tog-export'] === 'true'
+      ? 'EXPORT — permit/levy lines active'
+      : 'Domestic — export lines off';
+  }
   _isSample = snap['_isSample'] === 'true';
   _currentTradeName = targetName;
   updateLcDisplay(); updateDepotVisibility(); updateCurrencyVisibility();

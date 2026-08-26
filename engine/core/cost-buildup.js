@@ -96,6 +96,15 @@ function buildCostBuildup(trade, ctx) {  const { cargoValue, deliveredQty, finan
     }
     return ngn / nafemRate;
   };
+  // Export-group conversion: active whenever export lines are live, independent of depot storage.
+  const exportActiveGlobal = !!(trade.export && trade.export.enabled);
+  const ngnStorageToUsdExport = (ngn) => {
+    if (!exportActiveGlobal || !ngn) return 0;
+    if (!(typeof nafemRate === 'number' && Number.isFinite(nafemRate) && nafemRate > 0)) {
+      throw new Error(`buildCostBuildup: nafemRate must be > 0 to convert naira export costs, got ${nafemRate}`);
+    }
+    return ngn / nafemRate;
+  };
   // Density (litres per MT) — needed ONLY to convert a ₦/L storage rate to USD. Sourced from the trade's
   // pricing conversion (already used for naira revenue legs); validated lazily so a $/MT or legacy-unit
   // line never requires it.
@@ -135,12 +144,18 @@ function buildCostBuildup(trade, ctx) {  const { cargoValue, deliveredQty, finan
   };
 
   function buildLine(e, servicesBucketSum) {
+    let exportQty = 0; // per-line; set to deliveredQty when the export group is active
     const out = {
       id: e.id, label: e.label, type: e.type, derivation: e.derivation || null,
       category: displayCategory(e), base: null, rate: null, currency: 'USD',
       amountUsd: 0, ngnAmount: null, recoverable: !!e.recoverable, taxLine: !!e.taxLine, status: statusOf(e), legalRef: e.legalRef || null,
     };
     const isStorage = e.group === 'storage';
+    // Export-group lines are INACTIVE unless the trade opts in (trade.export.enabled).
+    // Keeps every existing (non-export) trade byte-for-byte identical — the lines
+    // resolve to zero with an explanatory status instead of NaN from missing inputs.
+    const isExport = e.group === 'export';
+    const exportActive = !!(trade.export && trade.export.enabled);
 
     if (isStorage && !storageActive) {
       // Inactive storage line: zero, USD, no FX status. (rate retained for display parity.)
@@ -152,16 +167,42 @@ function buildCostBuildup(trade, ctx) {  const { cargoValue, deliveredQty, finan
       return out;
     }
     if (isStorage) out.status = e.activeStatus || out.status;
+    if (isExport && !exportActive) {
+      out.rate = rateOf(e) ?? null;
+      out.base = 0; out.amountUsd = 0; out.status = 'N/A (not an export trade)';
+      return out;
+    }
+    if (isExport) {
+      // Export lines active: give ngn_per_mt derivations the FULL cargo tonnage
+      // (storageQty is depot-scoped and zero on ex-ship-only trades).
+      exportQty = deliveredQty;
+    }
 
     switch (e.type) {
-      case 'fixed':
-        out.amountUsd = round(amountOf(e), 2);
+      case 'fixed': {
+        const amt = amountOf(e);
+        if (amt == null || !Number.isFinite(amt)) {
+          // Missing amount input: resolve to zero instead of NaN (defensive, same
+          // rationale as the pct_* guard above).
+          out.amountUsd = 0;
+          out.status = out.status === 'OK' ? 'CONFIRM (amount not set — line resolves to 0)' : out.status;
+          break;
+        }
+        out.amountUsd = round(amt, 2);
         break;
+      }
       case 'pct_of_freight':
       case 'pct_of_cargo_value':
       case 'pct_of_LC':
       case 'pct_of_sell': {
         const rate = rateOf(e);
+        if (rate == null || !Number.isFinite(rate)) {
+          // Missing rate input (e.g. newly-added config line on an older saved trade):
+          // resolve to zero with a CONFIRM note instead of poisoning the P&L with NaN.
+          out.rate = rate ?? null; out.base = baseFor[e.type]; out.amountUsd = 0;
+          out.status = out.status === 'OK' ? 'CONFIRM (rate not set — line resolves to 0)' : out.status;
+          break;
+        }
         out.rate = rate; out.base = baseFor[e.type]; out.amountUsd = round(rate * baseFor[e.type], 2);
         break;
       }
@@ -172,7 +213,17 @@ function buildCostBuildup(trade, ctx) {  const { cargoValue, deliveredQty, finan
       }
       case 'derived':
         switch (e.derivation) {
-          case 'per_mt': { const rate = rateOf(e); out.rate = rate; out.base = deliveredQty; out.amountUsd = round(rate * deliveredQty, 2); break; }
+          case 'per_mt': {
+            const rate = rateOf(e);
+            if (rate == null || !Number.isFinite(rate)) {
+              // Missing per-MT rate input: resolve to zero instead of NaN
+              // (defensive — same rationale as the pct_* guard above).
+              out.rate = rate ?? null; out.base = deliveredQty; out.amountUsd = 0;
+              out.status = out.status === 'OK' ? 'CONFIRM (rate not set — line resolves to 0)' : out.status;
+              break;
+            }
+            out.rate = rate; out.base = deliveredQty; out.amountUsd = round(rate * deliveredQty, 2); break;
+          }
           case 'tc_hire':
             if (tcRate == null) { out.amountUsd = 0; out.status = 'N/A (non-TC freight mode)'; break; }
             out.rate = tcRate; out.base = trade.freight.charterDays; out.amountUsd = round(tcHire, 2); break;
@@ -181,7 +232,16 @@ function buildCostBuildup(trade, ctx) {  const { cargoValue, deliveredQty, finan
             out.rate = tcRate; out.base = trade.freight.demurrageDays; out.amountUsd = round(demurrage, 2); break;
           case 'credit_interest': out.rate = financing.creditRate; out.base = financing.lc; out.amountUsd = round(financing.creditInterest, 2); break;
           case 'wc_interest': out.rate = financing.creditRate; out.base = financing.wc; out.amountUsd = round(financing.wcInterest, 2); break;
-          case 'ngn_per_mt': { const rate = rateOf(e); const ngn = (rate || 0) * storageQty; out.rate = rate; out.base = storageQty; out.currency = 'NGN'; out.ngnAmount = round(ngn, 2); out.amountUsd = round(ngnStorageToUsd(ngn), 2); break; }
+          case 'ngn_per_mt': {
+            const qty = isExport ? exportQty : storageQty;
+            const rate = rateOf(e);
+            const ngn = (rate || 0) * qty;
+            // ₦/L rate × MT: convert to total naira via litresPerMT
+            const lpm = e.litresFrom ? (resolvePath(trade, e.litresFrom) || litresPerMT) : litresPerMT;
+            const ngnTotal = e.litresFrom ? ngn * (lpm || 0) : ngn;
+            out.rate = rate; out.base = qty; out.currency = 'NGN';
+            out.ngnAmount = round(ngnTotal, 2); out.amountUsd = round(ngnStorageToUsdExport(ngnTotal), 2); break;
+          }
           case 'ngn_fixed': { const ngn = amountOf(e) || 0; out.currency = 'NGN'; out.ngnAmount = round(ngn, 2); out.amountUsd = round(ngnStorageToUsd(ngn), 2); break; }
           case 'storage_unit_rate': {
             const unit = resolvePath(trade, e.unitFrom);

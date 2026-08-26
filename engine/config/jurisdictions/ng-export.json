@@ -1,0 +1,9 @@
+{
+  "id": "NG-EXPORT", "name": "Nigeria → Export (petroleum products)", "currency": "NGN",
+  "cit": { "rate": 0.30, "ref": "Nigeria Tax Act 2025 — export profits taxable; note s.186 zero-rating applies to VAT on exported goods (audit view only)" },
+  "_note": "Export of AGO/diesel from Nigeria. Requires: Wholesale Petroleum Liquids Supply Licence (WPLSL) held by TIS, quarterly NMDPRA export permit via IMPEX (USD 1,000/application), NXP form at bank, NESS levy 0.12% of FOB (oil), pre-shipment inspection + Clean Certificate of Inspection, joint inspection at load port. Proceeds repatriation within 90 days of B/L for oil exports.",
+  "excludeCostLineIds": ["25", "26", "27", "28"],
+  "forceSurchargeOff": true,
+  "allowedDepotCurrencies": ["USD"],
+  "authorityNote": "SOURCES: NMDPRA Midstream & Downstream Petroleum Fees Regulations 2024 (export permit USD 1,000; wholesale licence charge NGN1/litre export evacuation); CBN FX Manual 4th ed. June 2026 (NESS 0.12% oil, NXP mandatory, 90-day repatriation); PIA 2021 s.133-135 + MDPOR 2025 reg 35 (no export without WPLSL + export permit). DRC side: OCC certification ~2% FOB (Arrêté 068/2006); CEMAC CET 5-20% + 16% import VAT — normally buyer's account on FOB terms. Rates CONFIRM-ed against public sources Feb 2026; re-verify before contracting."
+}

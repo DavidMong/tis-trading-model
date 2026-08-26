@@ -17,6 +17,7 @@ const CACHE = {};
 const REGISTRY = {
   NG: require('../config/jurisdictions/ng.json'),
   INTL: require('../config/jurisdictions/intl.json'),
+  'NG-EXPORT': require('../config/jurisdictions/ng-export.json'),
 };
 
 function load(id) {
